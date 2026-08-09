@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { loadConfig } from './config.js';
+import { logEvent } from './logger.js';
 
 const config = loadConfig();
 const server = createServer(createRequestHandler(config));
@@ -10,20 +11,20 @@ function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.log(`Received ${signal}. Shutting down AxorOS API.`);
+  logEvent('info', 'api_shutdown_started', { signal });
 
   server.close((error) => {
     if (error) {
-      console.error('AxorOS API shutdown failed.', error);
+      logEvent('error', 'api_shutdown_failed', { signal, error: error.message });
       process.exitCode = 1;
       return;
     }
 
-    console.log('AxorOS API stopped cleanly.');
+    logEvent('info', 'api_shutdown_completed', { signal });
   });
 
   setTimeout(() => {
-    console.error('AxorOS API forced shutdown after timeout.');
+    logEvent('error', 'api_shutdown_forced', { signal, timeoutMs: 10_000 });
     process.exit(1);
   }, 10_000).unref();
 }
@@ -32,5 +33,10 @@ process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 
 server.listen(config.port, config.host, () => {
-  console.log(`AxorOS API listening on http://${config.host}:${config.port}`);
+  logEvent('info', 'api_started', {
+    environment: config.environment,
+    host: config.host,
+    port: config.port,
+    nodeVersion: process.version,
+  });
 });
