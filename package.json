@@ -16,6 +16,8 @@
     "verify:db": "node scripts/verify-database.mjs",
     "dev:control-center": "npm run dev --workspace @axoros/control-center",
     "dev:api": "npm run dev --workspace @axoros/api",
+    "dev:api:secrets": "infisical run --env=dev --path=/api -- npm run dev:api",
+    "verify:db:secrets": "infisical run --env=dev --path=/api -- npm run verify:db",
     "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
     "typecheck": "npm run typecheck --workspace @axoros/contracts && npm run typecheck --workspace @axoros/api && npm run typecheck --workspace @axoros/control-center",
     "test": "npm run test --workspace @axoros/api && npm run test --workspace @axoros/control-center",
