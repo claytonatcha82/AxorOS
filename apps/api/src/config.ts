@@ -6,6 +6,8 @@ export interface ApiConfig {
   port: number;
   controlCenterUrl: string;
   databaseUrl?: string;
+  betterStackIngestingHost?: string;
+  betterStackSourceToken?: string;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -14,6 +16,19 @@ const allowedEnvironments = new Set<AxorOSEnvironment>([
   'production',
   'test',
 ]);
+
+function optionalHttpsUrl(value: string | undefined, field: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+  } catch {
+    throw new Error(`Invalid ${field}`);
+  }
+  if (parsed.protocol !== 'https:') throw new Error(`${field} must use HTTPS.`);
+  return parsed.origin;
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const rawEnvironment = env.AXOROS_ENV ?? 'development';
@@ -54,6 +69,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     }
   }
 
+  const betterStackIngestingHost = optionalHttpsUrl(env.AXOROS_BETTERSTACK_INGESTING_HOST, 'AXOROS_BETTERSTACK_INGESTING_HOST');
+  const betterStackSourceToken = env.AXOROS_BETTERSTACK_SOURCE_TOKEN?.trim() || undefined;
+  if ((betterStackIngestingHost && !betterStackSourceToken) || (!betterStackIngestingHost && betterStackSourceToken)) {
+    throw new Error('Better Stack ingesting host and source token must be configured together.');
+  }
+
   const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
@@ -61,9 +82,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     controlCenterUrl: parsedControlCenterUrl.origin,
   };
 
-  if (databaseUrl) {
-    config.databaseUrl = databaseUrl;
-  }
+  if (databaseUrl) config.databaseUrl = databaseUrl;
+  if (betterStackIngestingHost) config.betterStackIngestingHost = betterStackIngestingHost;
+  if (betterStackSourceToken) config.betterStackSourceToken = betterStackSourceToken;
 
   return config;
 }
