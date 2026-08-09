@@ -3,9 +3,24 @@ import { execFileSync } from 'node:child_process';
 const isWindows = process.platform === 'win32';
 
 const checks = [
-  { name: 'Node.js', command: isWindows ? 'node.exe' : 'node', args: ['--version'], validate: (v) => /^v24\./.test(v) },
-  { name: 'npm', command: isWindows ? 'npm.cmd' : 'npm', args: ['--version'], validate: (v) => Number(v.split('.')[0]) >= 11 },
-  { name: 'Git', command: isWindows ? 'git.exe' : 'git', args: ['--version'], validate: () => true },
+  {
+    name: 'Node.js',
+    command: isWindows ? 'node.exe' : 'node',
+    args: ['--version'],
+    validate: (v) => /^v24\./.test(v),
+  },
+  {
+    name: 'npm',
+    command: isWindows ? process.env.ComSpec || 'cmd.exe' : 'npm',
+    args: isWindows ? ['/d', '/s', '/c', 'npm --version'] : ['--version'],
+    validate: (v) => Number(v.split('.')[0]) >= 11,
+  },
+  {
+    name: 'Git',
+    command: isWindows ? 'git.exe' : 'git',
+    args: ['--version'],
+    validate: () => true,
+  },
 ];
 
 let failed = false;
