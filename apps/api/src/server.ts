@@ -1,12 +1,17 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
+import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { checkDatabase, createDatabasePool } from './database.js';
-import { logEvent } from './logger.js';
+import { logEvent, setExternalLogSink } from './logger.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
   throw new Error('AXOROS_DATABASE_URL is required to start the AxorOS API.');
+}
+
+if (config.betterStackIngestingHost && config.betterStackSourceToken) {
+  setExternalLogSink(createBetterStackLogSink(config.betterStackIngestingHost, config.betterStackSourceToken));
 }
 
 const databasePool = createDatabasePool(config.databaseUrl);
@@ -54,5 +59,6 @@ server.listen(config.port, config.host, () => {
     port: config.port,
     nodeVersion: process.version,
     databaseConfigured: true,
+    externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
   });
 });
