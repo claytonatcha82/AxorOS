@@ -4,6 +4,7 @@ import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axor
 import type { ApiConfig } from './config.js';
 import type { DatabaseHealth } from './database.js';
 import { logEvent } from './logger.js';
+import { getMetricsSnapshot, recordHttpRequest, recordReadinessFailure } from './metrics.js';
 
 type JsonBody = ApiSuccessResponse<unknown> | ApiErrorResponse | HealthResponse;
 type DatabaseCheck = () => Promise<DatabaseHealth>;
@@ -32,12 +33,14 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
     const corsHeaders: Record<string, string> = { vary: 'Origin' };
 
     response.once('finish', () => {
+      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+      recordHttpRequest(response.statusCode, durationMs);
       logEvent('info', 'http_request_completed', {
         requestId,
         method: request.method,
         path: request.url,
         statusCode: response.statusCode,
-        durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        durationMs,
       });
     });
 
@@ -65,11 +68,15 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
 
       if (request.method === 'GET' && request.url === '/ready') {
         if (!checkDatabase) {
+          recordReadinessFailure();
+          logEvent('warn', 'readiness_check_failed', { requestId, dependency: 'database', reason: 'not_configured' });
           sendError(response, 503, 'database_not_configured', 'Database readiness check is not configured.', requestId, corsHeaders);
           return;
         }
         const database = await checkDatabase();
         if (!database.ok) {
+          recordReadinessFailure();
+          logEvent('warn', 'readiness_check_failed', { requestId, dependency: 'database', reason: 'unavailable', latencyMs: database.latencyMs });
           sendError(response, 503, 'database_unavailable', 'Database is unavailable.', requestId, corsHeaders);
           return;
         }
@@ -88,6 +95,11 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
 
       if (request.method === 'GET' && request.url === '/api/v1/meta') {
         sendJson(response, 200, { ok: true, requestId, data: { service: 'axoros-api', apiVersion: 'v1', environment: config.environment, nodeVersion: process.version } }, requestId, corsHeaders);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/api/v1/metrics') {
+        sendJson(response, 200, { ok: true, requestId, data: getMetricsSnapshot() }, requestId, corsHeaders);
         return;
       }
 
