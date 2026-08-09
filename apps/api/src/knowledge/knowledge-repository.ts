@@ -27,6 +27,14 @@ export interface KnowledgeDocumentInput {
   lastModified: string;
 }
 
+export interface KnowledgeFingerprint {
+  documentId: string;
+  path: string;
+  checksum: string;
+  sourceVersion: string;
+  status: KnowledgeStatus;
+}
+
 export interface IngestionRunInput {
   sourceCommit: string;
   knowledgeRelease: string;
@@ -52,6 +60,21 @@ export function createKnowledgeRepository(pool: Pool) {
   }
 
   return {
+    async listDocumentFingerprints(): Promise<KnowledgeFingerprint[]> {
+      const result = await pool.query(
+        `select document_id, path, checksum, source_version, status
+         from knowledge.documents
+         order by path asc`,
+      );
+      return result.rows.map((row) => ({
+        documentId: String(row.document_id),
+        path: String(row.path),
+        checksum: String(row.checksum),
+        sourceVersion: String(row.source_version),
+        status: row.status as KnowledgeStatus,
+      }));
+    },
+
     async createIngestionRun(input: IngestionRunInput): Promise<string> {
       const result = await pool.query(
         `insert into knowledge.ingestion_runs
