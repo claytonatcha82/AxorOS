@@ -5,6 +5,7 @@ export interface ApiConfig {
   host: string;
   port: number;
   controlCenterUrl: string;
+  databaseUrl?: string;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -40,10 +41,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error(`Invalid AXOROS_CONTROL_CENTER_URL protocol: ${parsedControlCenterUrl.protocol}`);
   }
 
+  const databaseUrl = env.AXOROS_DATABASE_URL?.trim() || undefined;
+  if (databaseUrl) {
+    let parsedDatabaseUrl: URL;
+    try {
+      parsedDatabaseUrl = new URL(databaseUrl);
+    } catch {
+      throw new Error('Invalid AXOROS_DATABASE_URL');
+    }
+    if (!['postgres:', 'postgresql:'].includes(parsedDatabaseUrl.protocol)) {
+      throw new Error(`Invalid AXOROS_DATABASE_URL protocol: ${parsedDatabaseUrl.protocol}`);
+    }
+  }
+
   return {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
     port,
     controlCenterUrl: parsedControlCenterUrl.origin,
+    databaseUrl,
   };
 }
