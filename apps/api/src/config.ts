@@ -41,7 +41,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error(`Invalid AXOROS_CONTROL_CENTER_URL protocol: ${parsedControlCenterUrl.protocol}`);
   }
 
-  const databaseUrl = env.AXOROS_DATABASE_URL?.trim() || undefined;
+  const databaseUrl = env.AXOROS_DATABASE_URL?.trim();
   if (databaseUrl) {
     let parsedDatabaseUrl: URL;
     try {
@@ -54,11 +54,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     }
   }
 
-  return {
+  const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
     port,
     controlCenterUrl: parsedControlCenterUrl.origin,
-    databaseUrl,
   };
+
+  if (databaseUrl) {
+    config.databaseUrl = databaseUrl;
+  }
+
+  return config;
 }
