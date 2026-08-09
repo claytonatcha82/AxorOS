@@ -8,6 +8,7 @@ import type {
   ProjectRecord,
   WorkflowEventRecord,
 } from '../data/operational-repository.js';
+import type { TransactionRunner } from '../data/transaction.js';
 
 export type LeadStatus = 'new' | 'qualified' | 'disqualified' | 'engaged' | 'converted';
 export type ProjectStatus = 'pending' | 'active' | 'qa' | 'awaiting_approval' | 'delivered' | 'cancelled' | 'archived';
@@ -58,94 +59,103 @@ function assertTransition<T extends string>(current: T, next: T, allowed: readon
   }
 }
 
-export function createOperationalStateService(repository: OperationalRepository) {
+export function createOperationalStateService(repository: OperationalRepository, runInTransaction: TransactionRunner) {
   return {
     async registerClient(input: CreateClientInput, actorId = 'founder'): Promise<ClientRecord> {
-      const client = await repository.createClient({
-        ...input,
-        displayName: requireText(input.displayName, 'displayName'),
+      return runInTransaction(async (tx) => {
+        const client = await tx.createClient({
+          ...input,
+          displayName: requireText(input.displayName, 'displayName'),
+        });
+        await tx.createWorkflowEvent({
+          clientId: client.id,
+          eventType: 'client_registered',
+          actorType: 'founder',
+          actorId,
+          payload: { clientId: client.id },
+        });
+        return client;
       });
-      await repository.createWorkflowEvent({
-        clientId: client.id,
-        eventType: 'client_registered',
-        actorType: 'founder',
-        actorId,
-        payload: { clientId: client.id },
-      });
-      return client;
     },
 
     async registerLead(input: CreateLeadInput, actorId = 'system'): Promise<LeadRecord> {
       validateLeadScore(input.leadScore);
-      const lead = await repository.createLead({
-        ...input,
-        companyName: requireText(input.companyName, 'companyName'),
+      return runInTransaction(async (tx) => {
+        const lead = await tx.createLead({
+          ...input,
+          companyName: requireText(input.companyName, 'companyName'),
+        });
+        await tx.createWorkflowEvent({
+          eventType: 'lead_registered',
+          actorType: 'system',
+          actorId,
+          payload: { leadId: lead.id, companyName: lead.companyName },
+        });
+        return lead;
       });
-      await repository.createWorkflowEvent({
-        eventType: 'lead_registered',
-        actorType: 'system',
-        actorId,
-        payload: { leadId: lead.id, companyName: lead.companyName },
-      });
-      return lead;
     },
 
     async transitionLeadStatus(leadId: string, nextStatus: LeadStatus, actorType: ActorType, actorId: string): Promise<LeadRecord> {
-      const lead = await repository.getLeadById(requireText(leadId, 'leadId'));
-      if (!lead) throw new Error('Lead not found.');
-      assertLeadStatus(lead.status);
-      assertTransition(lead.status, nextStatus, leadTransitions[lead.status], 'lead');
+      return runInTransaction(async (tx) => {
+        const lead = await tx.getLeadById(requireText(leadId, 'leadId'));
+        if (!lead) throw new Error('Lead not found.');
+        assertLeadStatus(lead.status);
+        assertTransition(lead.status, nextStatus, leadTransitions[lead.status], 'lead');
 
-      const updated = await repository.updateLeadStatus(lead.id, nextStatus);
-      if (!updated) throw new Error('Lead disappeared during transition.');
+        const updated = await tx.updateLeadStatus(lead.id, nextStatus);
+        if (!updated) throw new Error('Lead disappeared during transition.');
 
-      const event = {
-        eventType: 'lead_status_changed',
-        actorType,
-        actorId: requireText(actorId, 'actorId'),
-        payload: { leadId: updated.id, from: lead.status, to: nextStatus },
-        ...(updated.clientId ? { clientId: updated.clientId } : {}),
-      };
-
-      await repository.createWorkflowEvent(event);
-      return updated;
+        const eventInput = {
+          eventType: 'lead_status_changed',
+          actorType,
+          actorId: requireText(actorId, 'actorId'),
+          payload: { leadId: updated.id, from: lead.status, to: nextStatus },
+          ...(updated.clientId ? { clientId: updated.clientId } : {}),
+        };
+        await tx.createWorkflowEvent(eventInput);
+        return updated;
+      });
     },
 
     async createClientProject(input: CreateProjectInput, actorId = 'founder'): Promise<ProjectRecord> {
-      const project = await repository.createProject({
-        ...input,
-        clientId: requireText(input.clientId, 'clientId'),
-        name: requireText(input.name, 'name'),
+      return runInTransaction(async (tx) => {
+        const project = await tx.createProject({
+          ...input,
+          clientId: requireText(input.clientId, 'clientId'),
+          name: requireText(input.name, 'name'),
+        });
+        await tx.createWorkflowEvent({
+          clientId: project.clientId,
+          projectId: project.id,
+          eventType: 'project_created',
+          actorType: 'founder',
+          actorId,
+          payload: { projectId: project.id, serviceType: project.serviceType },
+        });
+        return project;
       });
-      await repository.createWorkflowEvent({
-        clientId: project.clientId,
-        projectId: project.id,
-        eventType: 'project_created',
-        actorType: 'founder',
-        actorId,
-        payload: { projectId: project.id, serviceType: project.serviceType },
-      });
-      return project;
     },
 
     async transitionProjectStatus(projectId: string, nextStatus: ProjectStatus, actorType: ActorType, actorId: string): Promise<ProjectRecord> {
-      const project = await repository.getProjectById(requireText(projectId, 'projectId'));
-      if (!project) throw new Error('Project not found.');
-      assertProjectStatus(project.status);
-      assertTransition(project.status, nextStatus, projectTransitions[project.status], 'project');
+      return runInTransaction(async (tx) => {
+        const project = await tx.getProjectById(requireText(projectId, 'projectId'));
+        if (!project) throw new Error('Project not found.');
+        assertProjectStatus(project.status);
+        assertTransition(project.status, nextStatus, projectTransitions[project.status], 'project');
 
-      const updated = await repository.updateProjectStatus(project.id, nextStatus);
-      if (!updated) throw new Error('Project disappeared during transition.');
+        const updated = await tx.updateProjectStatus(project.id, nextStatus);
+        if (!updated) throw new Error('Project disappeared during transition.');
 
-      await repository.createWorkflowEvent({
-        clientId: updated.clientId,
-        projectId: updated.id,
-        eventType: 'project_status_changed',
-        actorType,
-        actorId: requireText(actorId, 'actorId'),
-        payload: { projectId: updated.id, from: project.status, to: nextStatus },
+        await tx.createWorkflowEvent({
+          clientId: updated.clientId,
+          projectId: updated.id,
+          eventType: 'project_status_changed',
+          actorType,
+          actorId: requireText(actorId, 'actorId'),
+          payload: { projectId: updated.id, from: project.status, to: nextStatus },
+        });
+        return updated;
       });
-      return updated;
     },
 
     async listClients(limit?: number): Promise<ClientRecord[]> {
