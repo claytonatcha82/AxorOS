@@ -4,6 +4,7 @@ export interface ApiConfig {
   environment: AxorOSEnvironment;
   host: string;
   port: number;
+  controlCenterUrl: string;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -27,9 +28,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error(`Invalid AXOROS_API_PORT: ${rawPort}`);
   }
 
+  const controlCenterUrl = env.AXOROS_CONTROL_CENTER_URL ?? 'http://localhost:5173';
+  let parsedControlCenterUrl: URL;
+  try {
+    parsedControlCenterUrl = new URL(controlCenterUrl);
+  } catch {
+    throw new Error(`Invalid AXOROS_CONTROL_CENTER_URL: ${controlCenterUrl}`);
+  }
+
+  if (!['http:', 'https:'].includes(parsedControlCenterUrl.protocol)) {
+    throw new Error(`Invalid AXOROS_CONTROL_CENTER_URL protocol: ${parsedControlCenterUrl.protocol}`);
+  }
+
   return {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
     port,
+    controlCenterUrl: parsedControlCenterUrl.origin,
   };
 }
