@@ -18,6 +18,7 @@
     "verify:secrets:staging": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=staging --path=/api -- node scripts/verify-secret-environment.mjs staging",
     "verify:secrets:prod": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node scripts/verify-secret-environment.mjs production",
     "verify:secrets:required": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-required-secrets.mjs",
+    "verify:betterstack": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-better-stack.mjs",
     "dev:control-center": "npm run dev --workspace @axoros/control-center",
     "dev:api": "npm run dev --workspace @axoros/api",
     "dev:api:secrets": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- npm run dev:api",
