@@ -13,6 +13,7 @@
   },
   "scripts": {
     "verify:env": "node scripts/verify-environment.mjs",
+    "verify:db": "node scripts/verify-database.mjs",
     "dev:control-center": "npm run dev --workspace @axoros/control-center",
     "dev:api": "npm run dev --workspace @axoros/api",
     "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
