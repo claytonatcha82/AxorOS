@@ -8,7 +8,7 @@ function createPoolMock(rows: Record<string, unknown>[] = []) {
     calls,
     pool: {
       async query(text: string, values?: unknown[]) {
-        calls.push({ text, values });
+        calls.push(values ? { text, values } : { text });
         return { rows };
       },
     },
