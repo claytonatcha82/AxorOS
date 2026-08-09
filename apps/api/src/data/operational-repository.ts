@@ -197,13 +197,13 @@ export function createOperationalRepository(pool: Pool) {
       return mapLead(result.rows[0] as Record<string, unknown>);
     },
 
-    async updateLeadStatus(id: string, status: string): Promise<LeadRecord | null> {
+    async updateLeadStatus(id: string, expectedStatus: string, nextStatus: string): Promise<LeadRecord | null> {
       const result = await pool.query(
         `update operational.leads
-         set status = $2
-         where id = $1
+         set status = $3
+         where id = $1 and status = $2
          returning id, client_id, company_name, contact_name, contact_email, source, opportunity_summary, lead_score, status, evidence, created_at, updated_at`,
-        [id, status],
+        [id, expectedStatus, nextStatus],
       );
       return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null;
     },
@@ -237,13 +237,13 @@ export function createOperationalRepository(pool: Pool) {
       return mapProject(result.rows[0] as Record<string, unknown>);
     },
 
-    async updateProjectStatus(id: string, status: string): Promise<ProjectRecord | null> {
+    async updateProjectStatus(id: string, expectedStatus: string, nextStatus: string): Promise<ProjectRecord | null> {
       const result = await pool.query(
         `update operational.projects
-         set status = $2
-         where id = $1
+         set status = $3
+         where id = $1 and status = $2
          returning id, client_id, lead_id, name, status, service_type, created_at, updated_at`,
-        [id, status],
+        [id, expectedStatus, nextStatus],
       );
       return result.rows[0] ? mapProject(result.rows[0] as Record<string, unknown>) : null;
     },
