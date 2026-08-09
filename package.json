@@ -14,6 +14,9 @@
   "scripts": {
     "verify:env": "node scripts/verify-environment.mjs",
     "verify:db": "node scripts/verify-database.mjs",
+    "verify:secrets:dev": "infisical run --env=dev --path=/api -- node scripts/verify-secret-environment.mjs development",
+    "verify:secrets:staging": "infisical run --env=staging --path=/api -- node scripts/verify-secret-environment.mjs staging",
+    "verify:secrets:prod": "infisical run --env=prod --path=/api -- node scripts/verify-secret-environment.mjs production",
     "dev:control-center": "npm run dev --workspace @axoros/control-center",
     "dev:api": "npm run dev --workspace @axoros/api",
     "dev:api:secrets": "infisical run --env=dev --path=/api -- npm run dev:api",
