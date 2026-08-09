@@ -63,17 +63,8 @@ export function createOperationalStateService(repository: OperationalRepository,
   return {
     async registerClient(input: CreateClientInput, actorId = 'founder'): Promise<ClientRecord> {
       return runInTransaction(async (tx) => {
-        const client = await tx.createClient({
-          ...input,
-          displayName: requireText(input.displayName, 'displayName'),
-        });
-        await tx.createWorkflowEvent({
-          clientId: client.id,
-          eventType: 'client_registered',
-          actorType: 'founder',
-          actorId,
-          payload: { clientId: client.id },
-        });
+        const client = await tx.createClient({ ...input, displayName: requireText(input.displayName, 'displayName') });
+        await tx.createWorkflowEvent({ clientId: client.id, eventType: 'client_registered', actorType: 'founder', actorId, payload: { clientId: client.id } });
         return client;
       });
     },
@@ -81,16 +72,8 @@ export function createOperationalStateService(repository: OperationalRepository,
     async registerLead(input: CreateLeadInput, actorId = 'system'): Promise<LeadRecord> {
       validateLeadScore(input.leadScore);
       return runInTransaction(async (tx) => {
-        const lead = await tx.createLead({
-          ...input,
-          companyName: requireText(input.companyName, 'companyName'),
-        });
-        await tx.createWorkflowEvent({
-          eventType: 'lead_registered',
-          actorType: 'system',
-          actorId,
-          payload: { leadId: lead.id, companyName: lead.companyName },
-        });
+        const lead = await tx.createLead({ ...input, companyName: requireText(input.companyName, 'companyName') });
+        await tx.createWorkflowEvent({ eventType: 'lead_registered', actorType: 'system', actorId, payload: { leadId: lead.id, companyName: lead.companyName } });
         return lead;
       });
     },
@@ -102,36 +85,24 @@ export function createOperationalStateService(repository: OperationalRepository,
         assertLeadStatus(lead.status);
         assertTransition(lead.status, nextStatus, leadTransitions[lead.status], 'lead');
 
-        const updated = await tx.updateLeadStatus(lead.id, nextStatus);
-        if (!updated) throw new Error('Lead disappeared during transition.');
+        const updated = await tx.updateLeadStatus(lead.id, lead.status, nextStatus);
+        if (!updated) throw new Error('Stale lead state detected. Reload before retrying transition.');
 
-        const eventInput = {
+        await tx.createWorkflowEvent({
           eventType: 'lead_status_changed',
           actorType,
           actorId: requireText(actorId, 'actorId'),
           payload: { leadId: updated.id, from: lead.status, to: nextStatus },
           ...(updated.clientId ? { clientId: updated.clientId } : {}),
-        };
-        await tx.createWorkflowEvent(eventInput);
+        });
         return updated;
       });
     },
 
     async createClientProject(input: CreateProjectInput, actorId = 'founder'): Promise<ProjectRecord> {
       return runInTransaction(async (tx) => {
-        const project = await tx.createProject({
-          ...input,
-          clientId: requireText(input.clientId, 'clientId'),
-          name: requireText(input.name, 'name'),
-        });
-        await tx.createWorkflowEvent({
-          clientId: project.clientId,
-          projectId: project.id,
-          eventType: 'project_created',
-          actorType: 'founder',
-          actorId,
-          payload: { projectId: project.id, serviceType: project.serviceType },
-        });
+        const project = await tx.createProject({ ...input, clientId: requireText(input.clientId, 'clientId'), name: requireText(input.name, 'name') });
+        await tx.createWorkflowEvent({ clientId: project.clientId, projectId: project.id, eventType: 'project_created', actorType: 'founder', actorId, payload: { projectId: project.id, serviceType: project.serviceType } });
         return project;
       });
     },
@@ -143,8 +114,8 @@ export function createOperationalStateService(repository: OperationalRepository,
         assertProjectStatus(project.status);
         assertTransition(project.status, nextStatus, projectTransitions[project.status], 'project');
 
-        const updated = await tx.updateProjectStatus(project.id, nextStatus);
-        if (!updated) throw new Error('Project disappeared during transition.');
+        const updated = await tx.updateProjectStatus(project.id, project.status, nextStatus);
+        if (!updated) throw new Error('Stale project state detected. Reload before retrying transition.');
 
         await tx.createWorkflowEvent({
           clientId: updated.clientId,
@@ -158,21 +129,10 @@ export function createOperationalStateService(repository: OperationalRepository,
       });
     },
 
-    async listClients(limit?: number): Promise<ClientRecord[]> {
-      return repository.listClients(limit);
-    },
-
-    async listLeads(limit?: number): Promise<LeadRecord[]> {
-      return repository.listLeads(limit);
-    },
-
-    async listProjects(limit?: number): Promise<ProjectRecord[]> {
-      return repository.listProjects(limit);
-    },
-
-    async listWorkflowEvents(limit?: number): Promise<WorkflowEventRecord[]> {
-      return repository.listWorkflowEvents(limit);
-    },
+    async listClients(limit?: number): Promise<ClientRecord[]> { return repository.listClients(limit); },
+    async listLeads(limit?: number): Promise<LeadRecord[]> { return repository.listLeads(limit); },
+    async listProjects(limit?: number): Promise<ProjectRecord[]> { return repository.listProjects(limit); },
+    async listWorkflowEvents(limit?: number): Promise<WorkflowEventRecord[]> { return repository.listWorkflowEvents(limit); },
   };
 }
 
