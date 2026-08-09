@@ -1,0 +1,3 @@
+-- AxorOS development seed file.
+-- Intentionally empty during the initial pilot database foundation.
+-- Never seed production client data from this file.
