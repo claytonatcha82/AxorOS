@@ -25,6 +25,7 @@ npm-debug.log*
 
 # Supabase local state
 .supabase/
+supabase/.temp/
 
 # Temporary files
 .tmp/
