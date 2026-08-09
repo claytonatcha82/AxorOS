@@ -2,19 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axoros/contracts';
 import type { ApiConfig } from './config.js';
+import type { DatabaseHealth } from './database.js';
 import { logEvent } from './logger.js';
 
 type JsonBody = ApiSuccessResponse<unknown> | ApiErrorResponse | HealthResponse;
+type DatabaseCheck = () => Promise<DatabaseHealth>;
 
-function sendJson(
-  response: ServerResponse,
-  statusCode: number,
-  body: JsonBody,
-  requestId: string,
-  extraHeaders: Record<string, string> = {},
-): void {
+function sendJson(response: ServerResponse, statusCode: number, body: JsonBody, requestId: string, extraHeaders: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
-
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
@@ -25,29 +20,12 @@ function sendJson(
   response.end(payload);
 }
 
-function sendError(
-  response: ServerResponse,
-  statusCode: number,
-  code: string,
-  message: string,
-  requestId: string,
-  headers: Record<string, string>,
-): void {
-  sendJson(
-    response,
-    statusCode,
-    {
-      ok: false,
-      requestId,
-      error: { code, message },
-    },
-    requestId,
-    headers,
-  );
+function sendError(response: ServerResponse, statusCode: number, code: string, message: string, requestId: string, headers: Record<string, string>): void {
+  sendJson(response, statusCode, { ok: false, requestId, error: { code, message } }, requestId, headers);
 }
 
-export function createRequestHandler(config: ApiConfig) {
-  return (request: IncomingMessage, response: ServerResponse): void => {
+export function createRequestHandler(config: ApiConfig, checkDatabase?: DatabaseCheck) {
+  return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const startedAt = performance.now();
     const requestId = request.headers['x-request-id']?.toString().trim() || randomUUID();
     const origin = request.headers.origin;
@@ -81,55 +59,43 @@ export function createRequestHandler(config: ApiConfig) {
       }
 
       if (request.method === 'GET' && request.url === '/health') {
-        sendJson(response, 200, {
-          service: 'axoros-api', status: 'ok', environment: config.environment, timestamp: new Date().toISOString(),
-        }, requestId, corsHeaders);
+        sendJson(response, 200, { service: 'axoros-api', status: 'ok', environment: config.environment, timestamp: new Date().toISOString() }, requestId, corsHeaders);
         return;
       }
 
       if (request.method === 'GET' && request.url === '/ready') {
+        if (!checkDatabase) {
+          sendError(response, 503, 'database_not_configured', 'Database readiness check is not configured.', requestId, corsHeaders);
+          return;
+        }
+        const database = await checkDatabase();
+        if (!database.ok) {
+          sendError(response, 503, 'database_unavailable', 'Database is unavailable.', requestId, corsHeaders);
+          return;
+        }
         sendJson(response, 200, {
-          service: 'axoros-api', status: 'ok', environment: config.environment, timestamp: new Date().toISOString(),
+          ok: true,
+          requestId,
+          data: { service: 'axoros-api', status: 'ok', environment: config.environment, database: { status: 'ok', latencyMs: database.latencyMs } },
         }, requestId, corsHeaders);
         return;
       }
 
       if (request.method === 'GET' && request.url === '/api/v1') {
-        sendJson(response, 200, {
-          ok: true,
-          requestId,
-          data: { service: 'axoros-api', apiVersion: 'v1', environment: config.environment },
-        }, requestId, corsHeaders);
+        sendJson(response, 200, { ok: true, requestId, data: { service: 'axoros-api', apiVersion: 'v1', environment: config.environment } }, requestId, corsHeaders);
         return;
       }
 
       if (request.method === 'GET' && request.url === '/api/v1/meta') {
-        sendJson(response, 200, {
-          ok: true,
-          requestId,
-          data: {
-            service: 'axoros-api',
-            apiVersion: 'v1',
-            environment: config.environment,
-            nodeVersion: process.version,
-          },
-        }, requestId, corsHeaders);
+        sendJson(response, 200, { ok: true, requestId, data: { service: 'axoros-api', apiVersion: 'v1', environment: config.environment, nodeVersion: process.version } }, requestId, corsHeaders);
         return;
       }
 
       sendError(response, 404, 'not_found', 'Route not found.', requestId, corsHeaders);
     } catch (error) {
-      logEvent('error', 'http_request_unhandled_error', {
-        requestId,
-        method: request.method,
-        path: request.url,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (!response.headersSent) {
-        sendError(response, 500, 'internal_server_error', 'Internal server error.', requestId, corsHeaders);
-      } else {
-        response.destroy();
-      }
+      logEvent('error', 'http_request_unhandled_error', { requestId, method: request.method, path: request.url, error: error instanceof Error ? error.message : String(error) });
+      if (!response.headersSent) sendError(response, 500, 'internal_server_error', 'Internal server error.', requestId, corsHeaders);
+      else response.destroy();
     }
   };
 }
