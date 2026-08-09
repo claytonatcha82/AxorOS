@@ -1,0 +1,16 @@
+project_id = "axoros-local"
+
+[api]
+enabled = true
+
+[db]
+major_version = 17
+
+[studio]
+enabled = true
+
+[auth]
+enabled = true
+
+# Remote project identifiers and credentials are never stored here.
+# Link the local repository to the remote Supabase project with the CLI.
