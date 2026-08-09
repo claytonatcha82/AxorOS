@@ -32,6 +32,10 @@ function makeProject(status: string) {
   };
 }
 
+function passthroughTransaction(repository: never) {
+  return async <T>(work: (tx: never) => Promise<T>): Promise<T> => work(repository);
+}
+
 test('lead transition new -> qualified succeeds and writes audit event', async () => {
   const events: unknown[] = [];
   const repository = {
@@ -40,7 +44,7 @@ test('lead transition new -> qualified succeeds and writes audit event', async (
     createWorkflowEvent: async (event: unknown) => { events.push(event); return event; },
   } as never;
 
-  const service = createOperationalStateService(repository);
+  const service = createOperationalStateService(repository, passthroughTransaction(repository));
   const result = await service.transitionLeadStatus('lead-1', 'qualified', 'agent', 'lead-agent');
 
   assert.equal(result.status, 'qualified');
@@ -52,7 +56,7 @@ test('lead transition new -> converted is rejected', async () => {
     getLeadById: async () => makeLead('new'),
   } as never;
 
-  const service = createOperationalStateService(repository);
+  const service = createOperationalStateService(repository, passthroughTransaction(repository));
   await assert.rejects(
     () => service.transitionLeadStatus('lead-1', 'converted', 'agent', 'lead-agent'),
     /Invalid lead transition/,
@@ -67,7 +71,7 @@ test('project transition pending -> active succeeds', async () => {
     createWorkflowEvent: async (event: unknown) => { events.push(event); return event; },
   } as never;
 
-  const service = createOperationalStateService(repository);
+  const service = createOperationalStateService(repository, passthroughTransaction(repository));
   const result = await service.transitionProjectStatus('project-1', 'active', 'system', 'runtime');
 
   assert.equal(result.status, 'active');
@@ -79,7 +83,7 @@ test('project transition pending -> delivered is rejected', async () => {
     getProjectById: async () => makeProject('pending'),
   } as never;
 
-  const service = createOperationalStateService(repository);
+  const service = createOperationalStateService(repository, passthroughTransaction(repository));
   await assert.rejects(
     () => service.transitionProjectStatus('project-1', 'delivered', 'system', 'runtime'),
     /Invalid project transition/,
