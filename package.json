@@ -1,0 +1,22 @@
+{
+  "name": "axoros",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AxorOS agency automation system",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev:control-center": "npm run dev --workspace @axoros/control-center",
+    "dev:api": "npm run dev --workspace @axoros/api",
+    "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
+    "typecheck": "npm run typecheck --workspace @axoros/contracts && npm run typecheck --workspace @axoros/api && npm run typecheck --workspace @axoros/control-center",
+    "test": "npm run test --workspace @axoros/api && npm run test --workspace @axoros/control-center",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}
