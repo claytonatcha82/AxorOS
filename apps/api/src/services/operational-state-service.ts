@@ -99,13 +99,15 @@ export function createOperationalStateService(repository: OperationalRepository)
       const updated = await repository.updateLeadStatus(lead.id, nextStatus);
       if (!updated) throw new Error('Lead disappeared during transition.');
 
-      await repository.createWorkflowEvent({
-        clientId: updated.clientId ?? undefined,
+      const event = {
         eventType: 'lead_status_changed',
         actorType,
         actorId: requireText(actorId, 'actorId'),
         payload: { leadId: updated.id, from: lead.status, to: nextStatus },
-      });
+        ...(updated.clientId ? { clientId: updated.clientId } : {}),
+      };
+
+      await repository.createWorkflowEvent(event);
       return updated;
     },
 
