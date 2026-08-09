@@ -169,6 +169,16 @@ export function createOperationalRepository(pool: Pool) {
       return result.rows.map((row) => mapLead(row as Record<string, unknown>));
     },
 
+    async getLeadById(id: string): Promise<LeadRecord | null> {
+      const result = await pool.query(
+        `select id, client_id, company_name, contact_name, contact_email, source, opportunity_summary,
+                lead_score, status, evidence, created_at, updated_at
+         from operational.leads where id = $1`,
+        [id],
+      );
+      return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null;
+    },
+
     async createLead(input: CreateLeadInput): Promise<LeadRecord> {
       const result = await pool.query(
         `insert into operational.leads (company_name, contact_name, contact_email, source, opportunity_summary, lead_score, evidence)
@@ -187,6 +197,17 @@ export function createOperationalRepository(pool: Pool) {
       return mapLead(result.rows[0] as Record<string, unknown>);
     },
 
+    async updateLeadStatus(id: string, status: string): Promise<LeadRecord | null> {
+      const result = await pool.query(
+        `update operational.leads
+         set status = $2
+         where id = $1
+         returning id, client_id, company_name, contact_name, contact_email, source, opportunity_summary, lead_score, status, evidence, created_at, updated_at`,
+        [id, status],
+      );
+      return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null;
+    },
+
     async listProjects(limit = 50): Promise<ProjectRecord[]> {
       const safeLimit = Math.max(1, Math.min(limit, 100));
       const result = await pool.query(
@@ -197,6 +218,15 @@ export function createOperationalRepository(pool: Pool) {
       return result.rows.map((row) => mapProject(row as Record<string, unknown>));
     },
 
+    async getProjectById(id: string): Promise<ProjectRecord | null> {
+      const result = await pool.query(
+        `select id, client_id, lead_id, name, status, service_type, created_at, updated_at
+         from operational.projects where id = $1`,
+        [id],
+      );
+      return result.rows[0] ? mapProject(result.rows[0] as Record<string, unknown>) : null;
+    },
+
     async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
       const result = await pool.query(
         `insert into operational.projects (client_id, lead_id, name, service_type)
@@ -205,6 +235,17 @@ export function createOperationalRepository(pool: Pool) {
         [input.clientId, input.leadId ?? null, input.name.trim(), input.serviceType?.trim() || 'website'],
       );
       return mapProject(result.rows[0] as Record<string, unknown>);
+    },
+
+    async updateProjectStatus(id: string, status: string): Promise<ProjectRecord | null> {
+      const result = await pool.query(
+        `update operational.projects
+         set status = $2
+         where id = $1
+         returning id, client_id, lead_id, name, status, service_type, created_at, updated_at`,
+        [id, status],
+      );
+      return result.rows[0] ? mapProject(result.rows[0] as Record<string, unknown>) : null;
     },
 
     async listWorkflowEvents(limit = 100): Promise<WorkflowEventRecord[]> {
