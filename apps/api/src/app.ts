@@ -3,11 +3,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axoros/contracts';
 import type { ApiConfig } from './config.js';
 import type { DatabaseHealth } from './database.js';
+import type { KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent } from './logger.js';
 import { getMetricsSnapshot, recordHttpRequest, recordReadinessFailure } from './metrics.js';
 
 type JsonBody = ApiSuccessResponse<unknown> | ApiErrorResponse | HealthResponse;
 type DatabaseCheck = () => Promise<DatabaseHealth>;
+type KnowledgeRetriever = Pick<KnowledgeRetrievalService, 'retrieve'>;
+
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 function sendJson(response: ServerResponse, statusCode: number, body: JsonBody, requestId: string, extraHeaders: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
@@ -25,7 +29,36 @@ function sendError(response: ServerResponse, statusCode: number, code: string, m
   sendJson(response, statusCode, { ok: false, requestId, error: { code, message } }, requestId, headers);
 }
 
-export function createRequestHandler(config: ApiConfig, checkDatabase?: DatabaseCheck) {
+async function readJsonObject(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > MAX_JSON_BODY_BYTES) throw new Error('request_body_too_large');
+    chunks.push(buffer);
+  }
+
+  if (chunks.length === 0) throw new Error('invalid_json_body');
+
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid_json_body');
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'invalid_json_body') throw error;
+    throw new Error('invalid_json_body');
+  }
+}
+
+function optionalLimit(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error('invalid_limit');
+  return value;
+}
+
+export function createRequestHandler(config: ApiConfig, checkDatabase?: DatabaseCheck, knowledgeRetriever?: KnowledgeRetriever) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const startedAt = performance.now();
     const requestId = request.headers['x-request-id']?.toString().trim() || randomUUID();
@@ -100,6 +133,53 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
 
       if (request.method === 'GET' && request.url === '/api/v1/metrics') {
         sendJson(response, 200, { ok: true, requestId, data: getMetricsSnapshot() }, requestId, corsHeaders);
+        return;
+      }
+
+      if (request.method === 'POST' && request.url === '/api/v1/knowledge/retrieve') {
+        if (!knowledgeRetriever) {
+          sendError(response, 503, 'knowledge_retrieval_not_configured', 'Knowledge retrieval is not configured.', requestId, corsHeaders);
+          return;
+        }
+
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonObject(request);
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'invalid_json_body';
+          if (code === 'request_body_too_large') {
+            sendError(response, 413, code, 'Request body exceeds the allowed size.', requestId, corsHeaders);
+          } else {
+            sendError(response, 400, 'invalid_json_body', 'Request body must be a JSON object.', requestId, corsHeaders);
+          }
+          return;
+        }
+
+        try {
+          const query = typeof body.query === 'string' ? body.query : '';
+          const agent = typeof body.agent === 'string' ? body.agent : '';
+          const task = typeof body.task === 'string' ? body.task : '';
+          const results = await knowledgeRetriever.retrieve({
+            query,
+            agent,
+            task,
+            maximumSecurityClassification: 'internal',
+            limit: optionalLimit(body.limit),
+          });
+
+          logEvent('info', 'knowledge_retrieval_completed', {
+            requestId,
+            agent: agent.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            task: task.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            resultCount: results.length,
+          });
+
+          sendJson(response, 200, { ok: true, requestId, data: { results } }, requestId, corsHeaders);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Invalid knowledge retrieval request.';
+          logEvent('warn', 'knowledge_retrieval_rejected', { requestId, reason: message });
+          sendError(response, 400, 'invalid_knowledge_retrieval_request', message, requestId, corsHeaders);
+        }
         return;
       }
 
