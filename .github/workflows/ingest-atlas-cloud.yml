@@ -50,7 +50,7 @@ jobs:
         with:
           repository: ${{ inputs.atlas_repository }}
           ref: ${{ inputs.atlas_ref }}
-          token: ${{ secrets.ATLAS_READ_TOKEN }}
+          ssh-key: ${{ secrets.ATLAS_DEPLOY_KEY }}
           path: .atlas-source
           persist-credentials: false
 
