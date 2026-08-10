@@ -3,6 +3,7 @@ import type { AtlasChunk } from './chunker.js';
 
 export type KnowledgeStatus = 'active' | 'draft' | 'deprecated' | 'archived' | 'superseded';
 export type AuthorityLevel = 'critical_policy' | 'authoritative' | 'recommended' | 'reference' | 'example' | 'historical';
+export type SecurityClassification = 'public' | 'internal' | 'restricted' | 'confidential';
 
 export interface KnowledgeDocumentInput {
   documentId: string;
@@ -20,7 +21,7 @@ export interface KnowledgeDocumentInput {
   serviceTypes: string[];
   technology: string[];
   projectStage: string[];
-  securityClassification: 'public' | 'internal' | 'restricted' | 'confidential';
+  securityClassification: SecurityClassification;
   retrievalWeight: number;
   sourceVersion: string;
   checksum: string;
@@ -41,6 +42,32 @@ export interface IngestionRunInput {
   indexVersion: string;
   chunkingVersion: string;
   metadataSchemaVersion: string;
+}
+
+export interface KnowledgeSearchInput {
+  query: string;
+  agent: string;
+  task: string;
+  allowedSecurityClassifications: SecurityClassification[];
+  limit: number;
+}
+
+export interface KnowledgeSearchResult {
+  chunkId: string;
+  documentId: string;
+  documentKey: string;
+  title: string;
+  path: string;
+  headingPath: string[];
+  chunkIndex: number;
+  chunkType: string;
+  content: string;
+  authorityLevel: AuthorityLevel;
+  securityClassification: SecurityClassification;
+  sourceVersion: string;
+  documentChecksum: string;
+  chunkChecksum: string;
+  score: number;
 }
 
 export function createKnowledgeRepository(pool: Pool) {
@@ -87,6 +114,71 @@ export function createKnowledgeRepository(pool: Pool) {
         checksum: String(row.checksum),
         sourceVersion: String(row.source_version),
         status: row.status as KnowledgeStatus,
+      }));
+    },
+
+    async searchKnowledge(input: KnowledgeSearchInput): Promise<KnowledgeSearchResult[]> {
+      const result = await pool.query(
+        `with query as (
+           select plainto_tsquery('english', $1) as tsq
+         )
+         select
+           c.id as chunk_id,
+           d.id as document_id,
+           d.document_id as document_key,
+           d.title,
+           d.path,
+           c.heading_path,
+           c.chunk_index,
+           c.chunk_type,
+           c.content,
+           d.authority_level,
+           d.security_classification,
+           d.source_version,
+           d.checksum as document_checksum,
+           c.checksum as chunk_checksum,
+           (
+             ts_rank_cd(c.content_tsv, query.tsq)
+             * d.retrieval_weight
+             * case d.authority_level
+                 when 'critical_policy' then 1.60
+                 when 'authoritative' then 1.40
+                 when 'recommended' then 1.20
+                 when 'reference' then 1.00
+                 when 'example' then 0.80
+                 when 'historical' then 0.60
+               end
+             * (1.0 + (d.priority::numeric / 500.0))
+           ) as score
+         from knowledge.chunks c
+         join knowledge.documents d on d.id = c.document_id
+         cross join query
+         where d.status = 'active'
+           and c.content_tsv @@ query.tsq
+           and (cardinality(d.allowed_agents) = 0 or $2 = any(d.allowed_agents))
+           and (cardinality(d.applicable_tasks) = 0 or $3 = any(d.applicable_tasks))
+           and d.security_classification = any($4::text[])
+         order by score desc, d.priority desc, d.path asc, c.chunk_index asc
+         limit $5`,
+        [input.query, input.agent, input.task, input.allowedSecurityClassifications, input.limit],
+      );
+
+      return result.rows.map((row) => ({
+        chunkId: String(row.chunk_id),
+        documentId: String(row.document_id),
+        documentKey: String(row.document_key),
+        title: String(row.title),
+        path: String(row.path),
+        headingPath: Array.isArray(row.heading_path) ? row.heading_path.map(String) : [],
+        chunkIndex: Number(row.chunk_index),
+        chunkType: String(row.chunk_type),
+        content: String(row.content),
+        authorityLevel: row.authority_level as AuthorityLevel,
+        securityClassification: row.security_classification as SecurityClassification,
+        sourceVersion: String(row.source_version),
+        documentChecksum: String(row.document_checksum),
+        chunkChecksum: String(row.chunk_checksum),
+        score: Number(row.score),
       }));
     },
 
