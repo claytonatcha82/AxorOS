@@ -65,25 +65,57 @@ function stripQuotes(value: string): string {
   return value;
 }
 
+/**
+ * Extracts controlled top-level Atlas metadata while preserving the complete raw
+ * frontmatter separately on AtlasMarkdownDocument.frontmatterRaw.
+ *
+ * Nested YAML mappings are intentionally not flattened into controlled metadata.
+ * They are tolerated and skipped so richer Obsidian frontmatter can coexist with
+ * the ingestion contract without being misinterpreted.
+ */
 export function parseControlledFrontmatter(raw: string): Record<string, FrontmatterValue> {
   const result: Record<string, FrontmatterValue> = {};
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
   let activeListKey: string | undefined;
+  let nestedBlockIndent: number | undefined;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
     if (!line.trim() || line.trimStart().startsWith('#')) continue;
 
-    const listMatch = line.match(/^\s+-\s+(.+)$/);
-    if (listMatch && activeListKey) {
-      const current = result[activeListKey];
-      if (!Array.isArray(current)) throw new Error(`Invalid YAML list for key ${activeListKey}.`);
-      current.push(stripQuotes(listMatch[1]!.trim()));
-      continue;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+
+    if (nestedBlockIndent !== undefined) {
+      if (indent >= nestedBlockIndent) continue;
+      nestedBlockIndent = undefined;
     }
 
-    if (/^\s/.test(line)) {
-      throw new Error(`Unsupported nested YAML at frontmatter line ${index + 1}.`);
+    if (activeListKey) {
+      const listMatch = line.match(/^\s+-\s+(.+)$/);
+      if (listMatch) {
+        const current = result[activeListKey];
+        if (!Array.isArray(current)) throw new Error(`Invalid YAML list for key ${activeListKey}.`);
+        current.push(stripQuotes(listMatch[1]!.trim()));
+        continue;
+      }
+
+      if (indent > 0) {
+        // The key is a nested object rather than a scalar list. Preserve the raw
+        // frontmatter, remove the provisional list value, and skip this mapping.
+        delete result[activeListKey];
+        activeListKey = undefined;
+        nestedBlockIndent = indent;
+        continue;
+      }
+
+      activeListKey = undefined;
+    }
+
+    if (indent > 0) {
+      // A nested mapping/list belonging to a top-level key we intentionally do not
+      // flatten. Its exact representation remains available in frontmatterRaw.
+      nestedBlockIndent = indent;
+      continue;
     }
 
     const keyMatch = line.match(/^([A-Za-z0-9_-]+):(?:\s*(.*))?$/);
