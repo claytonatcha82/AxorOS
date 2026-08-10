@@ -20,7 +20,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: atlas-cloud-ingestion
@@ -54,23 +53,36 @@ jobs:
           path: .atlas-source
           persist-credentials: false
 
-      - name: Fetch AxorOS runtime secrets from Infisical
-        uses: Infisical/secrets-action@v1.0.12
-        with:
-          method: oidc
-          identity-id: ${{ vars.INFISICAL_MACHINE_IDENTITY_ID }}
-          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
-          env-slug: dev
-          secret-path: /api
-          recursive: false
-
-      - name: Validate cloud ingestion configuration
+      - name: Install Infisical CLI
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${AXOROS_DATABASE_URL:-}" || { echo 'FAIL  AXOROS_DATABASE_URL was not injected by Infisical'; exit 1; }
+          curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+          sudo apt-get update
+          sudo apt-get install -y infisical
+          infisical --version
+
+      - name: Authenticate Infisical Universal Auth
+        shell: bash
+        env:
+          INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          INFISICAL_DISABLE_UPDATE_CHECK: 'true'
+        run: |
+          set -euo pipefail
+          test -n "$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" || { echo 'FAIL  INFISICAL_CLIENT_ID is missing'; exit 1; }
+          test -n "$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" || { echo 'FAIL  INFISICAL_CLIENT_SECRET is missing'; exit 1; }
+          TOKEN="$(infisical login --method=universal-auth --silent --plain)"
+          test -n "$TOKEN" || { echo 'FAIL  Infisical Universal Auth returned no access token'; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "INFISICAL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo 'PASS  Infisical Universal Auth'
+
+      - name: Validate Atlas mirror
+        shell: bash
+        run: |
+          set -euo pipefail
           test -d "$GITHUB_WORKSPACE/.atlas-source" || { echo 'FAIL  Atlas mirror checkout is missing'; exit 1; }
-          echo 'PASS  Infisical runtime secret injection'
           echo 'PASS  Atlas mirror checkout'
 
       - name: Build AxorOS API
@@ -81,9 +93,10 @@ jobs:
         env:
           AXOROS_ATLAS_ROOT: ${{ github.workspace }}/.atlas-source
           AXOROS_KNOWLEDGE_RELEASE: ${{ inputs.knowledge_release }}
+          INFISICAL_DISABLE_UPDATE_CHECK: 'true'
         run: |
           set -euo pipefail
           export AXOROS_ATLAS_SOURCE_COMMIT="$(git -C "$AXOROS_ATLAS_ROOT" rev-parse HEAD)"
           echo "INFO  Atlas source commit: $AXOROS_ATLAS_SOURCE_COMMIT"
           echo "INFO  Knowledge release: $AXOROS_KNOWLEDGE_RELEASE"
-          node scripts/ingest-atlas.mjs
+          infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/ingest-atlas.mjs
