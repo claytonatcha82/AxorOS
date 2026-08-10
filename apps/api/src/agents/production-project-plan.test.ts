@@ -47,10 +47,9 @@ test('project plan requires components for planned pages', () => {
   assert.ok(validation.errors.includes('page plans require at least one planned component.'));
 });
 
-test('project plan rejects invalid complexity classifications', () => {
-  const plan = validPlan() as ProductionProjectPlan & { complexity: string };
-  plan.complexity = 'extreme';
-  const validation = validateProductionProjectPlan(plan as ProductionProjectPlan);
+test('project plan rejects invalid complexity classifications at runtime', () => {
+  const plan = { ...validPlan(), complexity: 'extreme' } as unknown as ProductionProjectPlan;
+  const validation = validateProductionProjectPlan(plan);
   assert.equal(validation.valid, false);
   assert.ok(validation.errors.includes('complexity must be low, medium, or high.'));
 });
