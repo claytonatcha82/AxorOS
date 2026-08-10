@@ -161,27 +161,48 @@ export function createKnowledgeRepository(pool: Pool) {
         const databaseDocumentId = String(result.rows[0]!.id);
         await client.query('delete from knowledge.chunks where document_id = $1', [databaseDocumentId]);
 
-        const insertedChunkIds: string[] = [];
-        for (const chunk of chunks) {
-          const chunkResult = await client.query(
+        if (chunks.length > 0) {
+          const parameters: unknown[] = [];
+          const rows = chunks.map((chunk) => {
+            const offset = parameters.length;
+            parameters.push(
+              databaseDocumentId,
+              chunk.index,
+              chunk.headingPath,
+              chunk.kind,
+              chunk.content,
+              chunk.groupId,
+              chunk.checksum,
+              chunk.tokenEstimate,
+              JSON.stringify({ previousIndex: chunk.previousIndex, nextIndex: chunk.nextIndex }),
+            );
+
+            return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9}::jsonb)`;
+          });
+
+          await client.query(
             `insert into knowledge.chunks
               (document_id, chunk_index, heading_path, chunk_type, content, group_id, checksum, token_estimate, metadata)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-             returning id`,
-            [
-              databaseDocumentId, chunk.index, chunk.headingPath, chunk.kind, chunk.content, chunk.groupId,
-              chunk.checksum, chunk.tokenEstimate, JSON.stringify({ previousIndex: chunk.previousIndex, nextIndex: chunk.nextIndex }),
-            ],
+             values ${rows.join(',')}`,
+            parameters,
           );
-          insertedChunkIds.push(String(chunkResult.rows[0]!.id));
-        }
 
-        for (let index = 0; index < insertedChunkIds.length; index += 1) {
           await client.query(
-            `update knowledge.chunks
-             set previous_chunk_id = $2, next_chunk_id = $3
-             where id = $1`,
-            [insertedChunkIds[index], insertedChunkIds[index - 1] ?? null, insertedChunkIds[index + 1] ?? null],
+            `with ordered as (
+               select
+                 id,
+                 lag(id) over (order by chunk_index) as previous_chunk_id,
+                 lead(id) over (order by chunk_index) as next_chunk_id
+               from knowledge.chunks
+               where document_id = $1
+             )
+             update knowledge.chunks as chunk
+             set
+               previous_chunk_id = ordered.previous_chunk_id,
+               next_chunk_id = ordered.next_chunk_id
+             from ordered
+             where chunk.id = ordered.id`,
+            [databaseDocumentId],
           );
         }
 
