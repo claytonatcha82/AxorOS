@@ -37,6 +37,35 @@ test('ingests a release and records success counts', async () => {
   assert.equal(calls.includes('fail'), false);
 });
 
+test('normalizes Atlas Production status to active', async () => {
+  let capturedStatus: string | undefined;
+  const repository = {
+    createIngestionRun: async () => 'run-production',
+    replaceDocumentWithChunks: async (_runId: string, document: { status: string }) => {
+      capturedStatus = document.status;
+      return 'doc-production';
+    },
+    completeIngestionRun: async () => undefined,
+    failIngestionRun: async () => undefined,
+  } as never;
+
+  const service = createKnowledgeIngestionService(repository);
+  await service.ingestRelease({
+    sourceCommit: 'abc123',
+    knowledgeRelease: '2026-08-10',
+    indexVersion: 'staging-1',
+    chunkingVersion: 'v1',
+    metadataSchemaVersion: 'v1',
+    documents: [{
+      path: 'Production.md',
+      lastModified: '2026-08-10T20:00:00.000Z',
+      markdown: '---\nstatus: Production\n---\n# Production',
+    }],
+  });
+
+  assert.equal(capturedStatus, 'active');
+});
+
 test('marks ingestion run failed when document validation fails', async () => {
   const calls: string[] = [];
   const repository = {
