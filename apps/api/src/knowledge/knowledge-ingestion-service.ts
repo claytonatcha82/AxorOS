@@ -5,6 +5,7 @@ import type { KnowledgeRepository, KnowledgeDocumentInput, KnowledgeStatus, Auth
 const statuses = new Set<KnowledgeStatus>(['active','draft','deprecated','archived','superseded']);
 const statusAliases = new Map<string, KnowledgeStatus>([
   ['production', 'active'],
+  ['complete', 'active'],
 ]);
 const authorities = new Set<AuthorityLevel>(['critical_policy','authoritative','recommended','reference','example','historical']);
 const securityClassifications = new Set<KnowledgeDocumentInput['securityClassification']>(['public','internal','restricted','confidential']);
