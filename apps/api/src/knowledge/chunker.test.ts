@@ -23,3 +23,17 @@ test('chunker splits long prose at paragraph boundaries', () => {
   assert.ok(chunks.length >= 2);
   assert.ok(chunks.every((chunk) => chunk.kind === 'prose'));
 });
+
+test('chunker gives repeated identical blocks distinct deterministic checksums', () => {
+  const repeated = '- [ ] Review';
+  const markdown = `# Checklist\n\n${repeated}\n\nParagraph between.\n\n${repeated}\n`;
+  const document = parseAtlasMarkdown('repeat.md', markdown);
+
+  const first = chunkAtlasDocument(document);
+  const second = chunkAtlasDocument(document);
+  const checklists = first.filter((chunk) => chunk.kind === 'checklist');
+
+  assert.equal(checklists.length, 2);
+  assert.notEqual(checklists[0]?.checksum, checklists[1]?.checksum);
+  assert.deepEqual(first.map((chunk) => chunk.checksum), second.map((chunk) => chunk.checksum));
+});
