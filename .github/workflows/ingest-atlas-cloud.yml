@@ -65,6 +65,7 @@ jobs:
       - name: Authenticate Infisical Universal Auth
         shell: bash
         env:
+          INFISICAL_API_URL: https://eu.infisical.com
           INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
           INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
           INFISICAL_DISABLE_UPDATE_CHECK: 'true'
@@ -93,6 +94,7 @@ jobs:
         env:
           AXOROS_ATLAS_ROOT: ${{ github.workspace }}/.atlas-source
           AXOROS_KNOWLEDGE_RELEASE: ${{ inputs.knowledge_release }}
+          INFISICAL_API_URL: https://eu.infisical.com
           INFISICAL_DISABLE_UPDATE_CHECK: 'true'
         run: |
           set -euo pipefail
