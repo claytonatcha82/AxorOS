@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { KnowledgeContextRequest, KnowledgeContextService } from '../knowledge/knowledge-context-service.js';
 import { createProductionAgentKnowledgeService } from './production-agent-knowledge.js';
 
+type ContextAssembler = Pick<KnowledgeContextService, 'assemble'>;
+
 test('prepares production-agent website context with fixed identity and policy', async () => {
-  let capturedRequest: Record<string, unknown> | undefined;
-  const contextService = {
-    async assemble(request: Record<string, unknown>) {
+  let capturedRequest: KnowledgeContextRequest | undefined;
+  const contextService: ContextAssembler = {
+    async assemble(request) {
       capturedRequest = request;
       return {
-        query: String(request.query),
+        query: request.query,
         context: '[ATLAS-01] Website Delivery\nUse Atlas guidance.',
         sources: [],
         includedItems: 1,
@@ -33,11 +36,11 @@ test('prepares production-agent website context with fixed identity and policy',
 });
 
 test('caller cannot override agent identity, task, or security policy', async () => {
-  let capturedRequest: Record<string, unknown> | undefined;
-  const contextService = {
-    async assemble(request: Record<string, unknown>) {
+  let capturedRequest: KnowledgeContextRequest | undefined;
+  const contextService: ContextAssembler = {
+    async assemble(request) {
       capturedRequest = request;
-      return { query: String(request.query), context: '', sources: [], includedItems: 0, truncated: false, characterCount: 0 };
+      return { query: request.query, context: '', sources: [], includedItems: 0, truncated: false, characterCount: 0 };
     },
   };
 
@@ -50,9 +53,9 @@ test('caller cannot override agent identity, task, or security policy', async ()
 });
 
 test('rejects blank objectives and oversized context requests', async () => {
-  const contextService = {
-    async assemble() {
-      return { query: '', context: '', sources: [], includedItems: 0, truncated: false, characterCount: 0 };
+  const contextService: ContextAssembler = {
+    async assemble(request) {
+      return { query: request.query, context: '', sources: [], includedItems: 0, truncated: false, characterCount: 0 };
     },
   };
   const service = createProductionAgentKnowledgeService(contextService);
