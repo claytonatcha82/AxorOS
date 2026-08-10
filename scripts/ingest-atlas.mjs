@@ -20,6 +20,8 @@ const pool = new Pool({
   max: 2,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  statement_timeout: 300_000,
+  lock_timeout: 30_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
   application_name: 'axoros-atlas-ingestion',
@@ -76,6 +78,11 @@ async function runWithTransientRetry(runner, input, maxAttempts = 3) {
 }
 
 try {
+  const timeoutResult = await pool.query('show statement_timeout');
+  const lockTimeoutResult = await pool.query('show lock_timeout');
+  console.log(`INFO  PostgreSQL statement_timeout: ${timeoutResult.rows[0]?.statement_timeout ?? 'unknown'}`);
+  console.log(`INFO  PostgreSQL lock_timeout: ${lockTimeoutResult.rows[0]?.lock_timeout ?? 'unknown'}`);
+
   const repository = createKnowledgeRepository(pool);
   const runner = createIncrementalIngestionRunner(repository);
   const result = await runWithTransientRetry(runner, {
