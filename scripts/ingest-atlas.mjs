@@ -32,10 +32,53 @@ pool.on('error', (error) => {
   console.warn(`WARN  PostgreSQL idle connection dropped; pool will reconnect on demand: ${error.message}`);
 });
 
+const transientDatabaseCodes = new Set([
+  '08000',
+  '08001',
+  '08003',
+  '08004',
+  '08006',
+  '08007',
+  '08P01',
+  '57P01',
+  '57P02',
+  '57P03',
+]);
+
+function isTransientDatabaseError(error) {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code ?? '') : '';
+  if (transientDatabaseCodes.has(code)) return true;
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /connection terminated|connection reset|socket hang up|econnreset|econnrefused|etimedout|server closed the connection unexpectedly/i.test(message);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runWithTransientRetry(runner, input, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await runner.run(input);
+    } catch (error) {
+      if (!isTransientDatabaseError(error) || attempt === maxAttempts) throw error;
+
+      const message = error instanceof Error ? error.message : String(error);
+      const backoffMs = 750 * attempt;
+      console.warn(`WARN  PostgreSQL connection interrupted (attempt ${attempt}/${maxAttempts}): ${message}`);
+      console.warn(`INFO  Retrying Atlas ingestion in ${backoffMs}ms with a fresh pooled connection`);
+      await delay(backoffMs);
+    }
+  }
+
+  throw new Error('Atlas ingestion retry loop exited unexpectedly.');
+}
+
 try {
   const repository = createKnowledgeRepository(pool);
   const runner = createIncrementalIngestionRunner(repository);
-  const result = await runner.run({
+  const result = await runWithTransientRetry(runner, {
     atlasRoot,
     sourceCommit,
     knowledgeRelease: process.env.AXOROS_KNOWLEDGE_RELEASE?.trim() || 'pilot-dev',
