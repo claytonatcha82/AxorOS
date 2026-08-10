@@ -19,7 +19,7 @@ const pool = new Pool({
   connectionString: databaseUrl,
   max: 1,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionTimeoutMillis: 75_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
   application_name: 'axoros-atlas-ingestion',
@@ -43,6 +43,11 @@ const transientDatabaseCodes = new Set([
   '57P01',
   '57P02',
   '57P03',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
 ]);
 
 function isTransientDatabaseError(error) {
@@ -50,7 +55,7 @@ function isTransientDatabaseError(error) {
   if (transientDatabaseCodes.has(code)) return true;
 
   const message = error instanceof Error ? error.message : String(error);
-  return /connection terminated|connection reset|socket hang up|econnreset|econnrefused|etimedout|server closed the connection unexpectedly/i.test(message);
+  return /connection terminated|connection timeout|connection reset|socket hang up|econnreset|econnrefused|etimedout|enotfound|eai_again|server closed the connection unexpectedly/i.test(message);
 }
 
 function delay(ms) {
@@ -76,7 +81,7 @@ async function runWithTransientRetry(runner, input, maxAttempts = 3) {
       if (!isTransientDatabaseError(error) || attempt === maxAttempts) throw error;
 
       const message = error instanceof Error ? error.message : String(error);
-      const backoffMs = 750 * attempt;
+      const backoffMs = 2_000 * attempt;
       console.warn(`WARN  PostgreSQL connection interrupted (attempt ${attempt}/${maxAttempts}): ${message}`);
       console.warn(`INFO  Retrying Atlas ingestion in ${backoffMs}ms with a fresh pooled connection`);
       await delay(backoffMs);
@@ -87,6 +92,7 @@ async function runWithTransientRetry(runner, input, maxAttempts = 3) {
 }
 
 try {
+  console.log('INFO  PostgreSQL connection timeout: 75s');
   const repository = createKnowledgeRepository(pool);
   const runner = createIncrementalIngestionRunner(repository);
   const result = await runWithTransientRetry(runner, {
