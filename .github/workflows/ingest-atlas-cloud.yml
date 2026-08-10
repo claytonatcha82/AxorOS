@@ -1,0 +1,89 @@
+name: Manual Atlas Cloud Ingestion
+
+on:
+  workflow_dispatch:
+    inputs:
+      atlas_repository:
+        description: Private Atlas mirror repository in owner/name form
+        required: true
+        type: string
+      atlas_ref:
+        description: Atlas mirror branch, tag, or commit
+        required: true
+        default: main
+        type: string
+      knowledge_release:
+        description: Knowledge release label recorded in ingestion provenance
+        required: true
+        default: pilot-dev
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: atlas-cloud-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Ingest Atlas into PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout AxorOS
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install AxorOS dependencies
+        run: npm ci
+
+      - name: Checkout private Atlas mirror
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.atlas_repository }}
+          ref: ${{ inputs.atlas_ref }}
+          token: ${{ secrets.ATLAS_READ_TOKEN }}
+          path: .atlas-source
+          persist-credentials: false
+
+      - name: Fetch AxorOS runtime secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: dev
+          secret-path: /api
+          recursive: false
+
+      - name: Validate cloud ingestion configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AXOROS_DATABASE_URL:-}" || { echo 'FAIL  AXOROS_DATABASE_URL was not injected by Infisical'; exit 1; }
+          test -d "$GITHUB_WORKSPACE/.atlas-source" || { echo 'FAIL  Atlas mirror checkout is missing'; exit 1; }
+          echo 'PASS  Infisical runtime secret injection'
+          echo 'PASS  Atlas mirror checkout'
+
+      - name: Build AxorOS API
+        run: npm run build --workspace @axoros/api
+
+      - name: Ingest Atlas mirror
+        shell: bash
+        env:
+          AXOROS_ATLAS_ROOT: ${{ github.workspace }}/.atlas-source
+          AXOROS_KNOWLEDGE_RELEASE: ${{ inputs.knowledge_release }}
+        run: |
+          set -euo pipefail
+          export AXOROS_ATLAS_SOURCE_COMMIT="$(git -C "$AXOROS_ATLAS_ROOT" rev-parse HEAD)"
+          echo "INFO  Atlas source commit: $AXOROS_ATLAS_SOURCE_COMMIT"
+          echo "INFO  Knowledge release: $AXOROS_KNOWLEDGE_RELEASE"
+          node scripts/ingest-atlas.mjs
