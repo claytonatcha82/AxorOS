@@ -17,11 +17,9 @@ if (!databaseUrl) {
 
 const pool = new Pool({
   connectionString: databaseUrl,
-  max: 2,
+  max: 1,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
-  statement_timeout: 300_000,
-  lock_timeout: 30_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
   application_name: 'axoros-atlas-ingestion',
@@ -59,9 +57,20 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function configureIngestionSession() {
+  await pool.query("set statement_timeout = '5min'");
+  await pool.query("set lock_timeout = '30s'");
+
+  const timeoutResult = await pool.query('show statement_timeout');
+  const lockTimeoutResult = await pool.query('show lock_timeout');
+  console.log(`INFO  PostgreSQL statement_timeout: ${timeoutResult.rows[0]?.statement_timeout ?? 'unknown'}`);
+  console.log(`INFO  PostgreSQL lock_timeout: ${lockTimeoutResult.rows[0]?.lock_timeout ?? 'unknown'}`);
+}
+
 async function runWithTransientRetry(runner, input, maxAttempts = 3) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
+      await configureIngestionSession();
       return await runner.run(input);
     } catch (error) {
       if (!isTransientDatabaseError(error) || attempt === maxAttempts) throw error;
@@ -78,11 +87,6 @@ async function runWithTransientRetry(runner, input, maxAttempts = 3) {
 }
 
 try {
-  const timeoutResult = await pool.query('show statement_timeout');
-  const lockTimeoutResult = await pool.query('show lock_timeout');
-  console.log(`INFO  PostgreSQL statement_timeout: ${timeoutResult.rows[0]?.statement_timeout ?? 'unknown'}`);
-  console.log(`INFO  PostgreSQL lock_timeout: ${lockTimeoutResult.rows[0]?.lock_timeout ?? 'unknown'}`);
-
   const repository = createKnowledgeRepository(pool);
   const runner = createIncrementalIngestionRunner(repository);
   const result = await runWithTransientRetry(runner, {
