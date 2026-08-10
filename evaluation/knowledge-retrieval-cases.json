@@ -1,0 +1,41 @@
+{
+  "minimumHitRate": 0.75,
+  "cases": [
+    {
+      "name": "website-development",
+      "query": "website",
+      "agent": "production_agent",
+      "task": "website_development",
+      "maximumSecurityClassification": "internal",
+      "limit": 5,
+      "minimumResults": 1
+    },
+    {
+      "name": "development-knowledge",
+      "query": "development",
+      "agent": "production_agent",
+      "task": "website_development",
+      "maximumSecurityClassification": "internal",
+      "limit": 5,
+      "minimumResults": 1
+    },
+    {
+      "name": "design-knowledge",
+      "query": "design",
+      "agent": "production_agent",
+      "task": "website_development",
+      "maximumSecurityClassification": "internal",
+      "limit": 5,
+      "minimumResults": 1
+    },
+    {
+      "name": "client-knowledge",
+      "query": "client",
+      "agent": "production_agent",
+      "task": "website_development",
+      "maximumSecurityClassification": "internal",
+      "limit": 5,
+      "minimumResults": 1
+    }
+  ]
+}
