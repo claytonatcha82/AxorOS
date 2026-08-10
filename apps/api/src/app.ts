@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axoros/contracts';
 import type { ApiConfig } from './config.js';
 import type { DatabaseHealth } from './database.js';
+import type { KnowledgeContextRequest, KnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import type { KnowledgeRetrievalRequest, KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent } from './logger.js';
 import { getMetricsSnapshot, recordHttpRequest, recordReadinessFailure } from './metrics.js';
@@ -10,6 +11,7 @@ import { getMetricsSnapshot, recordHttpRequest, recordReadinessFailure } from '.
 type JsonBody = ApiSuccessResponse<unknown> | ApiErrorResponse | HealthResponse;
 type DatabaseCheck = () => Promise<DatabaseHealth>;
 type KnowledgeRetriever = Pick<KnowledgeRetrievalService, 'retrieve'>;
+type KnowledgeContextAssembler = Pick<KnowledgeContextService, 'assemble'>;
 
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
@@ -52,13 +54,18 @@ async function readJsonObject(request: IncomingMessage): Promise<Record<string, 
   }
 }
 
-function optionalLimit(value: unknown): number | undefined {
+function optionalInteger(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error('invalid_limit');
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`invalid_${field}`);
   return value;
 }
 
-export function createRequestHandler(config: ApiConfig, checkDatabase?: DatabaseCheck, knowledgeRetriever?: KnowledgeRetriever) {
+export function createRequestHandler(
+  config: ApiConfig,
+  checkDatabase?: DatabaseCheck,
+  knowledgeRetriever?: KnowledgeRetriever,
+  knowledgeContextAssembler?: KnowledgeContextAssembler,
+) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const startedAt = performance.now();
     const requestId = request.headers['x-request-id']?.toString().trim() || randomUUID();
@@ -147,11 +154,8 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
           body = await readJsonObject(request);
         } catch (error) {
           const code = error instanceof Error ? error.message : 'invalid_json_body';
-          if (code === 'request_body_too_large') {
-            sendError(response, 413, code, 'Request body exceeds the allowed size.', requestId, corsHeaders);
-          } else {
-            sendError(response, 400, 'invalid_json_body', 'Request body must be a JSON object.', requestId, corsHeaders);
-          }
+          if (code === 'request_body_too_large') sendError(response, 413, code, 'Request body exceeds the allowed size.', requestId, corsHeaders);
+          else sendError(response, 400, 'invalid_json_body', 'Request body must be a JSON object.', requestId, corsHeaders);
           return;
         }
 
@@ -159,7 +163,7 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
           const query = typeof body.query === 'string' ? body.query : '';
           const agent = typeof body.agent === 'string' ? body.agent : '';
           const task = typeof body.task === 'string' ? body.task : '';
-          const limit = optionalLimit(body.limit);
+          const limit = optionalInteger(body.limit, 'limit');
           const retrievalRequest: KnowledgeRetrievalRequest = {
             query,
             agent,
@@ -181,6 +185,56 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
           const message = error instanceof Error ? error.message : 'Invalid knowledge retrieval request.';
           logEvent('warn', 'knowledge_retrieval_rejected', { requestId, reason: message });
           sendError(response, 400, 'invalid_knowledge_retrieval_request', message, requestId, corsHeaders);
+        }
+        return;
+      }
+
+      if (request.method === 'POST' && request.url === '/api/v1/knowledge/context') {
+        if (!knowledgeContextAssembler) {
+          sendError(response, 503, 'knowledge_context_not_configured', 'Knowledge context assembly is not configured.', requestId, corsHeaders);
+          return;
+        }
+
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonObject(request);
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'invalid_json_body';
+          if (code === 'request_body_too_large') sendError(response, 413, code, 'Request body exceeds the allowed size.', requestId, corsHeaders);
+          else sendError(response, 400, 'invalid_json_body', 'Request body must be a JSON object.', requestId, corsHeaders);
+          return;
+        }
+
+        try {
+          const query = typeof body.query === 'string' ? body.query : '';
+          const agent = typeof body.agent === 'string' ? body.agent : '';
+          const task = typeof body.task === 'string' ? body.task : '';
+          const limit = optionalInteger(body.limit, 'limit');
+          const maxCharacters = optionalInteger(body.maxCharacters, 'max_characters');
+          const contextRequest: KnowledgeContextRequest = {
+            query,
+            agent,
+            task,
+            maximumSecurityClassification: 'internal',
+            ...(limit === undefined ? {} : { limit }),
+            ...(maxCharacters === undefined ? {} : { maxCharacters }),
+          };
+          const contextPackage = await knowledgeContextAssembler.assemble(contextRequest);
+
+          logEvent('info', 'knowledge_context_assembled', {
+            requestId,
+            agent: agent.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            task: task.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            includedItems: contextPackage.includedItems,
+            truncated: contextPackage.truncated,
+            characterCount: contextPackage.characterCount,
+          });
+
+          sendJson(response, 200, { ok: true, requestId, data: contextPackage }, requestId, corsHeaders);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Invalid knowledge context request.';
+          logEvent('warn', 'knowledge_context_rejected', { requestId, reason: message });
+          sendError(response, 400, 'invalid_knowledge_context_request', message, requestId, corsHeaders);
         }
         return;
       }
