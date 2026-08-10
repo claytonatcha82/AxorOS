@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axoros/contracts';
 import type { ApiConfig } from './config.js';
 import type { DatabaseHealth } from './database.js';
-import type { KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
+import type { KnowledgeRetrievalRequest, KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent } from './logger.js';
 import { getMetricsSnapshot, recordHttpRequest, recordReadinessFailure } from './metrics.js';
 
@@ -159,13 +159,15 @@ export function createRequestHandler(config: ApiConfig, checkDatabase?: Database
           const query = typeof body.query === 'string' ? body.query : '';
           const agent = typeof body.agent === 'string' ? body.agent : '';
           const task = typeof body.task === 'string' ? body.task : '';
-          const results = await knowledgeRetriever.retrieve({
+          const limit = optionalLimit(body.limit);
+          const retrievalRequest: KnowledgeRetrievalRequest = {
             query,
             agent,
             task,
             maximumSecurityClassification: 'internal',
-            limit: optionalLimit(body.limit),
-          });
+            ...(limit === undefined ? {} : { limit }),
+          };
+          const results = await knowledgeRetriever.retrieve(retrievalRequest);
 
           logEvent('info', 'knowledge_retrieval_completed', {
             requestId,
