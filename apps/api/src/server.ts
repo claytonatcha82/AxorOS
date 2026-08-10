@@ -3,6 +3,8 @@ import { createRequestHandler } from './app.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { checkDatabase, createDatabasePool } from './database.js';
+import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
+import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent, setExternalLogSink } from './logger.js';
 
 const config = loadConfig();
@@ -15,7 +17,9 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 }
 
 const databasePool = createDatabasePool(config.databaseUrl);
-const server = createServer(createRequestHandler(config, () => checkDatabase(databasePool)));
+const knowledgeRepository = createKnowledgeRepository(databasePool);
+const knowledgeRetrievalService = createKnowledgeRetrievalService(knowledgeRepository);
+const server = createServer(createRequestHandler(config, () => checkDatabase(databasePool), knowledgeRetrievalService));
 let shuttingDown = false;
 
 function shutdown(signal: NodeJS.Signals): void {
@@ -59,6 +63,7 @@ server.listen(config.port, config.host, () => {
     port: config.port,
     nodeVersion: process.version,
     databaseConfigured: true,
+    knowledgeRetrievalConfigured: true,
     externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
   });
 });
