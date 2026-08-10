@@ -3,6 +3,9 @@ import { parseAtlasMarkdown } from './markdown-parser.js';
 import type { KnowledgeRepository, KnowledgeDocumentInput, KnowledgeStatus, AuthorityLevel } from './knowledge-repository.js';
 
 const statuses = new Set<KnowledgeStatus>(['active','draft','deprecated','archived','superseded']);
+const statusAliases = new Map<string, KnowledgeStatus>([
+  ['production', 'active'],
+]);
 const authorities = new Set<AuthorityLevel>(['critical_policy','authoritative','recommended','reference','example','historical']);
 const securityClassifications = new Set<KnowledgeDocumentInput['securityClassification']>(['public','internal','restricted','confidential']);
 
@@ -16,6 +19,14 @@ function normalizedControlledValue(value: unknown, fallback: string): string {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
+}
+
+function normalizeKnowledgeStatus(value: unknown): KnowledgeStatus {
+  const normalized = normalizedControlledValue(value, 'active');
+  const aliased = statusAliases.get(normalized);
+  if (aliased) return aliased;
+  if (statuses.has(normalized as KnowledgeStatus)) return normalized as KnowledgeStatus;
+  throw new Error(`Invalid knowledge status: ${stringValue(value, 'active')}`);
 }
 
 function stringArray(value: unknown): string[] {
@@ -36,11 +47,10 @@ function inferTitle(sourcePath: string, body: string): string {
 function buildDocumentInput(sourcePath: string, sourceVersion: string, lastModified: string, markdown: string): { document: KnowledgeDocumentInput; chunks: ReturnType<typeof chunkAtlasDocument> } {
   const parsed = parseAtlasMarkdown(sourcePath, markdown);
   const metadata = parsed.metadata;
-  const statusRaw = normalizedControlledValue(metadata.status, 'active') as KnowledgeStatus;
+  const statusRaw = normalizeKnowledgeStatus(metadata.status);
   const authorityRaw = normalizedControlledValue(metadata.authority_level, 'reference') as AuthorityLevel;
   const securityClassification = normalizedControlledValue(metadata.security_classification, 'internal') as KnowledgeDocumentInput['securityClassification'];
 
-  if (!statuses.has(statusRaw)) throw new Error(`Invalid knowledge status: ${stringValue(metadata.status, 'active')}`);
   if (!authorities.has(authorityRaw)) throw new Error(`Invalid authority_level: ${stringValue(metadata.authority_level, 'reference')}`);
   if (!securityClassifications.has(securityClassification)) {
     throw new Error(`Invalid security_classification: ${stringValue(metadata.security_classification, 'internal')}`);
