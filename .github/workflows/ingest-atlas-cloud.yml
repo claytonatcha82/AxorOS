@@ -58,7 +58,7 @@ jobs:
         uses: Infisical/secrets-action@v1.0.12
         with:
           method: oidc
-          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          identity-id: ${{ vars.INFISICAL_MACHINE_IDENTITY_ID }}
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: dev
           secret-path: /api
