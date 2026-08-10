@@ -49,11 +49,21 @@ export const value = 1;
   assert.match(parsed.checksum, /^[a-f0-9]{64}$/);
 });
 
-test('rejects nested frontmatter instead of silently flattening it', () => {
-  assert.throws(
-    () => parseControlledFrontmatter('security:\n  classification: restricted'),
-    /Unsupported nested YAML/,
-  );
+test('tolerates nested frontmatter without flattening it into controlled metadata', () => {
+  const raw = `title: Example
+status: Active
+security:
+  classification: restricted
+  controls:
+    - audit
+allowed_agents:
+  - production
+  - qa`;
+  const parsed = parseControlledFrontmatter(raw);
+  assert.equal(parsed.title, 'Example');
+  assert.equal(parsed.status, 'Active');
+  assert.equal(parsed.security, undefined);
+  assert.deepEqual(parsed.allowed_agents, ['production', 'qa']);
 });
 
 test('rejects unclosed frontmatter and code fences', () => {
