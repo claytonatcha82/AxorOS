@@ -171,7 +171,7 @@ export function chunkAtlasDocument(document: AtlasMarkdownDocument, targetChars 
     content: block.content,
     headingPath: block.headingPath,
     groupId: block.groupId,
-    checksum: checksum(`${document.checksum}|${block.kind}|${block.headingPath.join('>')}|${block.content}`),
+    checksum: checksum(`${document.checksum}|${block.groupId}|${block.kind}|${block.headingPath.join('>')}|${block.content}`),
     previousIndex: index > 0 ? index - 1 : null,
     nextIndex: index < blocks.length - 1 ? index + 1 : null,
     tokenEstimate: estimateTokens(block.content),
