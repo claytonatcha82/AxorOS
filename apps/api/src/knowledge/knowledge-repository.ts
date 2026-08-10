@@ -46,16 +46,31 @@ export interface IngestionRunInput {
 export function createKnowledgeRepository(pool: Pool) {
   async function withTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await pool.connect();
+    let connectionBroken = false;
+
+    const handleClientError = (): void => {
+      connectionBroken = true;
+    };
+
+    client.on('error', handleClientError);
+
     try {
       await client.query('begin');
       const result = await work(client);
       await client.query('commit');
       return result;
     } catch (error) {
-      await client.query('rollback');
+      if (!connectionBroken) {
+        try {
+          await client.query('rollback');
+        } catch {
+          connectionBroken = true;
+        }
+      }
       throw error;
     } finally {
-      client.release();
+      client.removeListener('error', handleClientError);
+      client.release(connectionBroken);
     }
   }
 
