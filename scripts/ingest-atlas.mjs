@@ -15,7 +15,23 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: databaseUrl, max: 2, connectionTimeoutMillis: 5000 });
+const pool = new Pool({
+  connectionString: databaseUrl,
+  max: 2,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
+  application_name: 'axoros-atlas-ingestion',
+});
+
+pool.on('error', (error) => {
+  // node-postgres automatically removes a failed idle client from the pool.
+  // Handling the event prevents a transient backend/network disconnect from
+  // becoming an uncaught EventEmitter error that terminates the ingestion CLI.
+  console.warn(`WARN  PostgreSQL idle connection dropped; pool will reconnect on demand: ${error.message}`);
+});
+
 try {
   const repository = createKnowledgeRepository(pool);
   const runner = createIncrementalIngestionRunner(repository);
@@ -36,6 +52,10 @@ try {
   console.log(`PASS  Ingested documents: ${result.ingestedDocuments}`);
   console.log(`PASS  Ingested chunks: ${result.ingestedChunks}`);
   if (result.runId) console.log(`INFO  Ingestion run: ${result.runId}`);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`FAIL  Atlas ingestion failed: ${message}`);
+  process.exitCode = 1;
 } finally {
   await pool.end();
 }
