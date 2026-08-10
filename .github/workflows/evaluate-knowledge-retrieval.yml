@@ -1,0 +1,68 @@
+name: Evaluate Knowledge Retrieval
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-retrieval-evaluation
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Evaluate Atlas knowledge retrieval
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout AxorOS
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Infisical CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+          sudo apt-get update
+          sudo apt-get install -y infisical
+          infisical --version
+
+      - name: Authenticate Infisical Universal Auth
+        shell: bash
+        env:
+          INFISICAL_API_URL: https://eu.infisical.com
+          INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          INFISICAL_DISABLE_UPDATE_CHECK: 'true'
+        run: |
+          set -euo pipefail
+          test -n "$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" || { echo 'FAIL  INFISICAL_CLIENT_ID is missing'; exit 1; }
+          test -n "$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" || { echo 'FAIL  INFISICAL_CLIENT_SECRET is missing'; exit 1; }
+          TOKEN="$(infisical login --method=universal-auth --silent --plain)"
+          test -n "$TOKEN" || { echo 'FAIL  Infisical Universal Auth returned no access token'; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "INFISICAL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo 'PASS  Infisical Universal Auth'
+
+      - name: Build AxorOS API
+        run: npm run build --workspace @axoros/api
+
+      - name: Evaluate real knowledge retrieval
+        shell: bash
+        env:
+          INFISICAL_API_URL: https://eu.infisical.com
+          INFISICAL_DISABLE_UPDATE_CHECK: 'true'
+        run: |
+          set -euo pipefail
+          infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/evaluate-knowledge-retrieval.mjs
