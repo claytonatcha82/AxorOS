@@ -11,8 +11,9 @@ export const OPERATIONS_AGENT_KNOWLEDGE_POLICY = {
 
 export function createOperationsAgentKnowledgeService(contextService: Pick<KnowledgeContextService, 'assemble'>) {
   return {
-    async assemble(query: string, maxCharacters = OPERATIONS_AGENT_KNOWLEDGE_POLICY.defaultMaxCharacters) {
+    async assemble(query: string, maxCharacters: number = OPERATIONS_AGENT_KNOWLEDGE_POLICY.defaultMaxCharacters) {
       if (!query.trim()) throw new Error('query is required.');
+      if (!Number.isInteger(maxCharacters) || maxCharacters < 1_000) throw new Error('operations knowledge context must be an integer of at least 1000 characters.');
       if (maxCharacters > OPERATIONS_AGENT_KNOWLEDGE_POLICY.absoluteMaxCharacters) throw new Error('operations knowledge context exceeds absolute maximum.');
       const request: KnowledgeContextRequest = {
         query: query.trim(),
