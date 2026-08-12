@@ -21,14 +21,16 @@ export function createKnowledgeAgentService(contextService: Pick<KnowledgeContex
       }
 
       const domainQuery = request.requiredContext.join(' ');
-      return contextService.assemble({
+      const contextRequest: KnowledgeContextRequest = {
         query: `${request.query.trim()} ${domainQuery}`.trim(),
         agent: request.requestingAgent,
         task: request.task,
         maximumSecurityClassification: request.maximumSecurityClassification,
-        limit: request.limit,
-        maxCharacters: request.maxCharacters,
-      });
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+        ...(request.maxCharacters === undefined ? {} : { maxCharacters: request.maxCharacters }),
+      };
+
+      return contextService.assemble(contextRequest);
     },
   };
 }
