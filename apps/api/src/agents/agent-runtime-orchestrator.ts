@@ -1,9 +1,11 @@
 import type { AgentObjectiveConflict } from './agent-objective-conflicts.js';
-import type { AgentRuntimeResult, CoreAgentId } from './agent-runtime-contract.js';
+import type { AgentRuntimeResult, AgentRuntimeTask, CoreAgentId } from './agent-runtime-contract.js';
+import { findCircularDependencies, resolveTaskDependencies, taskParticipatesInCycle } from './agent-runtime-dependencies.js';
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { recordRuntimeIdempotency, runtimeIdempotencyKey } from './agent-runtime-idempotency.js';
 import { runtimeRetryRoute, canTransitionAgentExecution } from './agent-runtime-lifecycle.js';
 import { evaluateRuntimeObjectiveConflict } from './agent-runtime-objective-conflicts.js';
+import { canScheduleForCapacity, type AgentCapacity } from './agent-runtime-scheduler.js';
 import { applyRuntimeEvent, type AgentRuntimeEvent, type AgentRuntimeExecutionRecord } from './agent-runtime-state.js';
 import type { AgentRuntimeStore } from './agent-runtime-store.js';
 
@@ -14,10 +16,16 @@ export interface RuntimeOrchestratorDependencies {
   createEventId?: () => string;
 }
 
+export interface RuntimeSchedulingContext {
+  tasks: readonly AgentRuntimeTask[];
+  capacity: AgentCapacity;
+}
+
 export interface ExecuteRuntimeTaskInput {
   executionId: string;
   capabilityId: string;
   objectiveConflict?: AgentObjectiveConflict;
+  scheduling?: RuntimeSchedulingContext;
 }
 
 export interface ResolveRuntimeApprovalInput {
@@ -112,6 +120,11 @@ async function persistEvent(
   return next;
 }
 
+function schedulingTasks(record: AgentRuntimeExecutionRecord, context: RuntimeSchedulingContext): AgentRuntimeTask[] {
+  const tasks = context.tasks.filter((task) => task.taskId !== record.task.taskId);
+  return [...tasks, record.task];
+}
+
 export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestratorDependencies) {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const createEventId = dependencies.createEventId ?? (() => crypto.randomUUID());
@@ -129,7 +142,75 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
         return { record: current, replayed: true };
       }
 
-      if (record.task.status !== 'ready') throw new Error(`runtime execution must be ready before execution; received ${record.task.status}.`);
+      if (record.task.status !== 'ready' && !(record.task.status === 'waiting' && input.scheduling)) {
+        throw new Error(`runtime execution must be ready before execution; received ${record.task.status}.`);
+      }
+
+      if (input.scheduling) {
+        const tasks = schedulingTasks(record, input.scheduling);
+        const tasksById = new Map(tasks.map((task) => [task.taskId, task]));
+        const cycles = findCircularDependencies(tasks);
+        const operation = `scheduling:${record.task.attempt}`;
+
+        if (taskParticipatesInCycle(record.task.taskId, cycles)) {
+          if (record.task.status !== 'blocked') {
+            const blocked = transitionEvent(record, 'blocked', `${operation}:cycle`, now(), createEventId(), {
+              decision: 'blocked_cycle',
+              owner: 'operations_agent',
+            });
+            record = await persistEvent(dependencies.store, record, blocked, undefined, (task) => ({
+              ...task,
+              nextAction: 'operations_resolve_dependency_cycle',
+            }));
+          }
+          return { record, replayed: false };
+        }
+
+        const dependencyResolution = resolveTaskDependencies(record.task, tasksById);
+        if (!dependencyResolution.ready) {
+          if (record.task.status === 'ready') {
+            const waiting = transitionEvent(record, 'waiting', `${operation}:dependencies`, now(), createEventId(), {
+              decision: 'waiting_dependencies',
+              missingDependencies: dependencyResolution.missingDependencies,
+              incompleteDependencies: dependencyResolution.incompleteDependencies,
+              owner: 'operations_agent',
+            });
+            record = await persistEvent(dependencies.store, record, waiting, undefined, (task) => ({
+              ...task,
+              nextAction: 'wait_for_dependencies',
+            }));
+          }
+          return { record, replayed: false };
+        }
+
+        if (!canScheduleForCapacity(record.task, input.scheduling.capacity)) {
+          if (record.task.status === 'ready') {
+            const waiting = transitionEvent(record, 'waiting', `${operation}:capacity`, now(), createEventId(), {
+              decision: 'deferred_capacity',
+              capacityState: input.scheduling.capacity.state,
+              activeTasks: input.scheduling.capacity.activeTasks,
+              maxConcurrentTasks: input.scheduling.capacity.maxConcurrentTasks,
+              owner: 'operations_agent',
+            });
+            record = await persistEvent(dependencies.store, record, waiting, undefined, (task) => ({
+              ...task,
+              nextAction: 'wait_for_destination_capacity',
+            }));
+          }
+          return { record, replayed: false };
+        }
+
+        if (record.task.status === 'waiting') {
+          const ready = transitionEvent(record, 'ready', `${operation}:ready`, now(), createEventId(), {
+            decision: 'ready',
+            owner: 'operations_agent',
+          });
+          record = await persistEvent(dependencies.store, record, ready, undefined, (task) => ({
+            ...task,
+            nextAction: 'execute_destination_capability',
+          }));
+        }
+      }
 
       if (input.objectiveConflict) {
         const decision = evaluateRuntimeObjectiveConflict(record.task, input.objectiveConflict);
