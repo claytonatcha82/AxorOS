@@ -14,6 +14,11 @@ test('runtime lifecycle supports governed approval review and resume', () => {
   assert.equal(canTransitionAgentExecution('review', 'escalated'), true);
 });
 
+test('runtime lifecycle supports scheduling wait and resume', () => {
+  assert.equal(canTransitionAgentExecution('ready', 'waiting'), true);
+  assert.equal(canTransitionAgentExecution('waiting', 'ready'), true);
+});
+
 test('runtime lifecycle supports critical pre-execution governance escalation', () => {
   assert.equal(canTransitionAgentExecution('ready', 'escalated'), true);
 });
