@@ -1,4 +1,4 @@
-import type { AgentRuntimeResult } from './agent-runtime-contract.js';
+import type { AgentRuntimeResult, CoreAgentId } from './agent-runtime-contract.js';
 import { runtimeRetryRoute, canTransitionAgentExecution } from './agent-runtime-lifecycle.js';
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { recordRuntimeIdempotency, runtimeIdempotencyKey } from './agent-runtime-idempotency.js';
@@ -17,9 +17,27 @@ export interface ExecuteRuntimeTaskInput {
   capabilityId: string;
 }
 
+export interface ResolveRuntimeApprovalInput {
+  executionId: string;
+  actor: CoreAgentId | 'human_executive';
+  decision: 'approved' | 'rejected';
+  reason?: string;
+}
+
+export interface RetryRuntimeTaskInput {
+  executionId: string;
+  capabilityId: string;
+  alternativeCapabilityId?: string;
+}
+
 export interface RuntimeExecutionOutcome {
   record: AgentRuntimeExecutionRecord;
   replayed: boolean;
+}
+
+export interface RuntimeRetryOutcome extends RuntimeExecutionOutcome {
+  route: 'retry_same' | 'retry_alternative' | 'escalate';
+  nextCapabilityId?: string;
 }
 
 function validateHandlerResult(record: AgentRuntimeExecutionRecord, result: AgentRuntimeResult): void {
@@ -31,16 +49,14 @@ function validateHandlerResult(record: AgentRuntimeExecutionRecord, result: Agen
   }
 }
 
-function transitionEvent(
+function event(
   record: AgentRuntimeExecutionRecord,
-  toStatus: AgentRuntimeEvent['toStatus'],
   type: AgentRuntimeEvent['type'],
   operation: string,
   occurredAt: string,
   eventId: string,
   payload: Record<string, unknown> = {},
 ): AgentRuntimeEvent {
-  if (!toStatus) throw new Error('runtime transition requires a destination status.');
   return {
     eventId,
     executionId: record.task.executionId,
@@ -48,32 +64,48 @@ function transitionEvent(
     correlationId: record.task.correlationId,
     type,
     actor: 'runtime',
-    fromStatus: record.task.status,
-    toStatus,
     payload,
     idempotencyKey: runtimeIdempotencyKey('runtime', record.task.executionId, operation),
     occurredAt,
   };
 }
 
+function transitionEvent(
+  record: AgentRuntimeExecutionRecord,
+  toStatus: AgentRuntimeEvent['toStatus'],
+  operation: string,
+  occurredAt: string,
+  eventId: string,
+  payload: Record<string, unknown> = {},
+): AgentRuntimeEvent {
+  if (!toStatus) throw new Error('runtime transition requires a destination status.');
+  return {
+    ...event(record, 'status_transitioned', operation, occurredAt, eventId, payload),
+    fromStatus: record.task.status,
+    toStatus,
+  };
+}
+
 async function persistEvent(
   store: AgentRuntimeStore,
   previous: AgentRuntimeExecutionRecord,
-  event: AgentRuntimeEvent,
+  runtimeEvent: AgentRuntimeEvent,
   result?: AgentRuntimeResult,
+  updateTask?: (task: AgentRuntimeExecutionRecord['task']) => AgentRuntimeExecutionRecord['task'],
 ): Promise<AgentRuntimeExecutionRecord> {
-  const duplicate = await store.hasIdempotencyKey(event.idempotencyKey);
+  const duplicate = await store.hasIdempotencyKey(runtimeEvent.idempotencyKey);
   if (duplicate) {
     const current = await store.getExecution(previous.task.executionId);
     if (!current) throw new Error('runtime idempotency record exists but execution state is missing.');
     return current;
   }
 
-  let next = applyRuntimeEvent(previous, event);
+  let next = applyRuntimeEvent(previous, runtimeEvent);
+  if (updateTask) next = { ...next, task: updateTask(next.task) };
   if (result) next = { ...next, result };
   await store.saveExecution(next, previous.version);
-  await store.appendEvent(event);
-  await store.saveIdempotencyRecord(recordRuntimeIdempotency(event, event.type));
+  await store.appendEvent(runtimeEvent);
+  await store.saveIdempotencyRecord(recordRuntimeIdempotency(runtimeEvent, runtimeEvent.type));
   return next;
 }
 
@@ -95,8 +127,18 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
 
       if (record.task.status !== 'ready') throw new Error(`runtime execution must be ready before execution; received ${record.task.status}.`);
 
+      if (record.task.approvalRequired) {
+        const approvalOwner = record.task.approvalOwner;
+        if (!approvalOwner) throw new Error('approvalRequired runtime task is missing approvalOwner.');
+        const requested = event(record, 'approval_requested', `approval-requested:${record.task.attempt}`, now(), createEventId(), { approvalOwner });
+        record = await persistEvent(dependencies.store, record, requested);
+        const review = transitionEvent(record, 'review', `approval-review:${record.task.attempt}`, now(), createEventId(), { approvalOwner });
+        record = await persistEvent(dependencies.store, record, review, undefined, (task) => ({ ...task, nextAction: 'obtain_required_approval' }));
+        return { record, replayed: false };
+      }
+
       const handler = dependencies.handlers.require(record.task.destinationAgent, input.capabilityId);
-      const dispatch = transitionEvent(record, 'in_progress', 'status_transitioned', `dispatch:${input.capabilityId}`, now(), createEventId(), {
+      const dispatch = transitionEvent(record, 'in_progress', `dispatch:${input.capabilityId}`, now(), createEventId(), {
         capabilityId: input.capabilityId,
       });
       record = await persistEvent(dependencies.store, record, dispatch);
@@ -104,7 +146,7 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
       try {
         const result = await handler.execute(record.task);
         validateHandlerResult(record, result);
-        const completion = transitionEvent(record, result.status, 'status_transitioned', `result:${input.capabilityId}:${record.task.attempt}`, now(), createEventId(), {
+        const completion = transitionEvent(record, result.status, `result:${input.capabilityId}:${record.task.attempt}`, now(), createEventId(), {
           confidence: result.confidence,
         });
         record = await persistEvent(dependencies.store, record, completion, result);
@@ -126,13 +168,107 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
           errorMessage: error instanceof Error ? error.message : String(error),
           completedAt: now(),
         };
-        const failure = transitionEvent(record, targetStatus, 'status_transitioned', `failure:${input.capabilityId}:${record.task.attempt}`, now(), createEventId(), {
+        const failure = transitionEvent(record, targetStatus, `failure:${input.capabilityId}:${record.task.attempt}`, now(), createEventId(), {
           retryRoute: route,
           errorCode: failureResult.errorCode,
         });
-        record = await persistEvent(dependencies.store, record, failure, failureResult);
+        record = await persistEvent(dependencies.store, record, failure, failureResult, (task) => ({
+          ...task,
+          nextAction: route === 'escalate' ? 'escalate_to_operations_or_executive' : 'schedule_governed_retry',
+        }));
         return { record, replayed: false };
       }
+    },
+
+    async resolveApproval(input: ResolveRuntimeApprovalInput): Promise<RuntimeExecutionOutcome> {
+      let record = await dependencies.store.getExecution(input.executionId);
+      if (!record) throw new Error(`runtime execution ${input.executionId} was not found.`);
+      if (record.task.status !== 'review') throw new Error(`runtime approval requires review status; received ${record.task.status}.`);
+      if (!record.task.approvalRequired || !record.task.approvalOwner) throw new Error('runtime execution is not awaiting a governed approval.');
+      if (record.task.approvalOwner !== input.actor) throw new Error(`runtime approval must be resolved by ${record.task.approvalOwner}.`);
+
+      const operation = `approval-${input.decision}:${record.task.attempt}`;
+      const idempotencyKey = runtimeIdempotencyKey('runtime', record.task.executionId, operation);
+      if (await dependencies.store.hasIdempotencyKey(idempotencyKey)) {
+        const current = await dependencies.store.getExecution(input.executionId);
+        if (!current) throw new Error('runtime approval idempotency record exists but execution state is missing.');
+        return { record: current, replayed: true };
+      }
+
+      const approvalEvent = event(
+        record,
+        input.decision === 'approved' ? 'approval_granted' : 'approval_rejected',
+        operation,
+        now(),
+        createEventId(),
+        { actor: input.actor, ...(input.reason ? { reason: input.reason } : {}) },
+      );
+      record = await persistEvent(dependencies.store, record, approvalEvent);
+
+      if (input.decision === 'approved') {
+        const approved = transitionEvent(record, 'ready', `approval-ready:${record.task.attempt}`, now(), createEventId(), { actor: input.actor });
+        record = await persistEvent(dependencies.store, record, approved, undefined, (task) => ({
+          ...task,
+          approvalRequired: false,
+          nextAction: 'execute_destination_capability',
+        }));
+      } else {
+        const rejected = transitionEvent(record, 'escalated', `approval-escalated:${record.task.attempt}`, now(), createEventId(), { actor: input.actor });
+        record = await persistEvent(dependencies.store, record, rejected, undefined, (task) => ({
+          ...task,
+          nextAction: 'resolve_rejected_approval',
+        }));
+      }
+
+      return { record, replayed: false };
+    },
+
+    async retry(input: RetryRuntimeTaskInput): Promise<RuntimeRetryOutcome> {
+      let record = await dependencies.store.getExecution(input.executionId);
+      if (!record) throw new Error(`runtime execution ${input.executionId} was not found.`);
+      if (record.task.status !== 'failed') throw new Error(`runtime retry requires failed status; received ${record.task.status}.`);
+
+      const highRisk = record.task.priority === 'critical' || record.task.risks.length > 0;
+      let route = runtimeRetryRoute(record.task.attempt, highRisk);
+      if (record.task.attempt >= record.task.maxAttempts) route = 'escalate';
+
+      if (route === 'escalate') {
+        const escalated = transitionEvent(record, 'escalated', `retry-escalated:${record.task.attempt}`, now(), createEventId(), { retryRoute: route });
+        record = await persistEvent(dependencies.store, record, escalated, undefined, (task) => ({
+          ...task,
+          nextAction: 'escalate_to_operations_or_executive',
+        }));
+        return { record, replayed: false, route };
+      }
+
+      const nextCapabilityId = route === 'retry_same' ? input.capabilityId : input.alternativeCapabilityId;
+      if (!nextCapabilityId) throw new Error('alternativeCapabilityId is required for retry_alternative routing.');
+      dependencies.handlers.require(record.task.destinationAgent, nextCapabilityId);
+
+      const retryOperation = `retry-scheduled:${record.task.attempt}:${route}:${nextCapabilityId}`;
+      const retryKey = runtimeIdempotencyKey('runtime', record.task.executionId, retryOperation);
+      if (await dependencies.store.hasIdempotencyKey(retryKey)) {
+        const current = await dependencies.store.getExecution(input.executionId);
+        if (!current) throw new Error('runtime retry idempotency record exists but execution state is missing.');
+        return { record: current, replayed: true, route, nextCapabilityId };
+      }
+
+      const scheduled = event(record, 'retry_scheduled', retryOperation, now(), createEventId(), {
+        retryRoute: route,
+        capabilityId: nextCapabilityId,
+        nextAttempt: record.task.attempt + 1,
+      });
+      record = await persistEvent(dependencies.store, record, scheduled);
+
+      const ready = transitionEvent(record, 'ready', `retry-ready:${record.task.attempt}:${route}`, now(), createEventId(), { retryRoute: route });
+      record = await persistEvent(dependencies.store, record, ready, undefined, (task) => ({
+        ...task,
+        attempt: task.attempt + 1,
+        context: { ...task.context, runtimeRetryCapabilityId: nextCapabilityId, runtimeRetryRoute: route },
+        nextAction: route === 'retry_same' ? 'retry_same_capability' : 'retry_alternative_capability',
+      }));
+
+      return { record, replayed: false, route, nextCapabilityId };
     },
   };
 }
