@@ -19,19 +19,26 @@ function mapExecution(row: Record<string, unknown>): AgentRuntimeExecutionRecord
 }
 
 function mapEvent(row: Record<string, unknown>): AgentRuntimeEvent {
-  return {
+  const event: AgentRuntimeEvent = {
     eventId: String(row.event_id),
     executionId: String(row.execution_id),
     taskId: String(row.task_id),
     correlationId: String(row.correlation_id),
     type: String(row.event_type) as AgentRuntimeEvent['type'],
     actor: String(row.actor) as AgentRuntimeEvent['actor'],
-    ...(row.from_status === null ? {} : { fromStatus: String(row.from_status) as AgentRuntimeEvent['fromStatus'] }),
-    ...(row.to_status === null ? {} : { toStatus: String(row.to_status) as AgentRuntimeEvent['toStatus'] }),
     payload: parseJson<Record<string, unknown>>(row.payload),
     idempotencyKey: String(row.idempotency_key),
     occurredAt: new Date(String(row.occurred_at)).toISOString(),
   };
+
+  if (row.from_status !== null && row.from_status !== undefined) {
+    event.fromStatus = String(row.from_status) as NonNullable<AgentRuntimeEvent['fromStatus']>;
+  }
+  if (row.to_status !== null && row.to_status !== undefined) {
+    event.toStatus = String(row.to_status) as NonNullable<AgentRuntimeEvent['toStatus']>;
+  }
+
+  return event;
 }
 
 export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
