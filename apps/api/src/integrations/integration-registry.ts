@@ -1,8 +1,11 @@
 import type { ExternalIntegration, IntegrationRequest, IntegrationResponse } from './integration-contract.js';
 import { validateIntegrationRequest } from './integration-contract.js';
+import { enforceIntegrationPolicy, SAFE_INTEGRATION_POLICY, type IntegrationExecutionPolicy } from './integration-policy.js';
 
 export class IntegrationRegistry {
   private readonly integrations = new Map<string, ExternalIntegration>();
+
+  constructor(private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY) {}
 
   register(integration: ExternalIntegration): void {
     if (!integration.integrationId.trim()) throw new Error('integrationId is required.');
@@ -28,6 +31,7 @@ export class IntegrationRegistry {
   async execute(request: IntegrationRequest): Promise<IntegrationResponse> {
     const errors = validateIntegrationRequest(request);
     if (errors.length) throw new Error(errors.join(' '));
+    enforceIntegrationPolicy(request, this.policy);
 
     const integration = this.require(request.integrationId);
     if (!integration.supportedModes.includes(request.mode)) {
