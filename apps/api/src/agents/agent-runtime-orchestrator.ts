@@ -1,7 +1,9 @@
+import type { AgentObjectiveConflict } from './agent-objective-conflicts.js';
 import type { AgentRuntimeResult, CoreAgentId } from './agent-runtime-contract.js';
-import { runtimeRetryRoute, canTransitionAgentExecution } from './agent-runtime-lifecycle.js';
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { recordRuntimeIdempotency, runtimeIdempotencyKey } from './agent-runtime-idempotency.js';
+import { runtimeRetryRoute, canTransitionAgentExecution } from './agent-runtime-lifecycle.js';
+import { evaluateRuntimeObjectiveConflict } from './agent-runtime-objective-conflicts.js';
 import { applyRuntimeEvent, type AgentRuntimeEvent, type AgentRuntimeExecutionRecord } from './agent-runtime-state.js';
 import type { AgentRuntimeStore } from './agent-runtime-store.js';
 
@@ -15,6 +17,7 @@ export interface RuntimeOrchestratorDependencies {
 export interface ExecuteRuntimeTaskInput {
   executionId: string;
   capabilityId: string;
+  objectiveConflict?: AgentObjectiveConflict;
 }
 
 export interface ResolveRuntimeApprovalInput {
@@ -127,6 +130,45 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
       }
 
       if (record.task.status !== 'ready') throw new Error(`runtime execution must be ready before execution; received ${record.task.status}.`);
+
+      if (input.objectiveConflict) {
+        const decision = evaluateRuntimeObjectiveConflict(record.task, input.objectiveConflict);
+        const operation = `objective-conflict:${input.objectiveConflict.conflictId}:${record.task.attempt}`;
+        const conflictEvent = event(record, 'execution_escalated', operation, now(), createEventId(), {
+          conflictId: input.objectiveConflict.conflictId,
+          businessImpact: input.objectiveConflict.businessImpact,
+          owner: decision.owner,
+          action: decision.action,
+          reason: decision.reason,
+        });
+        record = await persistEvent(dependencies.store, record, conflictEvent);
+
+        if (decision.action === 'review') {
+          const review = transitionEvent(record, 'review', `${operation}:review`, now(), createEventId(), {
+            conflictId: input.objectiveConflict.conflictId,
+            owner: decision.owner,
+          });
+          record = await persistEvent(dependencies.store, record, review, undefined, (task) => ({
+            ...task,
+            approvalRequired: true,
+            approvalOwner: decision.owner,
+            nextAction: 'resolve_objective_conflict',
+          }));
+          return { record, replayed: false };
+        }
+
+        if (decision.action === 'escalate') {
+          const escalated = transitionEvent(record, 'escalated', `${operation}:escalated`, now(), createEventId(), {
+            conflictId: input.objectiveConflict.conflictId,
+            owner: decision.owner,
+          });
+          record = await persistEvent(dependencies.store, record, escalated, undefined, (task) => ({
+            ...task,
+            nextAction: 'human_executive_resolve_objective_conflict',
+          }));
+          return { record, replayed: false };
+        }
+      }
 
       if (record.task.approvalRequired) {
         const approvalOwner = record.task.approvalOwner;
