@@ -2,12 +2,14 @@ import type { ExternalIntegration, IntegrationRequest, IntegrationResponse } fro
 import { validateIntegrationRequest } from './integration-contract.js';
 import { enforceIntegrationPolicy, SAFE_INTEGRATION_POLICY, type IntegrationExecutionPolicy } from './integration-policy.js';
 
+type AnyExternalIntegration = ExternalIntegration<unknown, unknown>;
+
 export class IntegrationRegistry {
-  private readonly integrations = new Map<string, ExternalIntegration>();
+  private readonly integrations = new Map<string, AnyExternalIntegration>();
 
   constructor(private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY) {}
 
-  register(integration: ExternalIntegration): void {
+  register<TInput, TOutput>(integration: ExternalIntegration<TInput, TOutput>): void {
     if (!integration.integrationId.trim()) throw new Error('integrationId is required.');
     if (!integration.provider.trim()) throw new Error('integration provider is required.');
     if (integration.supportedModes.length === 0) throw new Error('integration must support at least one mode.');
@@ -15,14 +17,14 @@ export class IntegrationRegistry {
     if (this.integrations.has(integration.integrationId)) {
       throw new Error(`integration already registered: ${integration.integrationId}.`);
     }
-    this.integrations.set(integration.integrationId, integration);
+    this.integrations.set(integration.integrationId, integration as AnyExternalIntegration);
   }
 
-  get(integrationId: string): ExternalIntegration | undefined {
+  get(integrationId: string): AnyExternalIntegration | undefined {
     return this.integrations.get(integrationId);
   }
 
-  require(integrationId: string): ExternalIntegration {
+  require(integrationId: string): AnyExternalIntegration {
     const integration = this.get(integrationId);
     if (!integration) throw new Error(`integration is not registered: ${integrationId}.`);
     return integration;
