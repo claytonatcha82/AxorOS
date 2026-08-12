@@ -1,6 +1,13 @@
 import type { AgentRuntimeExecutionRecord, AgentRuntimeEvent } from './agent-runtime-state.js';
 import type { RuntimeIdempotencyRecord } from './agent-runtime-idempotency.js';
 
+export interface RuntimeMutation {
+  record: AgentRuntimeExecutionRecord;
+  expectedVersion: number;
+  event: AgentRuntimeEvent;
+  idempotencyRecord: RuntimeIdempotencyRecord;
+}
+
 export interface AgentRuntimeStore {
   getExecution(executionId: string): Promise<AgentRuntimeExecutionRecord | null>;
   saveExecution(record: AgentRuntimeExecutionRecord, expectedVersion: number): Promise<void>;
@@ -8,6 +15,7 @@ export interface AgentRuntimeStore {
   listEvents(executionId: string): Promise<readonly AgentRuntimeEvent[]>;
   hasIdempotencyKey(idempotencyKey: string): Promise<boolean>;
   saveIdempotencyRecord(record: RuntimeIdempotencyRecord): Promise<void>;
+  commitRuntimeMutation?(mutation: RuntimeMutation): Promise<void>;
 }
 
 export class RuntimeVersionConflictError extends Error {
