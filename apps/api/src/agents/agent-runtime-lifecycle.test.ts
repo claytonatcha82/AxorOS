@@ -8,6 +8,12 @@ test('runtime lifecycle blocks invalid shortcuts', () => {
   assert.equal(canTransitionAgentExecution('completed', 'in_progress'), false);
 });
 
+test('runtime lifecycle supports governed approval review and resume', () => {
+  assert.equal(canTransitionAgentExecution('ready', 'review'), true);
+  assert.equal(canTransitionAgentExecution('review', 'ready'), true);
+  assert.equal(canTransitionAgentExecution('review', 'escalated'), true);
+});
+
 test('retry policy follows operations safeguards', () => {
   assert.equal(runtimeRetryRoute(1, false), 'retry_same');
   assert.equal(runtimeRetryRoute(2, false), 'retry_alternative');
