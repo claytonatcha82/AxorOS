@@ -1,7 +1,7 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { AgentRuntimeExecutionRecord, AgentRuntimeEvent } from '../agents/agent-runtime-state.js';
 import type { RuntimeIdempotencyRecord } from '../agents/agent-runtime-idempotency.js';
-import { RuntimeVersionConflictError, type AgentRuntimeStore } from '../agents/agent-runtime-store.js';
+import { RuntimeVersionConflictError, type AgentRuntimeStore, type RuntimeMutation } from '../agents/agent-runtime-store.js';
 
 function parseJson<T>(value: unknown): T {
   if (typeof value === 'string') return JSON.parse(value) as T;
@@ -41,6 +41,113 @@ function mapEvent(row: Record<string, unknown>): AgentRuntimeEvent {
   return event;
 }
 
+async function saveExecutionWithClient(client: Pick<PoolClient, 'query'>, record: AgentRuntimeExecutionRecord, expectedVersion: number): Promise<void> {
+  if (expectedVersion === 0) {
+    const result = await client.query(
+      `insert into runtime.agent_executions
+         (execution_id, task_id, correlation_id, destination_agent, status, version, task, result, last_event_id, persisted_at)
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
+       on conflict (execution_id) do nothing
+       returning execution_id`,
+      [
+        record.task.executionId,
+        record.task.taskId,
+        record.task.correlationId,
+        record.task.destinationAgent,
+        record.task.status,
+        record.version,
+        JSON.stringify(record.task),
+        record.result ? JSON.stringify(record.result) : null,
+        record.lastEventId ?? null,
+        record.persistedAt,
+      ],
+    );
+    if (result.rowCount !== 1) throw new RuntimeVersionConflictError(record.task.executionId);
+    return;
+  }
+
+  const result = await client.query(
+    `update runtime.agent_executions
+     set task_id = $2,
+         correlation_id = $3,
+         destination_agent = $4,
+         status = $5,
+         version = $6,
+         task = $7::jsonb,
+         result = $8::jsonb,
+         last_event_id = $9,
+         persisted_at = $10,
+         updated_at = now()
+     where execution_id = $1 and version = $11
+     returning execution_id`,
+    [
+      record.task.executionId,
+      record.task.taskId,
+      record.task.correlationId,
+      record.task.destinationAgent,
+      record.task.status,
+      record.version,
+      JSON.stringify(record.task),
+      record.result ? JSON.stringify(record.result) : null,
+      record.lastEventId ?? null,
+      record.persistedAt,
+      expectedVersion,
+    ],
+  );
+  if (result.rowCount !== 1) throw new RuntimeVersionConflictError(record.task.executionId);
+}
+
+async function appendEventWithClient(client: Pick<PoolClient, 'query'>, event: AgentRuntimeEvent): Promise<void> {
+  await client.query(
+    `insert into runtime.agent_events
+       (event_id, execution_id, task_id, correlation_id, event_type, actor, from_status, to_status, payload, idempotency_key, occurred_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)`,
+    [
+      event.eventId,
+      event.executionId,
+      event.taskId,
+      event.correlationId,
+      event.type,
+      event.actor,
+      event.fromStatus ?? null,
+      event.toStatus ?? null,
+      JSON.stringify(event.payload),
+      event.idempotencyKey,
+      event.occurredAt,
+    ],
+  );
+}
+
+async function saveIdempotencyWithClient(client: Pick<PoolClient, 'query'>, record: RuntimeIdempotencyRecord): Promise<void> {
+  await client.query(
+    `insert into runtime.idempotency_records
+       (idempotency_key, execution_id, event_id, operation, first_seen_at, completed)
+     values ($1, $2, $3, $4, $5, $6)
+     on conflict (idempotency_key) do nothing`,
+    [record.idempotencyKey, record.executionId, record.eventId, record.operation, record.firstSeenAt, record.completed],
+  );
+}
+
+async function commitRuntimeMutation(pool: Pool, mutation: RuntimeMutation): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await saveExecutionWithClient(client, mutation.record, mutation.expectedVersion);
+    await appendEventWithClient(client, mutation.event);
+    await saveIdempotencyWithClient(client, mutation.idempotencyRecord);
+    await client.query('commit');
+  } catch (error) {
+    try {
+      await client.query('rollback');
+    } catch {
+      // Preserve the original transaction failure.
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
   return {
     async getExecution(executionId) {
@@ -54,80 +161,11 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
     },
 
     async saveExecution(record, expectedVersion) {
-      if (expectedVersion === 0) {
-        const result = await pool.query(
-          `insert into runtime.agent_executions
-             (execution_id, task_id, correlation_id, destination_agent, status, version, task, result, last_event_id, persisted_at)
-           values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
-           on conflict (execution_id) do nothing
-           returning execution_id`,
-          [
-            record.task.executionId,
-            record.task.taskId,
-            record.task.correlationId,
-            record.task.destinationAgent,
-            record.task.status,
-            record.version,
-            JSON.stringify(record.task),
-            record.result ? JSON.stringify(record.result) : null,
-            record.lastEventId ?? null,
-            record.persistedAt,
-          ],
-        );
-        if (result.rowCount !== 1) throw new RuntimeVersionConflictError(record.task.executionId);
-        return;
-      }
-
-      const result = await pool.query(
-        `update runtime.agent_executions
-         set task_id = $2,
-             correlation_id = $3,
-             destination_agent = $4,
-             status = $5,
-             version = $6,
-             task = $7::jsonb,
-             result = $8::jsonb,
-             last_event_id = $9,
-             persisted_at = $10,
-             updated_at = now()
-         where execution_id = $1 and version = $11
-         returning execution_id`,
-        [
-          record.task.executionId,
-          record.task.taskId,
-          record.task.correlationId,
-          record.task.destinationAgent,
-          record.task.status,
-          record.version,
-          JSON.stringify(record.task),
-          record.result ? JSON.stringify(record.result) : null,
-          record.lastEventId ?? null,
-          record.persistedAt,
-          expectedVersion,
-        ],
-      );
-      if (result.rowCount !== 1) throw new RuntimeVersionConflictError(record.task.executionId);
+      await saveExecutionWithClient(pool, record, expectedVersion);
     },
 
     async appendEvent(event) {
-      await pool.query(
-        `insert into runtime.agent_events
-           (event_id, execution_id, task_id, correlation_id, event_type, actor, from_status, to_status, payload, idempotency_key, occurred_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)`,
-        [
-          event.eventId,
-          event.executionId,
-          event.taskId,
-          event.correlationId,
-          event.type,
-          event.actor,
-          event.fromStatus ?? null,
-          event.toStatus ?? null,
-          JSON.stringify(event.payload),
-          event.idempotencyKey,
-          event.occurredAt,
-        ],
-      );
+      await appendEventWithClient(pool, event);
     },
 
     async listEvents(executionId) {
@@ -150,14 +188,12 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
       return (result.rowCount ?? result.rows.length) > 0;
     },
 
-    async saveIdempotencyRecord(record: RuntimeIdempotencyRecord) {
-      await pool.query(
-        `insert into runtime.idempotency_records
-           (idempotency_key, execution_id, event_id, operation, first_seen_at, completed)
-         values ($1, $2, $3, $4, $5, $6)
-         on conflict (idempotency_key) do nothing`,
-        [record.idempotencyKey, record.executionId, record.eventId, record.operation, record.firstSeenAt, record.completed],
-      );
+    async saveIdempotencyRecord(record) {
+      await saveIdempotencyWithClient(pool, record);
+    },
+
+    async commitRuntimeMutation(mutation) {
+      await commitRuntimeMutation(pool, mutation);
     },
   };
 }
