@@ -195,5 +195,17 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
     async commitRuntimeMutation(mutation) {
       await commitRuntimeMutation(pool, mutation);
     },
+
+    async listStaleInProgressExecutions(before, limit) {
+      const result = await pool.query(
+        `select task, result, version, last_event_id, persisted_at
+         from runtime.agent_executions
+         where status = 'in_progress' and persisted_at < $1
+         order by persisted_at asc
+         limit $2`,
+        [before, limit],
+      );
+      return result.rows.map((row) => mapExecution(row as Record<string, unknown>));
+    },
   };
 }
