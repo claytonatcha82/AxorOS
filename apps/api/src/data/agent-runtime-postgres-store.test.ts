@@ -59,7 +59,7 @@ test('postgres runtime store inserts a new execution with optimistic create sema
   const calls: Array<{ sql: string; values?: unknown[] }> = [];
   const pool = {
     query: async (sql: string, values?: unknown[]) => {
-      calls.push({ sql, values });
+      calls.push(values === undefined ? { sql } : { sql, values });
       return result([{ execution_id: 'exec-1' }], 1);
     },
   } as unknown as Pool;
