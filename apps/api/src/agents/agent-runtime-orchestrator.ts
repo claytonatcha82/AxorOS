@@ -412,7 +412,7 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
           return { record, replayed: false, route: 'escalate' };
         }
 
-        nextCapabilityId = alternativeCapabilityId;
+        nextCapabilityId = alternativeHandler.capabilityId;
       }
 
       const retryOperation = `retry-scheduled:${record.task.attempt}:${route}:${nextCapabilityId}`;
