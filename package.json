@@ -23,6 +23,8 @@
     "dev:api": "npm run dev --workspace @axoros/api",
     "dev:api:secrets": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- npm run dev:api",
     "verify:db:secrets": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- npm run verify:db",
+    "runtime:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-runtime-migration.mjs",
+    "runtime:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-runtime-persistence.mjs",
     "ingest:atlas": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/ingest-atlas.mjs",
     "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
     "typecheck": "npm run typecheck --workspace @axoros/contracts && npm run typecheck --workspace @axoros/api && npm run typecheck --workspace @axoros/control-center",
