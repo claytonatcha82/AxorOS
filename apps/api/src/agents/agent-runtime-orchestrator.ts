@@ -153,16 +153,14 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
         const operation = `scheduling:${record.task.attempt}`;
 
         if (taskParticipatesInCycle(record.task.taskId, cycles)) {
-          if (record.task.status !== 'blocked') {
-            const blocked = transitionEvent(record, 'blocked', `${operation}:cycle`, now(), createEventId(), {
-              decision: 'blocked_cycle',
-              owner: 'operations_agent',
-            });
-            record = await persistEvent(dependencies.store, record, blocked, undefined, (task) => ({
-              ...task,
-              nextAction: 'operations_resolve_dependency_cycle',
-            }));
-          }
+          const blocked = transitionEvent(record, 'blocked', `${operation}:cycle`, now(), createEventId(), {
+            decision: 'blocked_cycle',
+            owner: 'operations_agent',
+          });
+          record = await persistEvent(dependencies.store, record, blocked, undefined, (task) => ({
+            ...task,
+            nextAction: 'operations_resolve_dependency_cycle',
+          }));
           return { record, replayed: false };
         }
 
