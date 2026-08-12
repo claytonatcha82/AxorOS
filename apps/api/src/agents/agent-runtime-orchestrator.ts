@@ -374,9 +374,46 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
         return { record, replayed: false, route };
       }
 
-      const nextCapabilityId = route === 'retry_same' ? input.capabilityId : input.alternativeCapabilityId;
-      if (!nextCapabilityId) throw new Error('alternativeCapabilityId is required for retry_alternative routing.');
-      dependencies.handlers.require(record.task.destinationAgent, nextCapabilityId);
+      let nextCapabilityId: string;
+      if (route === 'retry_same') {
+        nextCapabilityId = input.capabilityId;
+        dependencies.handlers.require(record.task.destinationAgent, nextCapabilityId);
+      } else {
+        const alternativeCapabilityId = input.alternativeCapabilityId?.trim();
+        const alternativeHandler = alternativeCapabilityId && alternativeCapabilityId !== input.capabilityId
+          ? dependencies.handlers.get(record.task.destinationAgent, alternativeCapabilityId)
+          : undefined;
+
+        if (!alternativeHandler) {
+          const reason = !alternativeCapabilityId
+            ? 'alternative_capability_missing'
+            : alternativeCapabilityId === input.capabilityId
+              ? 'alternative_capability_not_distinct'
+              : 'alternative_capability_unavailable';
+          const escalated = transitionEvent(
+            record,
+            'escalated',
+            `retry-alternative-escalated:${record.task.attempt}:${reason}`,
+            now(),
+            createEventId(),
+            {
+              requestedRetryRoute: route,
+              retryRoute: 'escalate',
+              reason,
+              capabilityId: input.capabilityId,
+              ...(alternativeCapabilityId ? { alternativeCapabilityId } : {}),
+              owner: 'operations_agent',
+            },
+          );
+          record = await persistEvent(dependencies.store, record, escalated, undefined, (task) => ({
+            ...task,
+            nextAction: 'operations_resolve_retry_alternative',
+          }));
+          return { record, replayed: false, route: 'escalate' };
+        }
+
+        nextCapabilityId = alternativeCapabilityId;
+      }
 
       const retryOperation = `retry-scheduled:${record.task.attempt}:${route}:${nextCapabilityId}`;
       const retryKey = runtimeIdempotencyKey('runtime', record.task.executionId, retryOperation);
