@@ -2,7 +2,7 @@ import type { AgentExecutionStatus } from './agent-runtime-contract.js';
 
 const transitions: Record<AgentExecutionStatus, readonly AgentExecutionStatus[]> = {
   queued: ['ready', 'cancelled'],
-  ready: ['in_progress', 'review', 'blocked', 'cancelled', 'escalated'],
+  ready: ['in_progress', 'waiting', 'review', 'blocked', 'cancelled', 'escalated'],
   in_progress: ['waiting', 'review', 'completed', 'blocked', 'failed', 'escalated'],
   waiting: ['ready', 'in_progress', 'blocked', 'failed', 'escalated', 'cancelled'],
   review: ['ready', 'completed', 'in_progress', 'blocked', 'escalated'],
