@@ -118,7 +118,8 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
       let record = await dependencies.store.getExecution(input.executionId);
       if (!record) throw new Error(`runtime execution ${input.executionId} was not found.`);
 
-      const dispatchKey = runtimeIdempotencyKey('runtime', record.task.executionId, `dispatch:${input.capabilityId}`);
+      const dispatchOperation = `dispatch:${input.capabilityId}:${record.task.attempt}`;
+      const dispatchKey = runtimeIdempotencyKey('runtime', record.task.executionId, dispatchOperation);
       if (await dependencies.store.hasIdempotencyKey(dispatchKey)) {
         const current = await dependencies.store.getExecution(input.executionId);
         if (!current) throw new Error('runtime dispatch idempotency record exists but execution state is missing.');
@@ -138,7 +139,7 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
       }
 
       const handler = dependencies.handlers.require(record.task.destinationAgent, input.capabilityId);
-      const dispatch = transitionEvent(record, 'in_progress', `dispatch:${input.capabilityId}`, now(), createEventId(), {
+      const dispatch = transitionEvent(record, 'in_progress', dispatchOperation, now(), createEventId(), {
         capabilityId: input.capabilityId,
       });
       record = await persistEvent(dependencies.store, record, dispatch);
