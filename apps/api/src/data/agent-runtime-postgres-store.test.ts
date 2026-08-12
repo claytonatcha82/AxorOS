@@ -131,3 +131,29 @@ test('postgres runtime store checks idempotency records deterministically', asyn
   const store = createAgentRuntimePostgresStore(pool);
   assert.equal(await store.hasIdempotencyKey('runtime:exec-1:dispatch'), true);
 });
+
+test('postgres runtime store queries only stale in-progress executions', async () => {
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  const stale = sampleRecord(2);
+  stale.task.status = 'in_progress';
+  const pool = {
+    query: async (sql: string, values?: unknown[]) => {
+      calls.push(values === undefined ? { sql } : { sql, values });
+      return result([{
+        task: stale.task,
+        result: null,
+        version: stale.version,
+        last_event_id: 'event-dispatch',
+        persisted_at: stale.persistedAt,
+      }]);
+    },
+  } as unknown as Pool;
+
+  const store = createAgentRuntimePostgresStore(pool);
+  const records = await store.listStaleInProgressExecutions?.('2026-08-12T18:05:00.000Z', 25);
+
+  assert.equal(records?.length, 1);
+  assert.equal(records?.[0]?.task.status, 'in_progress');
+  assert.match(calls[0]!.sql, /where status = 'in_progress' and persisted_at < \$1/);
+  assert.deepEqual(calls[0]!.values, ['2026-08-12T18:05:00.000Z', 25]);
+});
