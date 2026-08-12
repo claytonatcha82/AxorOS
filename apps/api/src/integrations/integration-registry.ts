@@ -28,10 +28,12 @@ export class IntegrationRegistry {
     return integration;
   }
 
-  async execute(request: IntegrationRequest): Promise<IntegrationResponse> {
-    const errors = validateIntegrationRequest(request);
+  async execute<TInput = Record<string, unknown>, TOutput = Record<string, unknown>>(
+    request: IntegrationRequest<TInput>,
+  ): Promise<IntegrationResponse<TOutput>> {
+    const errors = validateIntegrationRequest(request as IntegrationRequest);
     if (errors.length) throw new Error(errors.join(' '));
-    enforceIntegrationPolicy(request, this.policy);
+    enforceIntegrationPolicy(request as IntegrationRequest, this.policy);
 
     const integration = this.require(request.integrationId);
     if (!integration.supportedModes.includes(request.mode)) {
@@ -41,6 +43,7 @@ export class IntegrationRegistry {
       throw new Error(`integration ${request.integrationId} does not support operation ${request.operation}.`);
     }
 
-    return integration.execute(request);
+    const typedIntegration = integration as ExternalIntegration<TInput, TOutput>;
+    return typedIntegration.execute(request);
   }
 }
