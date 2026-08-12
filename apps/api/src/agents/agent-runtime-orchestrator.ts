@@ -114,9 +114,20 @@ async function persistEvent(
   let next = applyRuntimeEvent(previous, runtimeEvent);
   if (updateTask) next = { ...next, task: updateTask(next.task) };
   if (result) next = { ...next, result };
-  await store.saveExecution(next, previous.version);
-  await store.appendEvent(runtimeEvent);
-  await store.saveIdempotencyRecord(recordRuntimeIdempotency(runtimeEvent, runtimeEvent.type));
+  const idempotencyRecord = recordRuntimeIdempotency(runtimeEvent, runtimeEvent.type);
+
+  if (store.commitRuntimeMutation) {
+    await store.commitRuntimeMutation({
+      record: next,
+      expectedVersion: previous.version,
+      event: runtimeEvent,
+      idempotencyRecord,
+    });
+  } else {
+    await store.saveExecution(next, previous.version);
+    await store.appendEvent(runtimeEvent);
+    await store.saveIdempotencyRecord(idempotencyRecord);
+  }
   return next;
 }
 
