@@ -2,6 +2,7 @@ import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import type { AgentRuntimeHandler } from './agent-runtime-handlers.js';
 import type { AgentRuntimeResult, AgentRuntimeTask } from './agent-runtime-contract.js';
 import type { EmailDraftOutput, EmailMessageInput, EmailRecipient } from '../integrations/email-integration.js';
+import { assertAgentMayUseEmailIdentity } from '../integrations/email-identity-policy.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 
 export const SALES_EMAIL_DRAFT_CAPABILITY = 'create_sales_email_draft';
@@ -44,6 +45,8 @@ export function createSalesEmailDraftHandler(integrations: IntegrationRegistry):
       }
 
       const input = readInputs(task);
+      assertAgentMayUseEmailIdentity('sales_agent', input.fromIdentity);
+
       const response = await integrations.execute<EmailMessageInput, EmailDraftOutput>({
         integrationId: 'email.draft',
         operation: 'create_draft',
