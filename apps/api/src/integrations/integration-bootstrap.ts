@@ -1,0 +1,29 @@
+import type { ApiConfig } from '../config.js';
+import { createGeminiModelIntegration } from './gemini-model-integration.js';
+import { IntegrationRegistry } from './integration-registry.js';
+import { createSandboxModelIntegration } from './sandbox-model-integration.js';
+
+export interface IntegrationBootstrapResult {
+  registry: IntegrationRegistry;
+  registeredIntegrationIds: readonly string[];
+}
+
+export function createConfiguredIntegrationRegistry(config: ApiConfig): IntegrationBootstrapResult {
+  const registry = new IntegrationRegistry();
+  const registeredIntegrationIds: string[] = [];
+
+  const sandbox = createSandboxModelIntegration();
+  registry.register(sandbox);
+  registeredIntegrationIds.push(sandbox.integrationId);
+
+  if (config.geminiApiKey) {
+    const gemini = createGeminiModelIntegration({
+      apiKey: config.geminiApiKey,
+      ...(config.geminiModel ? { model: config.geminiModel } : {}),
+    });
+    registry.register(gemini);
+    registeredIntegrationIds.push(gemini.integrationId);
+  }
+
+  return { registry, registeredIntegrationIds };
+}
