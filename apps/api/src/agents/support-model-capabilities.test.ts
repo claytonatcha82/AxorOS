@@ -82,7 +82,7 @@ test('Support Agent Gemini capability remains draft-only and evidence-bound', as
   assert.equal(result.output.provider, 'google-gemini');
   assert.equal(result.output.mode, 'draft');
   assert.deepEqual(result.knowledgeReferences, ['atlas://support/incident-policy']);
-  assert.deepEqual(result.evidenceReferences, ['mock:support:synthetic', 'integration:model.gemini']);
+  assert.deepEqual(result.evidenceReferences, ['mock:support:synthetic']);
 
   assert.equal(capturedInput?.prompt, 'Analyse a report that the synthetic website is intermittently unavailable.');
   assert.equal(capturedInput?.context, 'Synthetic test only. No verified root cause, remediation, or restoration evidence is available.');
