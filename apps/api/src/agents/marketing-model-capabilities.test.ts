@@ -14,7 +14,7 @@ function task() {
     destinationAgent: 'marketing_agent' as const,
     objective: 'Draft approved marketing copy',
     priority: 'normal' as const,
-    context: 'Synthetic test only',
+    context: { note: 'Synthetic test only' },
     knowledgeReferences: ['atlas://marketing/test'],
     inputs: {
       brief: 'Write a short headline for a fictional web design service.',
