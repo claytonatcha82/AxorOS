@@ -10,6 +10,10 @@ export interface ApiConfig {
   betterStackSourceToken?: string;
   geminiApiKey?: string;
   geminiModel?: string;
+  gmailClientId?: string;
+  gmailClientSecret?: string;
+  gmailRefreshToken?: string;
+  gmailIdentityAddresses?: Readonly<Record<string, string>>;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -30,6 +34,35 @@ function optionalHttpsUrl(value: string | undefined, field: string): string | un
   }
   if (parsed.protocol !== 'https:') throw new Error(`${field} must use HTTPS.`);
   return parsed.origin;
+}
+
+function parseGmailIdentityAddresses(value: string | undefined): Readonly<Record<string, string>> | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error('Invalid AXOROS_GMAIL_IDENTITY_ADDRESSES JSON.');
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('AXOROS_GMAIL_IDENTITY_ADDRESSES must be a JSON object.');
+  }
+
+  const addresses: Record<string, string> = {};
+  for (const [identity, address] of Object.entries(parsed)) {
+    if (!identity.trim() || typeof address !== 'string' || !address.trim()) {
+      throw new Error('AXOROS_GMAIL_IDENTITY_ADDRESSES contains an invalid identity or address.');
+    }
+    addresses[identity.trim()] = address.trim();
+  }
+
+  if (Object.keys(addresses).length === 0) {
+    throw new Error('AXOROS_GMAIL_IDENTITY_ADDRESSES must contain at least one identity.');
+  }
+  return addresses;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -80,6 +113,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const geminiApiKey = env.GEMINI_API_KEY?.trim() || undefined;
   const geminiModel = env.AXOROS_GEMINI_MODEL?.trim() || undefined;
 
+  const gmailClientId = env.AXOROS_GMAIL_CLIENT_ID?.trim() || undefined;
+  const gmailClientSecret = env.AXOROS_GMAIL_CLIENT_SECRET?.trim() || undefined;
+  const gmailRefreshToken = env.AXOROS_GMAIL_REFRESH_TOKEN?.trim() || undefined;
+  const gmailIdentityAddresses = parseGmailIdentityAddresses(env.AXOROS_GMAIL_IDENTITY_ADDRESSES);
+  const gmailParts = [gmailClientId, gmailClientSecret, gmailRefreshToken, gmailIdentityAddresses];
+  const configuredGmailParts = gmailParts.filter((part) => part !== undefined).length;
+  if (configuredGmailParts !== 0 && configuredGmailParts !== gmailParts.length) {
+    throw new Error('Gmail draft integration requires client ID, client secret, refresh token, and identity addresses together.');
+  }
+
   const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
@@ -92,6 +135,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (betterStackSourceToken) config.betterStackSourceToken = betterStackSourceToken;
   if (geminiApiKey) config.geminiApiKey = geminiApiKey;
   if (geminiModel) config.geminiModel = geminiModel;
+  if (gmailClientId) config.gmailClientId = gmailClientId;
+  if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
+  if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
+  if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
 
   return config;
 }
