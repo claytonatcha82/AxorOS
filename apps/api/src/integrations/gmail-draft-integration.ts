@@ -157,20 +157,22 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
         };
       }
 
+      const output: EmailDraftOutput = {
+        draftId: payload.id,
+        fromIdentity: request.input.fromIdentity,
+        recipients: request.input.to.map((recipient) => recipient.email),
+        subject: request.input.subject,
+        preview: request.input.textBody.slice(0, 160),
+        ...(payload.message?.id ? { messageId: payload.message.id } : {}),
+      };
+
       return {
         integrationId: 'email.gmail',
         operation: request.operation,
         provider: 'google-gmail',
         mode: request.mode,
         status: 'drafted',
-        output: {
-          draftId: payload.id,
-          messageId: payload.message?.id,
-          fromIdentity: request.input.fromIdentity,
-          recipients: request.input.to.map((recipient) => recipient.email),
-          subject: request.input.subject,
-          preview: request.input.textBody.slice(0, 160),
-        },
+        output,
         externalReference: payload.id,
         evidenceReferences: [`gmail:draft:${payload.id}`],
         retryable: false,
