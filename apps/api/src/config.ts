@@ -8,6 +8,8 @@ export interface ApiConfig {
   databaseUrl?: string;
   betterStackIngestingHost?: string;
   betterStackSourceToken?: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -75,6 +77,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error('Better Stack ingesting host and source token must be configured together.');
   }
 
+  const geminiApiKey = env.GEMINI_API_KEY?.trim() || undefined;
+  const geminiModel = env.AXOROS_GEMINI_MODEL?.trim() || undefined;
+
   const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
@@ -85,6 +90,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (databaseUrl) config.databaseUrl = databaseUrl;
   if (betterStackIngestingHost) config.betterStackIngestingHost = betterStackIngestingHost;
   if (betterStackSourceToken) config.betterStackSourceToken = betterStackSourceToken;
+  if (geminiApiKey) config.geminiApiKey = geminiApiKey;
+  if (geminiModel) config.geminiModel = geminiModel;
 
   return config;
 }
