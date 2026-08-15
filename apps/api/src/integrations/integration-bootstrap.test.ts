@@ -13,12 +13,13 @@ function baseConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
   };
 }
 
-test('configured registry always includes sandbox and omits Gemini without a key', () => {
+test('configured registry always includes sandbox and omits optional providers without credentials', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig());
 
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox']);
   assert.equal(registry.get('model.sandbox')?.provider, 'axoros-sandbox');
   assert.equal(registry.get('model.gemini'), undefined);
+  assert.equal(registry.get('email.gmail'), undefined);
 });
 
 test('configured registry registers Gemini only when a key is configured', () => {
@@ -30,4 +31,19 @@ test('configured registry registers Gemini only when a key is configured', () =>
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'model.gemini']);
   assert.equal(registry.require('model.gemini').provider, 'google-gemini');
   assert.deepEqual(registry.require('model.gemini').supportedModes, ['draft']);
+});
+
+test('configured registry registers Gmail as draft-only when complete credentials are configured', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'email.gmail']);
+  const gmail = registry.require('email.gmail');
+  assert.equal(gmail.provider, 'google-gmail');
+  assert.deepEqual(gmail.supportedModes, ['draft']);
+  assert.deepEqual(gmail.supportedOperations, ['create_draft']);
 });
