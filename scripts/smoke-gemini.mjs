@@ -1,16 +1,22 @@
-import { IntegrationRegistry } from '../apps/api/dist/integrations/integration-registry.js';
-import { createConfiguredModelIntegrations } from '../apps/api/dist/integrations/model-integration-bootstrap.js';
+import { createConfiguredIntegrationRegistry } from '../apps/api/dist/integrations/integration-bootstrap.js';
 
 const apiKey = process.env.GEMINI_API_KEY?.trim();
 if (!apiKey) {
   throw new Error('GEMINI_API_KEY is required. Inject it with Infisical; do not paste it into source code or chat.');
 }
 
-const registry = new IntegrationRegistry();
-createConfiguredModelIntegrations(registry, {
+const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry({
+  environment: 'development',
+  host: '127.0.0.1',
+  port: 3001,
+  controlCenterUrl: 'http://localhost:5173',
   geminiApiKey: apiKey,
-  geminiModel: process.env.AXOROS_GEMINI_MODEL?.trim() || undefined,
+  ...(process.env.AXOROS_GEMINI_MODEL?.trim() ? { geminiModel: process.env.AXOROS_GEMINI_MODEL.trim() } : {}),
 });
+
+if (!registeredIntegrationIds.includes('model.gemini')) {
+  throw new Error('Gemini integration was not registered. Check GEMINI_API_KEY injection.');
+}
 
 const executionId = `gemini-smoke-${Date.now()}`;
 const response = await registry.execute({
