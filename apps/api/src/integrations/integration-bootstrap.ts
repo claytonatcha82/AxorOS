@@ -1,5 +1,6 @@
 import type { ApiConfig } from '../config.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
+import { createGmailDraftIntegration } from './gmail-draft-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
 
@@ -23,6 +24,17 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     });
     registry.register(gemini);
     registeredIntegrationIds.push(gemini.integrationId);
+  }
+
+  if (config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken && config.gmailIdentityAddresses) {
+    const gmail = createGmailDraftIntegration({
+      clientId: config.gmailClientId,
+      clientSecret: config.gmailClientSecret,
+      refreshToken: config.gmailRefreshToken,
+      identityAddresses: config.gmailIdentityAddresses,
+    });
+    registry.register(gmail);
+    registeredIntegrationIds.push(gmail.integrationId);
   }
 
   return { registry, registeredIntegrationIds };
