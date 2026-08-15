@@ -5,6 +5,7 @@ import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createAgentRuntimePostgresStore } from './data/agent-runtime-postgres-store.js';
 import { checkDatabase, createDatabasePool } from './database.js';
+import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
@@ -20,6 +21,7 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 }
 
 const databasePool = createDatabasePool(config.databaseUrl);
+const { registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const runtimeStore = createAgentRuntimePostgresStore(databasePool);
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
   onCycleCompleted(decisions) {
@@ -95,6 +97,8 @@ async function start(): Promise<void> {
       knowledgeRetrievalConfigured: true,
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
+      registeredIntegrations: registeredIntegrationIds,
+      geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
     });
   });
