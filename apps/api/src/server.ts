@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
+import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
+import { createAgentRuntimePostgresStore } from './data/agent-runtime-postgres-store.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
@@ -18,6 +20,21 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 }
 
 const databasePool = createDatabasePool(config.databaseUrl);
+const runtimeStore = createAgentRuntimePostgresStore(databasePool);
+const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
+  onCycleCompleted(decisions) {
+    if (decisions.length > 0) {
+      logEvent('warn', 'runtime_stale_recovery_completed', {
+        decisions: decisions.map((decision) => ({ executionId: decision.executionId, action: decision.action })),
+      });
+    }
+  },
+  onCycleFailed(error) {
+    logEvent('error', 'runtime_stale_recovery_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  },
+});
 const knowledgeRepository = createKnowledgeRepository(databasePool);
 const knowledgeRetrievalService = createKnowledgeRetrievalService(knowledgeRepository);
 const knowledgeContextService = createKnowledgeContextService(knowledgeRetrievalService);
@@ -32,6 +49,7 @@ let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  runtimeRecoveryRunner.stop();
 
   logEvent('info', 'api_shutdown_started', { signal });
 
@@ -63,15 +81,32 @@ function shutdown(signal: NodeJS.Signals): void {
 process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 
-server.listen(config.port, config.host, () => {
-  logEvent('info', 'api_started', {
-    environment: config.environment,
-    host: config.host,
-    port: config.port,
-    nodeVersion: process.version,
-    databaseConfigured: true,
-    knowledgeRetrievalConfigured: true,
-    knowledgeContextConfigured: true,
-    externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
+async function start(): Promise<void> {
+  await runtimeRecoveryRunner.runOnce();
+  runtimeRecoveryRunner.start();
+
+  server.listen(config.port, config.host, () => {
+    logEvent('info', 'api_started', {
+      environment: config.environment,
+      host: config.host,
+      port: config.port,
+      nodeVersion: process.version,
+      databaseConfigured: true,
+      knowledgeRetrievalConfigured: true,
+      knowledgeContextConfigured: true,
+      runtimeRecoveryConfigured: true,
+      externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
+    });
   });
+}
+
+void start().catch(async (error) => {
+  logEvent('error', 'api_startup_failed', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  try {
+    await databasePool.end();
+  } finally {
+    process.exitCode = 1;
+  }
 });
