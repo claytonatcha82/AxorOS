@@ -54,3 +54,34 @@ test('loadConfig omits empty Gemini configuration', () => {
   assert.equal(config.geminiApiKey, undefined);
   assert.equal(config.geminiModel, undefined);
 });
+
+test('loadConfig reads complete Gmail draft credentials and identity addresses', () => {
+  const config = loadConfig({
+    AXOROS_GMAIL_CLIENT_ID: ' client-id ',
+    AXOROS_GMAIL_CLIENT_SECRET: ' client-secret ',
+    AXOROS_GMAIL_REFRESH_TOKEN: ' refresh-token ',
+    AXOROS_GMAIL_IDENTITY_ADDRESSES: '{"sales":" sales@example.test ","support":"support@example.test"}',
+  });
+
+  assert.equal(config.gmailClientId, 'client-id');
+  assert.equal(config.gmailClientSecret, 'client-secret');
+  assert.equal(config.gmailRefreshToken, 'refresh-token');
+  assert.deepEqual(config.gmailIdentityAddresses, {
+    sales: 'sales@example.test',
+    support: 'support@example.test',
+  });
+});
+
+test('loadConfig rejects partial Gmail draft configuration', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_GMAIL_CLIENT_ID: 'client-id' }),
+    /requires client ID, client secret, refresh token, and identity addresses together/,
+  );
+});
+
+test('loadConfig rejects invalid Gmail identity JSON', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_GMAIL_IDENTITY_ADDRESSES: 'not-json' }),
+    /Invalid AXOROS_GMAIL_IDENTITY_ADDRESSES JSON/,
+  );
+});
