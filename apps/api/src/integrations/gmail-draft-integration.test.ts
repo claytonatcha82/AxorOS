@@ -6,7 +6,7 @@ function makeFetch() {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.toString();
-    calls.push({ url, init });
+    calls.push(init ? { url, init } : { url });
 
     if (url === 'https://oauth2.googleapis.com/token') {
       return new Response(JSON.stringify({ access_token: 'synthetic-access-token', expires_in: 3600, token_type: 'Bearer' }), {
