@@ -38,3 +38,19 @@ test('loadConfig rejects invalid Control Center URLs', () => {
     /Invalid AXOROS_CONTROL_CENTER_URL/,
   );
 });
+
+test('loadConfig reads Gemini credentials and optional model from environment', () => {
+  const config = loadConfig({
+    GEMINI_API_KEY: '  secret-key  ',
+    AXOROS_GEMINI_MODEL: '  gemini-test-model  ',
+  });
+
+  assert.equal(config.geminiApiKey, 'secret-key');
+  assert.equal(config.geminiModel, 'gemini-test-model');
+});
+
+test('loadConfig omits empty Gemini configuration', () => {
+  const config = loadConfig({ GEMINI_API_KEY: '   ', AXOROS_GEMINI_MODEL: '   ' });
+  assert.equal(config.geminiApiKey, undefined);
+  assert.equal(config.geminiModel, undefined);
+});
