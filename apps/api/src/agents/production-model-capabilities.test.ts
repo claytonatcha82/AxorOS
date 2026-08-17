@@ -15,7 +15,15 @@ function task(): AgentRuntimeTask {
     destinationAgent: 'production_agent',
     objective: 'Draft a synthetic technical implementation plan',
     priority: 'normal',
-    context: { environment: 'test', dataClass: 'synthetic' },
+    context: {
+      environment: 'test',
+      dataClass: 'synthetic',
+      financeGate: {
+        state: 'FINANCE_CLEARED',
+        commercialRecordReference: 'commercial:synthetic:production-model-1',
+        evidenceReferences: ['payment-provider:synthetic:production-model-1'],
+      },
+    },
     knowledgeReferences: ['atlas://production/synthetic-requirements'],
     inputs: {
       implementationBrief: 'Draft a component implementation plan for a synthetic brochure website.',
