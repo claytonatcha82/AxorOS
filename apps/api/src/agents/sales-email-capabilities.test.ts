@@ -56,6 +56,47 @@ test('Sales Agent creates a draft through email.draft and preserves knowledge re
   assert.deepEqual(result.knowledgeReferences, ['atlas://sales/synthetic-approved-context']);
 });
 
+test('Sales email capability may select Gmail without gaining send or live authority', async () => {
+  const integrations = new IntegrationRegistry();
+  let observedRequest: Record<string, unknown> | undefined;
+  integrations.register({
+    integrationId: 'email.gmail',
+    kind: 'email',
+    provider: 'google-gmail-test',
+    supportedModes: ['draft'],
+    supportedOperations: ['create_draft'],
+    async execute(request) {
+      observedRequest = request as unknown as Record<string, unknown>;
+      return {
+        integrationId: 'email.gmail',
+        operation: request.operation,
+        provider: 'google-gmail-test',
+        mode: request.mode,
+        status: 'drafted',
+        output: {
+          draftId: 'gmail-draft-test',
+          fromIdentity: 'sales',
+          recipients: ['prospect@example.test'],
+          subject: 'Synthetic website discussion',
+          preview: 'Synthetic',
+        },
+        evidenceReferences: ['gmail:draft:gmail-draft-test'],
+        retryable: false,
+      };
+    },
+  });
+  const handlers = new AgentRuntimeHandlerRegistry();
+  registerSalesEmailCapabilities(handlers, integrations, { integrationId: 'email.gmail' });
+
+  const handler = handlers.require('sales_agent', SALES_EMAIL_DRAFT_CAPABILITY);
+  const result = await handler.execute(task());
+
+  assert.equal(result.output.integrationId, 'email.gmail');
+  assert.equal(observedRequest?.operation, 'create_draft');
+  assert.equal(observedRequest?.mode, 'draft');
+  assert.equal(observedRequest?.requestedBy, 'sales_agent');
+});
+
 test('Sales email capability has no send operation or live mode authority', async () => {
   const integration = new DeterministicDraftEmailIntegration();
   assert.deepEqual(integration.supportedModes, ['draft']);
