@@ -1,7 +1,6 @@
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import type { AgentRuntimeHandler } from './agent-runtime-handlers.js';
 import type { AgentRuntimeResult, AgentRuntimeTask } from './agent-runtime-contract.js';
-import { evaluateSalesEmailApproval } from './sales-email-approval-policy.js';
 import type { EmailDraftOutput, EmailMessageInput, EmailRecipient } from '../integrations/email-integration.js';
 import { assertAgentMayUseEmailIdentity } from '../integrations/email-identity-policy.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
@@ -40,13 +39,6 @@ function readInputs(task: AgentRuntimeTask): SalesEmailDraftInputs {
   };
 }
 
-function assertSalesEmailApprovalSatisfied(task: AgentRuntimeTask): void {
-  const decision = evaluateSalesEmailApproval(task);
-  if (!decision.approvalRequired) return;
-
-  throw new Error(`Sales email approval required before draft creation: ${decision.reason}`);
-}
-
 export function createSalesEmailDraftHandler(
   integrations: IntegrationRegistry,
   options: SalesEmailCapabilityOptions = {},
@@ -61,7 +53,6 @@ export function createSalesEmailDraftHandler(
         throw new Error('Sales email draft capability requires destinationAgent sales_agent.');
       }
 
-      assertSalesEmailApprovalSatisfied(task);
       const input = readInputs(task);
       assertAgentMayUseEmailIdentity('sales_agent', input.fromIdentity);
 
