@@ -36,7 +36,7 @@ function externalSalesTask(): AgentRuntimeTask {
   };
 }
 
-test('Stage 1 Sales email waits for Human Executive approval before draft provider execution, then resumes', async () => {
+function createHarness() {
   let providerCalls = 0;
   const email: ExternalIntegration<EmailMessageInput, EmailDraftOutput> = {
     integrationId: 'email.draft', kind: 'email', provider: 'stage1-test-draft', supportedModes: ['draft'], supportedOperations: ['create_draft'],
@@ -48,24 +48,36 @@ test('Stage 1 Sales email waits for Human Executive approval before draft provid
   const store = new MemoryRuntimeStore(prepared);
   let eventId = 0;
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers, createEventId: () => `stage1-event-${++eventId}`, now: () => new Date(1786978500000 + eventId * 1000).toISOString() });
+  return { prepared, store, orchestrator, providerCalls: () => providerCalls };
+}
 
+test('Stage 1 Sales email waits for Human Executive approval before draft provider execution, then resumes', async () => {
+  const { prepared, store, orchestrator, providerCalls } = createHarness();
   const review = await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
-  assert.equal(review.record.task.status, 'review');
-  assert.equal(review.record.task.approvalOwner, 'human_executive');
-  assert.equal(providerCalls, 0);
-
+  assert.equal(review.record.task.status, 'review'); assert.equal(review.record.task.approvalOwner, 'human_executive'); assert.equal(providerCalls(), 0);
   const approved = await orchestrator.resolveApproval({ executionId: prepared.executionId, actor: 'human_executive', decision: 'approved', reason: 'Stage 1 draft approved for creation' });
-  assert.equal(approved.record.task.status, 'ready');
-  assert.equal(approved.record.task.approvalRequired, false);
-  assert.equal(providerCalls, 0);
-
+  assert.equal(approved.record.task.status, 'ready'); assert.equal(approved.record.task.approvalRequired, false); assert.equal(providerCalls(), 0);
   const completed = await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
-  assert.equal(completed.record.task.status, 'completed');
-  assert.equal(completed.record.result?.output.draftId, 'draft-stage1-approved');
-  assert.equal(providerCalls, 1);
+  assert.equal(completed.record.task.status, 'completed'); assert.equal(completed.record.result?.output.draftId, 'draft-stage1-approved'); assert.equal(providerCalls(), 1);
+  assert.ok(store.events.some((event) => event.type === 'approval_requested')); assert.ok(store.events.some((event) => event.type === 'approval_granted'));
+  assert.ok(store.events.some((event) => event.toStatus === 'review')); assert.ok(store.events.some((event) => event.toStatus === 'completed'));
+});
 
-  assert.ok(store.events.some((event) => event.type === 'approval_requested'));
-  assert.ok(store.events.some((event) => event.type === 'approval_granted'));
-  assert.ok(store.events.some((event) => event.toStatus === 'review'));
-  assert.ok(store.events.some((event) => event.toStatus === 'completed'));
+test('Stage 1 Sales email rejects the wrong approver without executing the provider', async () => {
+  const { prepared, store, orchestrator, providerCalls } = createHarness();
+  await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
+  await assert.rejects(() => orchestrator.resolveApproval({ executionId: prepared.executionId, actor: 'executive_agent', decision: 'approved' }), /must be resolved by human_executive/);
+  assert.equal(providerCalls(), 0);
+  assert.equal(store.execution.task.status, 'review');
+  assert.equal(store.execution.task.approvalRequired, true);
+});
+
+test('Stage 1 Sales email replay after completion is idempotent and does not create a second draft', async () => {
+  const { prepared, orchestrator, providerCalls } = createHarness();
+  await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
+  await orchestrator.resolveApproval({ executionId: prepared.executionId, actor: 'human_executive', decision: 'approved' });
+  const completed = await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
+  assert.equal(completed.record.task.status, 'completed'); assert.equal(providerCalls(), 1);
+  const replay = await orchestrator.execute({ executionId: prepared.executionId, capabilityId: SALES_EMAIL_DRAFT_CAPABILITY });
+  assert.equal(replay.replayed, true); assert.equal(replay.record.task.status, 'completed'); assert.equal(providerCalls(), 1);
 });
