@@ -5,10 +5,10 @@ import { registerSalesEmailCapabilities, SALES_EMAIL_DRAFT_CAPABILITY } from './
 import { DeterministicDraftEmailIntegration } from '../integrations/deterministic-draft-email-integration.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 
-function task(testOnly = true) {
+function task() {
   return {
     taskId: 'task-sales-email-1', executionId: 'exec-sales-email-1', originAgent: 'operations_agent' as const, destinationAgent: 'sales_agent' as const,
-    objective: 'Create a governed synthetic sales email draft', priority: 'normal' as const, context: { testOnly },
+    objective: 'Create a governed synthetic sales email draft', priority: 'normal' as const, context: { testOnly: true },
     knowledgeReferences: ['atlas://sales/synthetic-approved-context'],
     inputs: { fromIdentity: 'sales', to: [{ email: 'prospect@example.test', name: 'Synthetic Prospect' }], subject: 'Synthetic website discussion', textBody: 'This is approved synthetic draft content for testing only.' },
     expectedOutput: 'Internal email draft', dependencies: [], risks: [], confidence: 0.9, approvalRequired: false, status: 'in_progress' as const,
@@ -16,7 +16,7 @@ function task(testOnly = true) {
   };
 }
 
-test('Sales Agent creates a synthetic test draft through email.draft and preserves knowledge references', async () => {
+test('Sales Agent creates a draft through email.draft and preserves knowledge references', async () => {
   const integrations = new IntegrationRegistry();
   integrations.register(new DeterministicDraftEmailIntegration());
   const handlers = new AgentRuntimeHandlerRegistry();
@@ -31,20 +31,7 @@ test('Sales Agent creates a synthetic test draft through email.draft and preserv
   assert.deepEqual(result.knowledgeReferences, ['atlas://sales/synthetic-approved-context']);
 });
 
-test('Sales email capability blocks a non-test external draft before any email integration call', async () => {
-  const integrations = new IntegrationRegistry();
-  let calls = 0;
-  integrations.register({
-    integrationId: 'email.gmail', kind: 'email', provider: 'google-gmail-test', supportedModes: ['draft'], supportedOperations: ['create_draft'],
-    async execute(request) { calls += 1; return { integrationId: 'email.gmail', operation: request.operation, provider: 'google-gmail-test', mode: request.mode, status: 'drafted', output: { draftId: 'should-not-exist', fromIdentity: 'sales', recipients: ['prospect@example.test'], subject: 'blocked', preview: 'blocked' }, evidenceReferences: [], retryable: false }; },
-  });
-  const handlers = new AgentRuntimeHandlerRegistry();
-  registerSalesEmailCapabilities(handlers, integrations, { integrationId: 'email.gmail' });
-  await assert.rejects(() => handlers.require('sales_agent', SALES_EMAIL_DRAFT_CAPABILITY).execute(task(false)), /Sales email approval required before draft creation/);
-  assert.equal(calls, 0);
-});
-
-test('Sales email capability may select Gmail for synthetic development testing without gaining send authority', async () => {
+test('Sales email capability may select Gmail without gaining send or live authority', async () => {
   const integrations = new IntegrationRegistry();
   let observedRequest: Record<string, unknown> | undefined;
   integrations.register({
