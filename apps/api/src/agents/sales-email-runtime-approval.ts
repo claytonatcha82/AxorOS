@@ -8,6 +8,9 @@ export function applySalesEmailRuntimeApprovalPolicy(task: AgentRuntimeTask): Ag
 
   const decision = evaluateSalesEmailApproval(task);
   if (!decision.approvalRequired) return task;
+  if (!decision.approvalOwner) {
+    throw new Error('Sales email approval policy requires an approval owner when approval is required.');
+  }
 
   return {
     ...task,
