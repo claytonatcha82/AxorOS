@@ -19,6 +19,8 @@
     "verify:db:secrets": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- npm run verify:db",
     "runtime:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-runtime-migration.mjs",
     "runtime:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-runtime-persistence.mjs",
+    "payment:webhook:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-payment-webhook-migration.mjs",
+    "payment:webhook:verify:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-payment-webhook-persistence.mjs",
     "gemini:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/smoke-gemini.mjs",
     "gmail:draft:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-gmail-draft.mjs",
     "sales:gmail:runtime:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-sales-gmail-runtime.mjs",
