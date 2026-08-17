@@ -21,7 +21,7 @@ function salesEmailTask(): AgentRuntimeTask {
     destinationAgent: 'sales_agent',
     objective: 'Create a governed synthetic sales email draft',
     priority: 'normal',
-    context: { environment: 'test', dataClass: 'synthetic' },
+    context: { environment: 'test', dataClass: 'synthetic', testOnly: true },
     knowledgeReferences: ['atlas://sales/synthetic-outreach-policy'],
     inputs: {
       fromIdentity: 'sales',
