@@ -3,14 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "AxorOS agency automation system",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "engines": {
-    "node": ">=24 <25",
-    "npm": ">=11"
-  },
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": {"node": ">=24 <25", "npm": ">=11"},
   "scripts": {
     "verify:env": "node scripts/verify-environment.mjs",
     "verify:db": "node scripts/verify-database.mjs",
@@ -28,6 +22,7 @@
     "gemini:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/smoke-gemini.mjs",
     "gmail:draft:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-gmail-draft.mjs",
     "sales:gmail:runtime:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-sales-gmail-runtime.mjs",
+    "sales:gmail:postgres:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-sales-gmail-postgres-runtime.mjs",
     "ingest:atlas": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/ingest-atlas.mjs",
     "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
     "typecheck": "npm run typecheck --workspace @axoros/contracts && npm run typecheck --workspace @axoros/api && npm run typecheck --workspace @axoros/control-center",
