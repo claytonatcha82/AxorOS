@@ -16,7 +16,7 @@ class CountingModelIntegration implements ExternalIntegration<ModelGenerationInp
   calls = 0;
   async execute(request: IntegrationRequest<ModelGenerationInput>): Promise<IntegrationResponse<ModelGenerationOutput>> {
     this.calls += 1;
-    return { integrationId: this.integrationId, operation: request.operation, provider: this.provider, mode: request.mode, status: 'drafted', output: { text: 'technical draft', model: 'test-model' }, evidenceReferences: ['model:test:1'], retryable: false };
+    return { integrationId: this.integrationId, operation: request.operation, provider: this.provider, mode: request.mode, status: 'drafted', output: { text: 'technical draft', model: 'test-model', finishReason: 'stop' }, evidenceReferences: ['model:test:1'], retryable: false };
   }
 }
 
