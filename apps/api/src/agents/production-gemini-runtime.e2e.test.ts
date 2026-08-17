@@ -21,7 +21,15 @@ function productionTask(): AgentRuntimeTask {
     destinationAgent: 'production_agent',
     objective: 'Draft a synthetic implementation plan from approved requirements',
     priority: 'normal',
-    context: { environment: 'test', dataClass: 'synthetic' },
+    context: {
+      environment: 'test',
+      dataClass: 'synthetic',
+      financeGate: {
+        state: 'FINANCE_CLEARED',
+        commercialRecordReference: 'commercial:synthetic:production-gemini-e2e-1',
+        evidenceReferences: ['payment-provider:synthetic:production-gemini-e2e-1'],
+      },
+    },
     knowledgeReferences: ['atlas://production/synthetic-requirements'],
     inputs: {
       implementationBrief: 'Draft a concise implementation plan for a five-page React website.',
