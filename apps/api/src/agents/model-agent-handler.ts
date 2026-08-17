@@ -1,5 +1,6 @@
 import type { AgentRuntimeHandler } from './agent-runtime-handlers.js';
 import type { AgentRuntimeTask, CoreAgentId } from './agent-runtime-contract.js';
+import { assertProductionFinanceGate } from './production-finance-gate.js';
 import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
@@ -51,6 +52,11 @@ export function createModelAgentRuntimeHandler(
       if (task.destinationAgent !== options.agentId) {
         throw new Error(`model handler destination mismatch: expected ${options.agentId}, received ${task.destinationAgent}.`);
       }
+
+      // Production execution is commercially gated. Model generation is still execution
+      // because it can create client-delivery work, so clearance is enforced before any
+      // provider call rather than relying only on orchestration callers to remember the gate.
+      if (options.agentId === 'production_agent') assertProductionFinanceGate(task);
 
       const input: ModelGenerationInput = {
         prompt: requiredStringInput(task, promptInputKey),
