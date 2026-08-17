@@ -25,5 +25,6 @@ test('verified payment evidence requires successful provider evidence and comple
   assert.equal(hasVerifiedPaymentEvidence(response({ status: 'failed' })), false);
   assert.equal(hasVerifiedPaymentEvidence(response({ evidenceReferences: [] })), false);
   assert.equal(hasVerifiedPaymentEvidence(response({ output: { ...response().output, verificationStatus: 'pending' } })), false);
-  assert.equal(hasVerifiedPaymentEvidence(response({ output: { ...response().output, providerEventReference: undefined } })), false);
+  const { providerEventReference: _omittedProviderEventReference, ...outputWithoutProviderEventReference } = response().output;
+  assert.equal(hasVerifiedPaymentEvidence(response({ output: outputWithoutProviderEventReference })), false);
 });
