@@ -1,0 +1,29 @@
+import type { AgentRuntimeTask } from './agent-runtime-contract.js';
+import { evaluateMarketingEmailApproval } from './marketing-email-approval-policy.js';
+
+export function applyMarketingEmailRuntimeApprovalPolicy(task: AgentRuntimeTask): AgentRuntimeTask {
+  if (task.destinationAgent !== 'marketing_agent') {
+    throw new Error('Marketing email runtime approval policy requires destinationAgent marketing_agent.');
+  }
+
+  const decision = evaluateMarketingEmailApproval(task);
+  if (!decision.approvalRequired) return task;
+  if (!decision.approvalOwner) {
+    throw new Error('Marketing email approval policy requires an approval owner when approval is required.');
+  }
+
+  return {
+    ...task,
+    approvalRequired: true,
+    approvalOwner: decision.approvalOwner,
+    nextAction: 'obtain_required_approval',
+    context: {
+      ...task.context,
+      marketingEmailApprovalPolicy: {
+        stage: 1,
+        source: 'atlas_os',
+        reason: decision.reason,
+      },
+    },
+  };
+}
