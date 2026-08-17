@@ -7,6 +7,10 @@ import type { IntegrationRegistry } from '../integrations/integration-registry.j
 
 export const SALES_EMAIL_DRAFT_CAPABILITY = 'create_sales_email_draft';
 
+export interface SalesEmailCapabilityOptions {
+  integrationId?: 'email.draft' | 'email.gmail';
+}
+
 interface SalesEmailDraftInputs {
   fromIdentity: string;
   to: readonly EmailRecipient[];
@@ -35,7 +39,12 @@ function readInputs(task: AgentRuntimeTask): SalesEmailDraftInputs {
   };
 }
 
-export function createSalesEmailDraftHandler(integrations: IntegrationRegistry): AgentRuntimeHandler {
+export function createSalesEmailDraftHandler(
+  integrations: IntegrationRegistry,
+  options: SalesEmailCapabilityOptions = {},
+): AgentRuntimeHandler {
+  const integrationId = options.integrationId ?? 'email.draft';
+
   return {
     agentId: 'sales_agent',
     capabilityId: SALES_EMAIL_DRAFT_CAPABILITY,
@@ -48,7 +57,7 @@ export function createSalesEmailDraftHandler(integrations: IntegrationRegistry):
       assertAgentMayUseEmailIdentity('sales_agent', input.fromIdentity);
 
       const response = await integrations.execute<EmailMessageInput, EmailDraftOutput>({
-        integrationId: 'email.draft',
+        integrationId,
         operation: 'create_draft',
         requestedBy: 'sales_agent',
         executionId: task.executionId,
@@ -91,6 +100,7 @@ export function createSalesEmailDraftHandler(integrations: IntegrationRegistry):
 export function registerSalesEmailCapabilities(
   handlers: AgentRuntimeHandlerRegistry,
   integrations: IntegrationRegistry,
+  options: SalesEmailCapabilityOptions = {},
 ): void {
-  handlers.register(createSalesEmailDraftHandler(integrations));
+  handlers.register(createSalesEmailDraftHandler(integrations, options));
 }
