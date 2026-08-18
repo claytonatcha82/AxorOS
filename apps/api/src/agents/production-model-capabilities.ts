@@ -1,5 +1,7 @@
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { registerModelRuntimeCapability } from './model-runtime-registration.js';
+import { assertTrustedProductionFinanceGate } from './trusted-production-finance-gate.js';
+import type { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 
 export const PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY = 'draft_technical_implementation';
@@ -7,6 +9,7 @@ export const PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY = 'draft_technical_imple
 export function registerProductionModelCapabilities(
   handlers: AgentRuntimeHandlerRegistry,
   integrations: IntegrationRegistry,
+  financeClearanceStore: Pick<FinanceClearancePostgresStore, 'get'>,
 ): void {
   registerModelRuntimeCapability(handlers, integrations, {
     agentId: 'production_agent',
@@ -15,6 +18,7 @@ export function registerProductionModelCapabilities(
     mode: 'draft',
     promptInputKey: 'implementationBrief',
     contextInputKey: 'technicalContext',
+    beforeExecute: (task) => assertTrustedProductionFinanceGate(task, financeClearanceStore),
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
       'Provide technical planning, implementation guidance, code drafts, content drafts, test ideas, and delivery analysis only from the supplied requirements and governed context.',
