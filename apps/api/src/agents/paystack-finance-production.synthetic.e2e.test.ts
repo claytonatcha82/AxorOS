@@ -6,6 +6,7 @@ import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
 import { createFinancePaymentEventWorkflow } from './finance-payment-event-workflow.js';
 import { satisfyCommercialPaymentRequirement } from './finance-commercial-payment-requirement.js';
+import { evaluateFinancePaymentLifecycle } from './finance-payment-lifecycle.js';
 import { createPaystackPaymentWebhookIngress } from './paystack-payment-webhook-ingress.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
@@ -83,17 +84,18 @@ test('signed Paystack webhook independently verifies payment, clears Finance, sa
 
   const currentStateStore = {
     async apply(evidence: PaymentWebhookEvidence): Promise<'accepted'> {
+      const lifecycle = evaluateFinancePaymentLifecycle(evidence);
       const state: PersistedFinancePaymentCurrentState = {
         provider: evidence.provider,
         providerPaymentReference: evidence.providerPaymentReference,
         commercialRecordReference: evidence.commercialRecordReference,
-        paymentStatus: evidence.eventType === 'payment_paid' ? 'CONFIRMED' : 'UNKNOWN',
-        authorityState: evidence.eventType === 'payment_paid' ? 'AUTHORIZED' : 'MANUAL_REVIEW',
-        reason: 'Synthetic Stage 1 current-state projection.',
+        paymentStatus: lifecycle.paymentStatus,
+        authorityState: lifecycle.authorityState,
+        reason: lifecycle.reason,
         latestEventType: evidence.eventType,
         latestProviderEventReference: evidence.providerEventReference,
         latestEvidenceReference: evidence.evidenceReference,
-        latestOccurredAt: evidence.occurredAt,
+        latestOccurredAt: lifecycle.occurredAt,
         ...(evidence.amountMinor !== undefined ? { amountMinor: evidence.amountMinor } : {}),
         ...(evidence.currency !== undefined ? { currency: evidence.currency } : {}),
       };
