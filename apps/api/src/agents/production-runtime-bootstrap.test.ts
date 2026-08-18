@@ -43,46 +43,51 @@ const clearanceRow = {
   verified_at: new Date('2026-08-18T17:00:00.000Z'),
 };
 
+const paymentStateRow = {
+  provider: 'bootstrap',
+  provider_payment_reference: 'pay:bootstrap:1',
+  commercial_record_reference: 'commercial:bootstrap:1',
+  payment_status: 'CONFIRMED',
+  authority_state: 'AUTHORIZED',
+  reason: 'Verified provider payment confirmation supports Finance authorization.',
+  latest_event_type: 'payment_paid',
+  latest_provider_event_reference: 'event:1',
+  latest_evidence_reference: 'payment-provider:bootstrap:event:1',
+  latest_occurred_at: new Date('2026-08-18T17:00:00.000Z'),
+  amount_minor: '10000',
+  currency: 'ZAR',
+};
+
 function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask {
   const now = '2026-08-18T17:00:00.000Z';
   return {
-    taskId: 'task-production-bootstrap',
-    executionId: 'exec-production-bootstrap',
-    originAgent: 'operations_agent',
-    destinationAgent: 'production_agent',
-    objective: 'Draft governed implementation',
-    priority: 'normal',
-    context,
-    knowledgeReferences: [],
-    inputs: { implementationBrief: 'Create the governed implementation draft.' },
-    expectedOutput: 'Technical implementation draft',
-    dependencies: [],
-    risks: [],
-    confidence: 1,
-    approvalRequired: false,
-    status: 'ready',
-    nextAction: 'execute_destination_capability',
-    attempt: 1,
-    maxAttempts: 1,
-    correlationId: 'corr-production-bootstrap',
-    createdAt: now,
-    updatedAt: now,
+    taskId: 'task-production-bootstrap', executionId: 'exec-production-bootstrap', originAgent: 'operations_agent',
+    destinationAgent: 'production_agent', objective: 'Draft governed implementation', priority: 'normal', context,
+    knowledgeReferences: [], inputs: { implementationBrief: 'Create the governed implementation draft.' },
+    expectedOutput: 'Technical implementation draft', dependencies: [], risks: [], confidence: 1,
+    approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1,
+    maxAttempts: 1, correlationId: 'corr-production-bootstrap', createdAt: now, updatedAt: now,
   };
 }
 
-function poolReturning(row: Record<string, unknown> | undefined): Pick<Pool, 'query'> {
+function poolReturning(options: { clearance?: Record<string, unknown>; payment?: Record<string, unknown> }): Pick<Pool, 'query'> {
   return {
-    query: (async () => ({ rowCount: row ? 1 : 0, rows: row ? [row] : [] })) as unknown as Pool['query'],
+    query: (async (sql: string) => {
+      const row = sql.includes('finance.clearance_decisions') ? options.clearance
+        : sql.includes('finance.payment_current_state') ? options.payment
+          : undefined;
+      return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
+    }) as unknown as Pool['query'],
   };
 }
 
-test('Production runtime bootstrap wires model handler to persisted Finance clearance', async () => {
+test('Production runtime bootstrap wires model handler to persisted clearance and current payment authority', async () => {
   const model = new CountingModelIntegration();
   const integrations = new IntegrationRegistry();
   integrations.register(model);
 
   const runtime = createProductionRuntimeBootstrap({
-    pool: poolReturning(clearanceRow),
+    pool: poolReturning({ clearance: clearanceRow, payment: paymentStateRow }),
     integrations,
   });
 
@@ -102,7 +107,7 @@ test('Production runtime bootstrap blocks model execution when persisted Finance
   integrations.register(model);
 
   const runtime = createProductionRuntimeBootstrap({
-    pool: poolReturning(undefined),
+    pool: poolReturning({ payment: paymentStateRow }),
     integrations,
   });
 
@@ -113,6 +118,30 @@ test('Production runtime bootstrap blocks model execution when persisted Finance
       commercialRecordReference: 'commercial:bootstrap:1',
     })),
     /not found/,
+  );
+  assert.equal(model.calls, 0);
+});
+
+test('Production runtime bootstrap blocks model execution when current payment authority was revoked', async () => {
+  const model = new CountingModelIntegration();
+  const integrations = new IntegrationRegistry();
+  integrations.register(model);
+
+  const runtime = createProductionRuntimeBootstrap({
+    pool: poolReturning({
+      clearance: clearanceRow,
+      payment: { ...paymentStateRow, payment_status: 'REFUNDED', authority_state: 'BLOCKED', latest_event_type: 'payment_refunded' },
+    }),
+    integrations,
+  });
+
+  const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
+  await assert.rejects(
+    () => handler.execute(productionTask({
+      financeClearanceId: clearanceRow.clearance_id,
+      commercialRecordReference: clearanceRow.commercial_record_reference,
+    })),
+    /current payment authority is BLOCKED/,
   );
   assert.equal(model.calls, 0);
 });
