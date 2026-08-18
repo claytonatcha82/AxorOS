@@ -18,6 +18,8 @@ export interface ApiConfig {
   gmailRefreshToken?: string;
   gmailIdentityAddresses?: Readonly<Record<string, string>>;
   paystackSecretKey?: string;
+  paymentIntegrationId?: 'payment.paystack';
+  paymentIntegrationMode?: 'sandbox' | 'live';
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -139,6 +141,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   }
 
   const paystackSecretKey = parsePaystackSecretKey(env.AXOROS_PAYSTACK_SECRET_KEY);
+  const requestedPaymentIntegration = env.AXOROS_PAYMENT_INTEGRATION?.trim();
+  if (requestedPaymentIntegration && requestedPaymentIntegration !== 'sandbox' && requestedPaymentIntegration !== 'paystack') {
+    throw new Error('AXOROS_PAYMENT_INTEGRATION must be sandbox or paystack.');
+  }
+  if (requestedPaymentIntegration === 'paystack' && !paystackSecretKey) {
+    throw new Error('AXOROS_PAYMENT_INTEGRATION=paystack requires AXOROS_PAYSTACK_SECRET_KEY.');
+  }
 
   const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
@@ -158,6 +167,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
   if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
   if (paystackSecretKey) config.paystackSecretKey = paystackSecretKey;
+  if (requestedPaymentIntegration === 'paystack' && paystackSecretKey) {
+    config.paymentIntegrationId = 'payment.paystack';
+    config.paymentIntegrationMode = paystackSecretKey.startsWith('sk_live_') ? 'live' : 'sandbox';
+  }
 
   return config;
 }
