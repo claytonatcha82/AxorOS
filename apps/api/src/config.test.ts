@@ -101,14 +101,43 @@ test('loadConfig rejects invalid Gmail identity JSON', () => {
   );
 });
 
-test('loadConfig reads a Paystack test secret key from the environment', () => {
+test('loadConfig reads a Paystack secret without silently activating Paystack', () => {
   const config = loadConfig({ AXOROS_PAYSTACK_SECRET_KEY: '  sk_test_example-secret  ' });
   assert.equal(config.paystackSecretKey, 'sk_test_example-secret');
+  assert.equal(config.paymentIntegrationId, undefined);
+  assert.equal(config.paymentIntegrationMode, undefined);
 });
 
-test('loadConfig reads a Paystack live secret key from the environment', () => {
-  const config = loadConfig({ AXOROS_PAYSTACK_SECRET_KEY: 'sk_live_example-secret' });
-  assert.equal(config.paystackSecretKey, 'sk_live_example-secret');
+test('loadConfig explicitly activates Paystack sandbox with a test secret', () => {
+  const config = loadConfig({
+    AXOROS_PAYMENT_INTEGRATION: 'paystack',
+    AXOROS_PAYSTACK_SECRET_KEY: 'sk_test_example-secret',
+  });
+  assert.equal(config.paymentIntegrationId, 'payment.paystack');
+  assert.equal(config.paymentIntegrationMode, 'sandbox');
+});
+
+test('loadConfig explicitly activates Paystack live with a live secret', () => {
+  const config = loadConfig({
+    AXOROS_PAYMENT_INTEGRATION: 'paystack',
+    AXOROS_PAYSTACK_SECRET_KEY: 'sk_live_example-secret',
+  });
+  assert.equal(config.paymentIntegrationId, 'payment.paystack');
+  assert.equal(config.paymentIntegrationMode, 'live');
+});
+
+test('loadConfig rejects Paystack activation without a secret', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_PAYMENT_INTEGRATION: 'paystack' }),
+    /requires AXOROS_PAYSTACK_SECRET_KEY/,
+  );
+});
+
+test('loadConfig rejects unknown payment integrations', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_PAYMENT_INTEGRATION: 'unknown' }),
+    /must be sandbox or paystack/,
+  );
 });
 
 test('loadConfig rejects non-Paystack secret key formats', () => {
