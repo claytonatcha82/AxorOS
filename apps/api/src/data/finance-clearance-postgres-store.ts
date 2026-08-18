@@ -28,6 +28,15 @@ function parseEvidenceReferences(value: unknown): string[] {
   return parsed;
 }
 
+function normaliseTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Persisted Finance clearance verified_at is invalid.');
+  }
+  return parsed.toISOString();
+}
+
 function sameDecision(
   existing: PersistedFinanceClearanceDecision,
   incoming: PersistedFinanceClearanceDecision,
@@ -39,7 +48,7 @@ function sameDecision(
     && existing.reason === incoming.reason
     && existing.amountMinor === incoming.amountMinor
     && existing.currency === incoming.currency
-    && existing.verifiedAt === incoming.verifiedAt
+    && normaliseTimestamp(existing.verifiedAt) === normaliseTimestamp(incoming.verifiedAt)
     && existing.evidenceReferences.length === incoming.evidenceReferences.length
     && existing.evidenceReferences.every((reference, index) => reference === incoming.evidenceReferences[index]);
 }
@@ -87,7 +96,7 @@ export class FinanceClearancePostgresStore {
       evidenceReferences: parseEvidenceReferences(row.evidence_references),
       amountMinor: Number(row.amount_minor),
       currency: String(row.currency),
-      verifiedAt: new Date(String(row.verified_at)).toISOString(),
+      verifiedAt: normaliseTimestamp(row.verified_at),
     };
   }
 }
