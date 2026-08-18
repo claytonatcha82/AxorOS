@@ -1,6 +1,8 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
+import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
+import { createProductionRuntimeBootstrap } from './agents/production-runtime-bootstrap.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createAgentRuntimePostgresStore } from './data/agent-runtime-postgres-store.js';
@@ -21,7 +23,11 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 }
 
 const databasePool = createDatabasePool(config.databaseUrl);
-const { registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
+const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
+const productionRuntime = createProductionRuntimeBootstrap({
+  pool: databasePool,
+  integrations: integrationRegistry,
+});
 const runtimeStore = createAgentRuntimePostgresStore(databasePool);
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
   onCycleCompleted(decisions) {
@@ -97,6 +103,9 @@ async function start(): Promise<void> {
       knowledgeRetrievalConfigured: true,
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
+      productionRuntimeConfigured: Boolean(
+        productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
+      ),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
