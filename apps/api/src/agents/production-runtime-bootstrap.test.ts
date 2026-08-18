@@ -72,7 +72,7 @@ function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask 
 
 function poolReturning(row: Record<string, unknown> | undefined): Pick<Pool, 'query'> {
   return {
-    query: (async () => ({ rowCount: row ? 1 : 0, rows: row ? [row] : [] })) as Pool['query'],
+    query: (async () => ({ rowCount: row ? 1 : 0, rows: row ? [row] : [] })) as unknown as Pool['query'],
   };
 }
 
