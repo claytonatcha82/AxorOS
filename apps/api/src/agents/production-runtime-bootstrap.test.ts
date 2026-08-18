@@ -58,6 +58,16 @@ const paymentStateRow = {
   currency: 'ZAR',
 };
 
+const requirementRow = {
+  commercial_record_reference: 'commercial:bootstrap:1',
+  gate: 'PRODUCTION_START',
+  requirement_reference: 'deposit:bootstrap:1',
+  requirement_type: 'DEPOSIT',
+  required_amount_minor: '10000',
+  currency: 'ZAR',
+  status: 'ACTIVE',
+};
+
 function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask {
   const now = '2026-08-18T17:00:00.000Z';
   return {
@@ -70,55 +80,81 @@ function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask 
   };
 }
 
-function poolReturning(options: { clearance?: Record<string, unknown>; payment?: Record<string, unknown> }): Pick<Pool, 'query'> {
+function poolReturning(options: {
+  clearance?: Record<string, unknown>;
+  payment?: Record<string, unknown>;
+  requirement?: Record<string, unknown>;
+}): Pick<Pool, 'query'> {
   return {
     query: (async (sql: string) => {
       const row = sql.includes('finance.clearance_decisions') ? options.clearance
-        : sql.includes('finance.payment_current_state') ? options.payment
-          : undefined;
+        : sql.includes('finance.commercial_payment_requirements') ? options.requirement
+          : sql.includes('finance.payment_current_state') ? options.payment
+            : undefined;
       return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
     }) as unknown as Pool['query'],
   };
 }
 
-test('Production runtime bootstrap wires model handler to persisted clearance and current payment authority', async () => {
+function validOptions() {
+  return { clearance: clearanceRow, payment: paymentStateRow, requirement: requirementRow };
+}
+
+test('Production runtime bootstrap wires model handler to clearance, commercial requirement and current payment authority', async () => {
   const model = new CountingModelIntegration();
   const integrations = new IntegrationRegistry();
   integrations.register(model);
-
-  const runtime = createProductionRuntimeBootstrap({
-    pool: poolReturning({ clearance: clearanceRow, payment: paymentStateRow }),
-    integrations,
-  });
-
+  const runtime = createProductionRuntimeBootstrap({ pool: poolReturning(validOptions()), integrations });
   const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
   const result = await handler.execute(productionTask({
     financeClearanceId: clearanceRow.clearance_id,
     commercialRecordReference: clearanceRow.commercial_record_reference,
   }));
-
   assert.equal(model.calls, 1);
   assert.equal(result.status, 'completed');
+});
+
+test('Production runtime bootstrap blocks model execution when PRODUCTION_START requirement is missing', async () => {
+  const model = new CountingModelIntegration();
+  const integrations = new IntegrationRegistry();
+  integrations.register(model);
+  const runtime = createProductionRuntimeBootstrap({
+    pool: poolReturning({ clearance: clearanceRow, payment: paymentStateRow }), integrations,
+  });
+  const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
+  await assert.rejects(() => handler.execute(productionTask({
+    financeClearanceId: clearanceRow.clearance_id,
+    commercialRecordReference: clearanceRow.commercial_record_reference,
+  })), /PRODUCTION_START payment requirement was found/);
+  assert.equal(model.calls, 0);
+});
+
+test('Production runtime bootstrap blocks model execution when cleared amount is below PRODUCTION_START requirement', async () => {
+  const model = new CountingModelIntegration();
+  const integrations = new IntegrationRegistry();
+  integrations.register(model);
+  const runtime = createProductionRuntimeBootstrap({
+    pool: poolReturning({ ...validOptions(), requirement: { ...requirementRow, required_amount_minor: '15000' } }), integrations,
+  });
+  const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
+  await assert.rejects(() => handler.execute(productionTask({
+    financeClearanceId: clearanceRow.clearance_id,
+    commercialRecordReference: clearanceRow.commercial_record_reference,
+  })), /amount does not satisfy/);
+  assert.equal(model.calls, 0);
 });
 
 test('Production runtime bootstrap blocks model execution when persisted Finance clearance is missing', async () => {
   const model = new CountingModelIntegration();
   const integrations = new IntegrationRegistry();
   integrations.register(model);
-
   const runtime = createProductionRuntimeBootstrap({
-    pool: poolReturning({ payment: paymentStateRow }),
-    integrations,
+    pool: poolReturning({ payment: paymentStateRow, requirement: requirementRow }), integrations,
   });
-
   const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
-  await assert.rejects(
-    () => handler.execute(productionTask({
-      financeClearanceId: 'clearance:missing',
-      commercialRecordReference: 'commercial:bootstrap:1',
-    })),
-    /not found/,
-  );
+  await assert.rejects(() => handler.execute(productionTask({
+    financeClearanceId: 'clearance:missing', commercialRecordReference: 'commercial:bootstrap:1',
+  })), /not found/);
   assert.equal(model.calls, 0);
 });
 
@@ -126,22 +162,18 @@ test('Production runtime bootstrap blocks model execution when current payment a
   const model = new CountingModelIntegration();
   const integrations = new IntegrationRegistry();
   integrations.register(model);
-
   const runtime = createProductionRuntimeBootstrap({
     pool: poolReturning({
       clearance: clearanceRow,
+      requirement: requirementRow,
       payment: { ...paymentStateRow, payment_status: 'REFUNDED', authority_state: 'BLOCKED', latest_event_type: 'payment_refunded' },
     }),
     integrations,
   });
-
   const handler = runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
-  await assert.rejects(
-    () => handler.execute(productionTask({
-      financeClearanceId: clearanceRow.clearance_id,
-      commercialRecordReference: clearanceRow.commercial_record_reference,
-    })),
-    /current payment authority is BLOCKED/,
-  );
+  await assert.rejects(() => handler.execute(productionTask({
+    financeClearanceId: clearanceRow.clearance_id,
+    commercialRecordReference: clearanceRow.commercial_record_reference,
+  })), /current payment authority is BLOCKED/);
   assert.equal(model.calls, 0);
 });
