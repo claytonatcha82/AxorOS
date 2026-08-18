@@ -1,3 +1,5 @@
+import { validateControlPlaneToken } from './control-plane-auth.js';
+
 export type AxorOSEnvironment = 'development' | 'staging' | 'production' | 'test';
 
 export interface ApiConfig {
@@ -5,6 +7,7 @@ export interface ApiConfig {
   host: string;
   port: number;
   controlCenterUrl: string;
+  controlPlaneToken?: string;
   databaseUrl?: string;
   betterStackIngestingHost?: string;
   betterStackSourceToken?: string;
@@ -91,6 +94,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error(`Invalid AXOROS_CONTROL_CENTER_URL protocol: ${parsedControlCenterUrl.protocol}`);
   }
 
+  const controlPlaneToken = validateControlPlaneToken(env.AXOROS_CONTROL_PLANE_TOKEN);
+
   const databaseUrl = env.AXOROS_DATABASE_URL?.trim();
   if (databaseUrl) {
     let parsedDatabaseUrl: URL;
@@ -130,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     controlCenterUrl: parsedControlCenterUrl.origin,
   };
 
+  if (controlPlaneToken) config.controlPlaneToken = controlPlaneToken;
   if (databaseUrl) config.databaseUrl = databaseUrl;
   if (betterStackIngestingHost) config.betterStackIngestingHost = betterStackIngestingHost;
   if (betterStackSourceToken) config.betterStackSourceToken = betterStackSourceToken;
