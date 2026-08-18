@@ -87,7 +87,7 @@ test('Paystack webhook endpoint preserves raw bytes and acknowledges only succes
   });
   await withServer(handler, async (port) => {
     const result = await send(port, { body: raw, signature: 'signature-1' });
-    assert.equal(result.statusCode, 204);
+    assert.equal(result.statusCode, 200);
     assert.equal(result.body, '');
     assert.ok(captured);
     assert.deepEqual(captured.rawBody, raw);
