@@ -99,7 +99,7 @@ export function createPaystackWebhookRequestHandler(
 
     try {
       await dependencies.ingress.ingest({ rawBody, signature });
-      response.writeHead(204, { 'cache-control': 'no-store' });
+      response.writeHead(200, { 'cache-control': 'no-store', 'content-length': '0' });
       response.end();
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
