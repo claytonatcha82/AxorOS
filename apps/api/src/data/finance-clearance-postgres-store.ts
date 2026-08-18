@@ -1,0 +1,60 @@
+import type { Pool } from 'pg';
+import type { FinanceClearanceState } from '../agents/finance-clearance-gate.js';
+
+export interface PersistedFinanceClearanceDecision {
+  clearanceId: string;
+  commercialRecordReference: string;
+  providerPaymentReference: string;
+  state: FinanceClearanceState;
+  reason: string;
+  evidenceReferences: string[];
+  amountMinor: number;
+  currency: string;
+  verifiedAt: string;
+}
+
+function parseEvidenceReferences(value: unknown): string[] {
+  const parsed = typeof value === 'string' ? JSON.parse(value) as unknown : value;
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string' && item.length > 0)) {
+    throw new Error('Persisted Finance clearance evidence is invalid.');
+  }
+  return parsed;
+}
+
+export class FinanceClearancePostgresStore {
+  constructor(private readonly pool: Pick<Pool, 'query'>) {}
+
+  async save(decision: PersistedFinanceClearanceDecision): Promise<void> {
+    await this.pool.query(
+      `insert into finance.clearance_decisions
+         (clearance_id, commercial_record_reference, provider_payment_reference, state, reason,
+          evidence_references, amount_minor, currency, verified_at)
+       values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
+       on conflict (clearance_id) do nothing`,
+      [decision.clearanceId, decision.commercialRecordReference, decision.providerPaymentReference, decision.state,
+       decision.reason, JSON.stringify(decision.evidenceReferences), decision.amountMinor, decision.currency, decision.verifiedAt],
+    );
+  }
+
+  async get(clearanceId: string): Promise<PersistedFinanceClearanceDecision | null> {
+    const result = await this.pool.query(
+      `select clearance_id, commercial_record_reference, provider_payment_reference, state, reason,
+              evidence_references, amount_minor, currency, verified_at
+       from finance.clearance_decisions where clearance_id = $1 limit 1`,
+      [clearanceId],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      clearanceId: String(row.clearance_id),
+      commercialRecordReference: String(row.commercial_record_reference),
+      providerPaymentReference: String(row.provider_payment_reference),
+      state: String(row.state) as FinanceClearanceState,
+      reason: String(row.reason),
+      evidenceReferences: parseEvidenceReferences(row.evidence_references),
+      amountMinor: Number(row.amount_minor),
+      currency: String(row.currency),
+      verifiedAt: new Date(String(row.verified_at)).toISOString(),
+    };
+  }
+}
