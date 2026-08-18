@@ -4,6 +4,7 @@ import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
+import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import type { ExternalIntegration } from '../integrations/integration-contract.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
@@ -18,6 +19,21 @@ const clearance: PersistedFinanceClearanceDecision = {
   amountMinor: 10000,
   currency: 'ZAR',
   verifiedAt: '2026-08-18T08:50:00.000Z',
+};
+
+const paymentState: PersistedFinancePaymentCurrentState = {
+  provider: 'synthetic',
+  providerPaymentReference: clearance.providerPaymentReference,
+  commercialRecordReference: clearance.commercialRecordReference,
+  paymentStatus: 'CONFIRMED',
+  authorityState: 'AUTHORIZED',
+  reason: 'Synthetic current payment state remains authorized.',
+  latestEventType: 'payment_paid',
+  latestProviderEventReference: 'event:synthetic:production-model-1',
+  latestEvidenceReference: clearance.evidenceReferences[0]!,
+  latestOccurredAt: clearance.verifiedAt,
+  amountMinor: clearance.amountMinor,
+  currency: clearance.currency,
 };
 
 function task(): AgentRuntimeTask {
@@ -45,7 +61,12 @@ test('Production Agent registers a governed Gemini technical-assistance capabili
 
   const integrations = new IntegrationRegistry(); integrations.register(gemini);
   const handlers = new AgentRuntimeHandlerRegistry();
-  registerProductionModelCapabilities(handlers, integrations, { async get(id) { return id === clearance.clearanceId ? clearance : null; } });
+  registerProductionModelCapabilities(
+    handlers,
+    integrations,
+    { async get(id) { return id === clearance.clearanceId ? clearance : null; } },
+    { async get(_provider, providerPaymentReference) { return providerPaymentReference === clearance.providerPaymentReference ? paymentState : null; } },
+  );
 
   const handler = handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY); assert.ok(handler);
   const result = await handler.execute(task());
