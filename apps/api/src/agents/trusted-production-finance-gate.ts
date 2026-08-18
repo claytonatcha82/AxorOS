@@ -1,6 +1,7 @@
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import type { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import type { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
+import type { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
 
 function requiredContextString(task: AgentRuntimeTask, key: string): string {
   const value = task.context[key];
@@ -14,6 +15,7 @@ export async function assertTrustedProductionFinanceGate(
   task: AgentRuntimeTask,
   clearanceStore: Pick<FinanceClearancePostgresStore, 'get'>,
   paymentStateStore: Pick<FinancePaymentCurrentStatePostgresStore, 'get'>,
+  paymentRequirementStore?: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
 ): Promise<void> {
   if (task.destinationAgent !== 'production_agent') return;
 
@@ -37,6 +39,22 @@ export async function assertTrustedProductionFinanceGate(
   }
   if (Number.isNaN(Date.parse(persisted.verifiedAt))) {
     throw new Error('Production start blocked: persisted Finance clearance timestamp is invalid.');
+  }
+
+  if (paymentRequirementStore) {
+    const requirement = await paymentRequirementStore.get(commercialRecordReference, 'PRODUCTION_START');
+    if (!requirement) {
+      throw new Error('Production start blocked: no persisted PRODUCTION_START payment requirement was found for the commercial record.');
+    }
+    if (requirement.status !== 'ACTIVE' && requirement.status !== 'SATISFIED') {
+      throw new Error(`Production start blocked: PRODUCTION_START payment requirement is ${requirement.status}.`);
+    }
+    if (persisted.currency !== requirement.currency) {
+      throw new Error('Production start blocked: Finance clearance currency does not satisfy the PRODUCTION_START payment requirement.');
+    }
+    if (persisted.amountMinor < requirement.requiredAmountMinor) {
+      throw new Error('Production start blocked: Finance clearance amount does not satisfy the PRODUCTION_START payment requirement.');
+    }
   }
 
   const providerEvidence = persisted.evidenceReferences.find((reference) => reference.startsWith('payment-provider:'));
