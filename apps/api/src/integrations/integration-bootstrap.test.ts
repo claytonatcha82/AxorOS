@@ -13,11 +13,14 @@ function baseConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
   };
 }
 
-test('configured registry always includes sandbox and omits optional providers without credentials', () => {
+test('configured registry always includes model and payment sandboxes and omits optional providers without credentials', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig());
 
-  assert.deepEqual(registeredIntegrationIds, ['model.sandbox']);
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox']);
   assert.equal(registry.get('model.sandbox')?.provider, 'axoros-sandbox');
+  assert.equal(registry.get('payment.sandbox')?.provider, 'deterministic-payment-sandbox');
+  assert.deepEqual(registry.require('payment.sandbox').supportedModes, ['sandbox']);
+  assert.deepEqual(registry.require('payment.sandbox').supportedOperations, ['verify_payment']);
   assert.equal(registry.get('model.gemini'), undefined);
   assert.equal(registry.get('email.gmail'), undefined);
 });
@@ -28,7 +31,7 @@ test('configured registry registers Gemini only when a key is configured', () =>
     geminiModel: 'gemini-test-model',
   }));
 
-  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'model.gemini']);
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.gemini']);
   assert.equal(registry.require('model.gemini').provider, 'google-gemini');
   assert.deepEqual(registry.require('model.gemini').supportedModes, ['draft']);
 });
@@ -41,7 +44,7 @@ test('configured registry registers Gmail as draft-only when complete credential
     gmailIdentityAddresses: { sales: 'sales@example.test' },
   }));
 
-  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'email.gmail']);
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'email.gmail']);
   const gmail = registry.require('email.gmail');
   assert.equal(gmail.provider, 'google-gmail');
   assert.deepEqual(gmail.supportedModes, ['draft']);
