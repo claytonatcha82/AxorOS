@@ -2,10 +2,9 @@ import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
-import { createProductionRuntimeBootstrap } from './agents/production-runtime-bootstrap.js';
+import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
-import { createAgentRuntimePostgresStore } from './data/agent-runtime-postgres-store.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
@@ -24,11 +23,11 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
-const productionRuntime = createProductionRuntimeBootstrap({
+const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
 });
-const runtimeStore = createAgentRuntimePostgresStore(databasePool);
+const runtimeStore = productionRuntime.store;
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
   onCycleCompleted(decisions) {
     if (decisions.length > 0) {
@@ -106,6 +105,7 @@ async function start(): Promise<void> {
       productionRuntimeConfigured: Boolean(
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
+      productionRuntimePersistenceConfigured: true,
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
