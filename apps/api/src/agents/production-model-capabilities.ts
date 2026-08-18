@@ -4,6 +4,7 @@ import { assertTrustedProductionFinanceGate } from './trusted-production-finance
 import type { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import type { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
 import type { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
+import type { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 
 export const PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY = 'draft_technical_implementation';
@@ -13,7 +14,8 @@ export function registerProductionModelCapabilities(
   integrations: IntegrationRegistry,
   financeClearanceStore: Pick<FinanceClearancePostgresStore, 'get'>,
   financePaymentStateStore: Pick<FinancePaymentCurrentStatePostgresStore, 'get'>,
-  commercialPaymentRequirementStore?: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
+  commercialPaymentRequirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
+  commercialPaymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
 ): void {
   registerModelRuntimeCapability(handlers, integrations, {
     agentId: 'production_agent',
@@ -27,6 +29,7 @@ export function registerProductionModelCapabilities(
       financeClearanceStore,
       financePaymentStateStore,
       commercialPaymentRequirementStore,
+      commercialPaymentSatisfactionStore,
     ),
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
