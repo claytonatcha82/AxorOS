@@ -10,6 +10,10 @@ export interface FinanceClearanceDecision {
   evidenceReferences: string[];
 }
 
+export interface FinanceClearanceDecisionReader {
+  get(clearanceId: string): Promise<FinanceClearanceDecision | null>;
+}
+
 export function evaluateFinanceClearance(
   expected: PaymentVerificationInput,
   verification: PaymentVerificationResponse,
@@ -39,4 +43,17 @@ export function assertFinanceCleared(decision: FinanceClearanceDecision): void {
   if (decision.state !== 'FINANCE_CLEARED') {
     throw new Error(`Production start blocked: ${decision.reason}`);
   }
+}
+
+export async function assertPersistedFinanceCleared(
+  reader: FinanceClearanceDecisionReader,
+  clearanceId: string,
+): Promise<FinanceClearanceDecision> {
+  const decision = await reader.get(clearanceId);
+  if (!decision) {
+    throw new Error(`Production start blocked: no persisted Finance clearance found for ${clearanceId}.`);
+  }
+
+  assertFinanceCleared(decision);
+  return decision;
 }
