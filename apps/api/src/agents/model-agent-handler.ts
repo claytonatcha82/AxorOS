@@ -1,6 +1,5 @@
 import type { AgentRuntimeHandler } from './agent-runtime-handlers.js';
 import type { AgentRuntimeTask, CoreAgentId } from './agent-runtime-contract.js';
-import { assertProductionFinanceGate } from './production-finance-gate.js';
 import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
@@ -15,6 +14,7 @@ export interface ModelAgentHandlerOptions {
   systemInstruction?: string;
   maxOutputTokens?: number;
   temperature?: number;
+  beforeExecute?: (task: AgentRuntimeTask) => void | Promise<void>;
 }
 
 function requiredStringInput(task: AgentRuntimeTask, key: string): string {
@@ -53,10 +53,10 @@ export function createModelAgentRuntimeHandler(
         throw new Error(`model handler destination mismatch: expected ${options.agentId}, received ${task.destinationAgent}.`);
       }
 
-      // Production execution is commercially gated. Model generation is still execution
-      // because it can create client-delivery work, so clearance is enforced before any
-      // provider call rather than relying only on orchestration callers to remember the gate.
-      if (options.agentId === 'production_agent') assertProductionFinanceGate(task);
+      // Capability-specific gates execute before any external model provider call.
+      // Production uses this hook to resolve Finance clearance from trusted persistence
+      // rather than trusting caller-authored task context.
+      if (options.beforeExecute) await options.beforeExecute(task);
 
       const input: ModelGenerationInput = {
         prompt: requiredStringInput(task, promptInputKey),
