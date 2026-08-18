@@ -5,6 +5,7 @@ import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
+import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
@@ -45,12 +46,17 @@ const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
 const knowledgeRepository = createKnowledgeRepository(databasePool);
 const knowledgeRetrievalService = createKnowledgeRetrievalService(knowledgeRepository);
 const knowledgeContextService = createKnowledgeContextService(knowledgeRetrievalService);
-const server = createServer(createRequestHandler(
+const apiRequestHandler = createRequestHandler(
   config,
   () => checkDatabase(databasePool),
   knowledgeRetrievalService,
   knowledgeContextService,
-));
+);
+const server = createServer(createControlPlaneRequestHandler({
+  config,
+  productionCommand: productionRuntime.commands,
+  fallback: apiRequestHandler,
+}));
 let shuttingDown = false;
 
 function shutdown(signal: NodeJS.Signals): void {
@@ -106,6 +112,7 @@ async function start(): Promise<void> {
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
       productionRuntimePersistenceConfigured: true,
+      productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
