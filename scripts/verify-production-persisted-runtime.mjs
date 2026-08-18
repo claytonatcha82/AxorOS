@@ -1,8 +1,10 @@
 import pg from 'pg';
 import { createPersistedProductionRuntime } from '../apps/api/dist/agents/production-persisted-runtime.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from '../apps/api/dist/agents/production-model-capabilities.js';
+import { satisfyCommercialPaymentRequirement } from '../apps/api/dist/agents/finance-commercial-payment-requirement.js';
 import { FinancePaymentCurrentStatePostgresStore } from '../apps/api/dist/data/finance-payment-current-state-postgres-store.js';
 import { CommercialPaymentRequirementPostgresStore } from '../apps/api/dist/data/commercial-payment-requirement-postgres-store.js';
+import { CommercialPaymentSatisfactionPostgresStore } from '../apps/api/dist/data/commercial-payment-satisfaction-postgres-store.js';
 import { IntegrationRegistry } from '../apps/api/dist/integrations/integration-registry.js';
 
 const { Pool } = pg;
@@ -30,6 +32,7 @@ const adverseCases = [
 const clearanceIds = [];
 const paymentReferences = [];
 const commercialRecordReferences = [];
+const requirementReferences = [];
 const executionIds = [];
 let modelCalls = 0;
 
@@ -62,6 +65,7 @@ integrations.register({
 const runtime = createPersistedProductionRuntime({ pool, integrations });
 const paymentStateStore = new FinancePaymentCurrentStatePostgresStore(pool);
 const paymentRequirementStore = new CommercialPaymentRequirementPostgresStore(pool);
+const paymentSatisfactionStore = new CommercialPaymentSatisfactionPostgresStore(pool);
 
 function evidence({ paymentReference, commercialRecordReference, eventType, eventReference, occurredAt }) {
   return {
@@ -102,24 +106,13 @@ function record({ executionId, clearanceId, commercialRecordReference }) {
       destinationAgent: 'production_agent',
       objective: 'Verify governed persisted Production payment authority.',
       priority: 'normal',
-      context: {
-        financeClearanceId: clearanceId,
-        commercialRecordReference,
-      },
+      context: { financeClearanceId: clearanceId, commercialRecordReference },
       knowledgeReferences: [],
       inputs: { implementationBrief: 'Create a deterministic governed Production verification draft.' },
       expectedOutput: 'Technical implementation draft',
-      dependencies: [],
-      risks: [],
-      confidence: 1,
-      approvalRequired: false,
-      status: 'ready',
-      nextAction: 'execute_destination_capability',
-      attempt: 1,
-      maxAttempts: 1,
-      correlationId: `corr:${executionId}`,
-      createdAt: now,
-      updatedAt: now,
+      dependencies: [], risks: [], confidence: 1, approvalRequired: false, status: 'ready',
+      nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 1,
+      correlationId: `corr:${executionId}`, createdAt: now, updatedAt: now,
     },
     version: 1,
     persistedAt: now,
@@ -129,10 +122,36 @@ function record({ executionId, clearanceId, commercialRecordReference }) {
 async function executeCase({ executionId, clearanceId, commercialRecordReference }) {
   executionIds.push(executionId);
   await runtime.store.saveExecution(record({ executionId, clearanceId, commercialRecordReference }), 0);
-  return runtime.orchestrator.execute({
-    executionId,
-    capabilityId: PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY,
+  return runtime.orchestrator.execute({ executionId, capabilityId: PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY });
+}
+
+async function createProductionRequirement(commercialRecordReference, requiredAmountMinor = 10000) {
+  const requirementReference = `deposit:${commercialRecordReference}`;
+  requirementReferences.push(requirementReference);
+  const result = await paymentRequirementStore.save({
+    commercialRecordReference,
+    gate: 'PRODUCTION_START',
+    requirementReference,
+    requirementType: 'DEPOSIT',
+    requiredAmountMinor,
+    currency: 'ZAR',
+    status: 'ACTIVE',
   });
+  if (result !== 'accepted') throw new Error('PRODUCTION_START requirement was not newly accepted.');
+  return requirementReference;
+}
+
+async function bindProductionRequirement(commercialRecordReference, clearanceId) {
+  const result = await satisfyCommercialPaymentRequirement({
+    requirementStore: paymentRequirementStore,
+    satisfactionStore: paymentSatisfactionStore,
+    clearanceStore: runtime.financeClearanceStore,
+  }, {
+    commercialRecordReference,
+    gate: 'PRODUCTION_START',
+    clearanceId,
+  });
+  if (result.persistence !== 'accepted') throw new Error('PRODUCTION_START satisfaction was not newly accepted.');
 }
 
 async function verifyAdverseCase(definition, index) {
@@ -152,40 +171,23 @@ async function verifyAdverseCase(definition, index) {
   paymentReferences.push(paymentReference);
   commercialRecordReferences.push(commercialRecordReference);
 
-  const requirementSave = await paymentRequirementStore.save({
-    commercialRecordReference,
-    gate: 'PRODUCTION_START',
-    requirementReference: `deposit:${commercialRecordReference}`,
-    requirementType: 'DEPOSIT',
-    requiredAmountMinor: 10000,
-    currency: 'ZAR',
-    status: 'ACTIVE',
-  });
-  if (requirementSave !== 'accepted') throw new Error(`${label} PRODUCTION_START requirement was not newly accepted.`);
+  await createProductionRequirement(commercialRecordReference);
 
   const saveResult = await runtime.financeClearanceStore.save(clearance({
-    clearanceId,
-    paymentReference,
-    commercialRecordReference,
-    paidEvidenceReference,
-    verifiedAt: paidAt,
+    clearanceId, paymentReference, commercialRecordReference, paidEvidenceReference, verifiedAt: paidAt,
   }));
   if (saveResult !== 'accepted') throw new Error(`${label} clearance was not newly accepted.`);
 
   const paidApply = await paymentStateStore.apply(evidence({
-    paymentReference,
-    commercialRecordReference,
-    eventType: 'payment_paid',
-    eventReference: paidEventReference,
-    occurredAt: paidAt,
+    paymentReference, commercialRecordReference, eventType: 'payment_paid', eventReference: paidEventReference, occurredAt: paidAt,
   }));
   if (paidApply !== 'accepted') throw new Error(`${label} paid state was not accepted.`);
 
+  await bindProductionRequirement(commercialRecordReference, clearanceId);
+
   const callsBeforeAuthorized = modelCalls;
   const authorized = await executeCase({
-    executionId: `exec-production-authority:${suffix}:${label}:authorized`,
-    clearanceId,
-    commercialRecordReference,
+    executionId: `exec-production-authority:${suffix}:${label}:authorized`, clearanceId, commercialRecordReference,
   });
   if (authorized.record.task.status !== 'completed' || authorized.record.result?.status !== 'completed') {
     throw new Error(`${label} authorized Production execution did not complete.`);
@@ -195,11 +197,7 @@ async function verifyAdverseCase(definition, index) {
   }
 
   const adverseApply = await paymentStateStore.apply(evidence({
-    paymentReference,
-    commercialRecordReference,
-    eventType: definition.eventType,
-    eventReference: adverseEventReference,
-    occurredAt: adverseAt,
+    paymentReference, commercialRecordReference, eventType: definition.eventType, eventReference: adverseEventReference, occurredAt: adverseAt,
   }));
   if (adverseApply !== 'accepted') throw new Error(`${label} adverse payment state was not accepted.`);
 
@@ -211,16 +209,12 @@ async function verifyAdverseCase(definition, index) {
 
   const callsBeforeBlocked = modelCalls;
   const blocked = await executeCase({
-    executionId: `exec-production-authority:${suffix}:${label}:blocked`,
-    clearanceId,
-    commercialRecordReference,
+    executionId: `exec-production-authority:${suffix}:${label}:blocked`, clearanceId, commercialRecordReference,
   });
   if (blocked.record.task.status !== 'failed' || blocked.record.result?.errorCode !== 'RUNTIME_HANDLER_FAILURE') {
     throw new Error(`${label} revoked Production execution did not fail closed.`);
   }
-  if (modelCalls !== callsBeforeBlocked) {
-    throw new Error(`${label} revoked Production execution reached the model provider.`);
-  }
+  if (modelCalls !== callsBeforeBlocked) throw new Error(`${label} revoked Production execution reached the model provider.`);
 
   const staleApply = await paymentStateStore.apply(evidence({
     paymentReference,
@@ -257,46 +251,42 @@ async function verifyUnderfundedRequirementBlocks() {
   paymentReferences.push(paymentReference);
   commercialRecordReferences.push(commercialRecordReference);
 
-  await paymentRequirementStore.save({
-    commercialRecordReference,
-    gate: 'PRODUCTION_START',
-    requirementReference: `deposit:${commercialRecordReference}`,
-    requirementType: 'DEPOSIT',
-    requiredAmountMinor: 15000,
-    currency: 'ZAR',
-    status: 'ACTIVE',
-  });
+  await createProductionRequirement(commercialRecordReference, 15000);
   await runtime.financeClearanceStore.save(clearance({
-    clearanceId,
-    paymentReference,
-    commercialRecordReference,
-    paidEvidenceReference,
-    verifiedAt: paidAt,
+    clearanceId, paymentReference, commercialRecordReference, paidEvidenceReference, verifiedAt: paidAt,
   }));
   await paymentStateStore.apply(evidence({
-    paymentReference,
-    commercialRecordReference,
-    eventType: 'payment_paid',
-    eventReference,
-    occurredAt: paidAt,
+    paymentReference, commercialRecordReference, eventType: 'payment_paid', eventReference, occurredAt: paidAt,
   }));
+
+  let bindingBlocked = false;
+  try {
+    await bindProductionRequirement(commercialRecordReference, clearanceId);
+  } catch (error) {
+    bindingBlocked = error instanceof Error && error.message.includes('amount does not satisfy');
+  }
+  if (!bindingBlocked) throw new Error('underfunded Finance clearance was incorrectly bound to PRODUCTION_START.');
 
   const callsBefore = modelCalls;
   const blocked = await executeCase({
-    executionId: `exec-production-authority:${suffix}:underfunded`,
-    clearanceId,
-    commercialRecordReference,
+    executionId: `exec-production-authority:${suffix}:underfunded`, clearanceId, commercialRecordReference,
   });
-  if (blocked.record.task.status !== 'failed' || !blocked.record.result?.errorMessage?.includes('does not satisfy')) {
-    throw new Error('underfunded PRODUCTION_START requirement did not fail closed.');
+  if (blocked.record.task.status !== 'failed' || !blocked.record.result?.errorMessage?.includes('has not been satisfied')) {
+    throw new Error('unsatisfied underfunded PRODUCTION_START requirement did not fail closed.');
   }
-  if (modelCalls !== callsBefore) throw new Error('underfunded PRODUCTION_START requirement reached the model provider.');
+  if (modelCalls !== callsBefore) throw new Error('unsatisfied underfunded PRODUCTION_START requirement reached the model provider.');
 }
 
 async function cleanup() {
   if (executionIds.length > 0) {
     await pool.query('delete from runtime.idempotency_records where execution_id = any($1::text[])', [executionIds]);
     await pool.query('delete from runtime.agent_executions where execution_id = any($1::text[])', [executionIds]);
+  }
+  if (requirementReferences.length > 0) {
+    await pool.query(
+      'delete from finance.commercial_payment_satisfactions where requirement_reference = any($1::text[])',
+      [requirementReferences],
+    );
   }
   if (clearanceIds.length > 0) {
     await pool.query('delete from finance.clearance_decisions where clearance_id = any($1::text[])', [clearanceIds]);
@@ -321,7 +311,7 @@ try {
   }
   await verifyUnderfundedRequirementBlocks();
 
-  console.log('PASS  Production requires the persisted PRODUCTION_START commercial obligation, rejects underfunded clearance, and revokes authority after adverse payment lifecycle events without rewriting immutable Finance evidence.');
+  console.log('PASS  Production requires an immutable PRODUCTION_START Finance-clearance satisfaction, rejects underfunded binding, and revokes authority after adverse payment lifecycle events without rewriting historical Finance evidence.');
 } catch (error) {
   console.error(`FAIL  ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
