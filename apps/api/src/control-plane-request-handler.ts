@@ -1,16 +1,16 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
-import type { ProductionRuntimeCommandDependencies } from './agents/production-runtime-command-service.js';
+import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
 const PRODUCTION_EXECUTE_PATH = '/api/v1/control/production/execute';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
-type ProductionCommand = ReturnType<typeof import('./agents/production-runtime-command-service.js')['createProductionRuntimeCommandService']>;
-
 export interface ControlPlaneRequestHandlerDependencies {
   config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
-  productionCommand: Pick<ProductionCommand, 'execute'>;
+  productionCommand: {
+    execute(executionId: string): Promise<RuntimeExecutionOutcome>;
+  };
   fallback: RequestListener;
 }
 
@@ -42,7 +42,14 @@ async function readCommandBody(request: IncomingMessage): Promise<Record<string,
   }
 
   if (chunks.length === 0) throw new Error('invalid_json_body');
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  } catch {
+    throw new Error('invalid_json_body');
+  }
+
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid_json_body');
   return parsed as Record<string, unknown>;
 }
