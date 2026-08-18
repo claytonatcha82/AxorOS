@@ -28,6 +28,8 @@ const { registry: integrationRegistry, registeredIntegrationIds } = createConfig
 const financePaymentRuntime = createFinancePaymentRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
+  ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}),
+  ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}),
 });
 const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
@@ -115,6 +117,9 @@ async function start(): Promise<void> {
       runtimeRecoveryConfigured: true,
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
+      paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
+      activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox',
+      activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
       productionRuntimeConfigured: Boolean(
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
