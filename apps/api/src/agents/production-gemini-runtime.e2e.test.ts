@@ -10,6 +10,7 @@ import type { AgentRuntimeStore } from './agent-runtime-store.js';
 import { RuntimeVersionConflictError } from './agent-runtime-store.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
+import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import type { ExternalIntegration } from '../integrations/integration-contract.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
@@ -18,6 +19,21 @@ const clearance: PersistedFinanceClearanceDecision = {
   clearanceId: 'clearance:synthetic:production-gemini-e2e-1', commercialRecordReference: 'commercial:synthetic:production-gemini-e2e-1',
   providerPaymentReference: 'payment:synthetic:production-gemini-e2e-1', state: 'FINANCE_CLEARED', reason: 'Synthetic provider evidence matched.',
   evidenceReferences: ['payment-provider:synthetic:production-gemini-e2e-1'], amountMinor: 10000, currency: 'ZAR', verifiedAt: '2026-08-18T08:50:00.000Z',
+};
+
+const paymentState: PersistedFinancePaymentCurrentState = {
+  provider: 'synthetic',
+  providerPaymentReference: clearance.providerPaymentReference,
+  commercialRecordReference: clearance.commercialRecordReference,
+  paymentStatus: 'CONFIRMED',
+  authorityState: 'AUTHORIZED',
+  reason: 'Synthetic current payment state remains authorized.',
+  latestEventType: 'payment_paid',
+  latestProviderEventReference: 'event:synthetic:production-gemini-e2e-1',
+  latestEvidenceReference: clearance.evidenceReferences[0]!,
+  latestOccurredAt: clearance.verifiedAt,
+  amountMinor: clearance.amountMinor,
+  currency: clearance.currency,
 };
 
 function productionTask(): AgentRuntimeTask {
@@ -52,7 +68,12 @@ test('production runtime executes Production Agent through governed Gemini draft
   };
   const integrations = new IntegrationRegistry(); integrations.register(gemini);
   const handlers = new AgentRuntimeHandlerRegistry();
-  registerProductionModelCapabilities(handlers, integrations, { async get(id) { return id === clearance.clearanceId ? clearance : null; } });
+  registerProductionModelCapabilities(
+    handlers,
+    integrations,
+    { async get(id) { return id === clearance.clearanceId ? clearance : null; } },
+    { async get(_provider, providerPaymentReference) { return providerPaymentReference === clearance.providerPaymentReference ? paymentState : null; } },
+  );
   const task = productionTask(); const store = new MemoryRuntimeStore(task); let eventId = 0; let second = 0;
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers, now: () => `2026-08-18T08:50:0${second++}.000Z`, createEventId: () => `production-gemini-event-${++eventId}` });
   const production = createProductionRuntimeExecutor({ orchestrator, schedulingSource: { async listSchedulingTasks() { return [store.execution.task]; }, async getAgentCapacity(agentId) { return { agentId, state: 'available', activeTasks: 0, maxConcurrentTasks: 2 }; } } });
