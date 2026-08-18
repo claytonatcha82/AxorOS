@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
-import type { ExternalIntegration } from '../integrations/integration-contract.js';
+import type { ExternalIntegration, IntegrationResponse } from '../integrations/integration-contract.js';
 import { DeterministicPaymentIntegration } from '../integrations/deterministic-payment-integration.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { PaymentVerificationInput, PaymentVerificationOutput } from '../integrations/payment-integration.js';
-import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
+import {
+  createFinancePaymentClearanceWorkflow,
+  type FinancePaymentVerificationExecutor,
+  type VerifyFinancePaymentInput,
+} from './finance-payment-clearance-workflow.js';
 
 const expected: PaymentVerificationInput = {
   providerPaymentReference: 'sandbox_paid_workflow_001',
@@ -27,13 +31,13 @@ function createStore() {
   };
 }
 
-function baseInput(overrides: Partial<Parameters<ReturnType<typeof createFinancePaymentClearanceWorkflow>['verifyAndPersist']>[0]> = {}) {
+function baseInput(overrides: Partial<VerifyFinancePaymentInput> = {}): VerifyFinancePaymentInput {
   return {
     clearanceId: 'finance-clearance:workflow:1',
     executionId: 'exec-finance-workflow-1',
     correlationId: 'corr-finance-workflow-1',
     paymentIntegrationId: 'payment.sandbox',
-    mode: 'sandbox' as const,
+    mode: 'sandbox',
     expected,
     ...overrides,
   };
@@ -112,25 +116,25 @@ test('mismatched provider facts persist FINANCE_PENDING rather than trusting the
 });
 
 test('Finance workflow fixes requestedBy, operation, risk and idempotency key instead of accepting caller authority', async () => {
-  let capturedRequest: Record<string, unknown> | undefined;
-  const integrations = {
-    async execute(request: Record<string, unknown>) {
+  let capturedRequest: Parameters<FinancePaymentVerificationExecutor['execute']>[0] | undefined;
+  const integrations: FinancePaymentVerificationExecutor = {
+    async execute<TInput, TOutput>(request: Parameters<FinancePaymentVerificationExecutor['execute']>[0]): Promise<IntegrationResponse<TOutput>> {
       capturedRequest = request;
       return {
         integrationId: 'payment.capture',
         operation: 'verify_payment',
         provider: 'capture-provider',
-        mode: 'sandbox' as const,
-        status: 'succeeded' as const,
+        mode: 'sandbox',
+        status: 'succeeded',
         output: {
           providerPaymentReference: expected.providerPaymentReference,
           commercialRecordReference: expected.commercialRecordReference,
-          verificationStatus: 'verified_paid' as const,
+          verificationStatus: 'verified_paid',
           amountMinor: expected.expectedAmountMinor,
           currency: expected.currency,
           providerEventReference: 'evt-capture-1',
           verifiedAt: '2026-08-18T17:31:00.000Z',
-        },
+        } as TOutput,
         evidenceReferences: ['payment-provider:capture:evt-capture-1'],
         retryable: false,
       };
