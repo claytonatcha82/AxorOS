@@ -63,14 +63,14 @@ test('signed raw Paystack HTTP webhook reaches Finance event workflow as a trust
         captured = envelope;
         return {
           evidence: {
-            idempotencyKey: 'payment-webhook:paystack:charge.success:701',
+            idempotencyKey: `payment-webhook:${envelope.provider}:${envelope.providerEventReference}`,
             provider: envelope.provider,
             providerEventReference: envelope.providerEventReference,
             providerPaymentReference: envelope.providerPaymentReference,
             eventType: envelope.eventType,
             commercialRecordReference: envelope.commercialRecordReference,
-            amountMinor: envelope.amountMinor,
-            currency: envelope.currency,
+            ...(envelope.amountMinor !== undefined ? { amountMinor: envelope.amountMinor } : {}),
+            ...(envelope.currency !== undefined ? { currency: envelope.currency } : {}),
             occurredAt: envelope.occurredAt,
             evidenceReference: `payment-provider:${envelope.provider}:${envelope.providerEventReference}`,
           },
