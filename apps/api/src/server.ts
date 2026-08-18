@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
 import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js';
+import { createPaystackPaymentWebhookIngress } from './agents/paystack-payment-webhook-ingress.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
 import { createBetterStackLogSink } from './better-stack.js';
@@ -13,6 +14,7 @@ import { createKnowledgeContextService } from './knowledge/knowledge-context-ser
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent, setExternalLogSink } from './logger.js';
+import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -59,10 +61,22 @@ const apiRequestHandler = createRequestHandler(
   knowledgeRetrievalService,
   knowledgeContextService,
 );
-const server = createServer(createControlPlaneRequestHandler({
+const controlPlaneRequestHandler = createControlPlaneRequestHandler({
   config,
   productionCommand: productionRuntime.commands,
   fallback: apiRequestHandler,
+});
+const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
+  ? createPaystackPaymentWebhookIngress({
+      secretKey: config.paystackSecretKey,
+      currentStateStore: financePaymentRuntime.currentStateStore,
+      eventWorkflow: financePaymentRuntime.eventWorkflow,
+    })
+  : undefined;
+const server = createServer(createPaystackWebhookRequestHandler({
+  config,
+  ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
+  fallback: controlPlaneRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -118,6 +132,7 @@ async function start(): Promise<void> {
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
       paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
+      paystackWebhookConfigured: Boolean(paystackWebhookIngress),
       activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox',
       activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
       productionRuntimeConfigured: Boolean(
