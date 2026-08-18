@@ -100,3 +100,20 @@ test('loadConfig rejects invalid Gmail identity JSON', () => {
     /Invalid AXOROS_GMAIL_IDENTITY_ADDRESSES JSON/,
   );
 });
+
+test('loadConfig reads a Paystack test secret key from the environment', () => {
+  const config = loadConfig({ AXOROS_PAYSTACK_SECRET_KEY: '  sk_test_example-secret  ' });
+  assert.equal(config.paystackSecretKey, 'sk_test_example-secret');
+});
+
+test('loadConfig reads a Paystack live secret key from the environment', () => {
+  const config = loadConfig({ AXOROS_PAYSTACK_SECRET_KEY: 'sk_live_example-secret' });
+  assert.equal(config.paystackSecretKey, 'sk_live_example-secret');
+});
+
+test('loadConfig rejects non-Paystack secret key formats', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_PAYSTACK_SECRET_KEY: 'not-a-paystack-key' }),
+    /Paystack test or live secret key/,
+  );
+});
