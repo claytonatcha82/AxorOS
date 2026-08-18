@@ -88,7 +88,7 @@ test('signed raw Paystack HTTP webhook reaches Finance event workflow as a trust
   });
 
   await withServer(handler, async (port) => {
-    assert.equal(await post(port, body, signature), 204);
+    assert.equal(await post(port, body, signature), 200);
   });
 
   assert.ok(captured);
