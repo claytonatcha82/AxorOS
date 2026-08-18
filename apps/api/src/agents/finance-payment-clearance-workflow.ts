@@ -1,4 +1,5 @@
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
+import type { PaymentWebhookEvidence } from '../integrations/payment-webhook-evidence.js';
 import type { IntegrationMode, IntegrationResponse } from '../integrations/integration-contract.js';
 import type { PaymentVerificationInput, PaymentVerificationOutput } from '../integrations/payment-integration.js';
 import { evaluateFinanceClearance } from './finance-clearance-gate.js';
@@ -21,6 +22,10 @@ export interface FinanceClearanceDecisionWriter {
   save(decision: PersistedFinanceClearanceDecision): Promise<'accepted' | 'duplicate'>;
 }
 
+export interface TrustedPaymentWebhookEvidenceReader {
+  get(idempotencyKey: string): Promise<PaymentWebhookEvidence | null>;
+}
+
 export interface VerifyFinancePaymentInput {
   clearanceId: string;
   executionId: string;
@@ -28,6 +33,7 @@ export interface VerifyFinancePaymentInput {
   paymentIntegrationId: string;
   mode: IntegrationMode;
   expected: PaymentVerificationInput;
+  trustedPaymentWebhookIdempotencyKey?: string;
 }
 
 export interface VerifyFinancePaymentResult {
@@ -48,9 +54,35 @@ function decisionTimestamp(output: PaymentVerificationOutput): string {
   return new Date(0).toISOString();
 }
 
+function uniqueEvidenceReferences(references: readonly string[]): string[] {
+  return [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+}
+
+function assertTrustedPaymentEvidenceMatchesExpected(
+  evidence: PaymentWebhookEvidence,
+  expected: PaymentVerificationInput,
+): void {
+  if (evidence.eventType !== 'payment_paid') {
+    throw new Error('Trusted payment webhook evidence must be payment_paid before Finance clearance verification.');
+  }
+  if (evidence.providerPaymentReference !== expected.providerPaymentReference) {
+    throw new Error('Trusted payment webhook evidence does not match the expected provider payment reference.');
+  }
+  if (evidence.commercialRecordReference !== expected.commercialRecordReference) {
+    throw new Error('Trusted payment webhook evidence does not match the commercial record.');
+  }
+  if (evidence.amountMinor !== expected.expectedAmountMinor) {
+    throw new Error('Trusted payment webhook evidence does not match the expected amount.');
+  }
+  if (evidence.currency !== expected.currency) {
+    throw new Error('Trusted payment webhook evidence does not match the expected currency.');
+  }
+}
+
 export function createFinancePaymentClearanceWorkflow(dependencies: {
   integrations: FinancePaymentVerificationExecutor;
   clearanceStore: FinanceClearanceDecisionWriter;
+  paymentWebhookEvidenceStore?: TrustedPaymentWebhookEvidenceReader;
 }) {
   return {
     async verifyAndPersist(input: VerifyFinancePaymentInput): Promise<VerifyFinancePaymentResult> {
@@ -58,6 +90,19 @@ export function createFinancePaymentClearanceWorkflow(dependencies: {
       const executionId = required(input.executionId, 'executionId');
       const correlationId = required(input.correlationId, 'correlationId');
       const paymentIntegrationId = required(input.paymentIntegrationId, 'paymentIntegrationId');
+
+      let trustedPaymentEvidence: PaymentWebhookEvidence | null = null;
+      if (input.trustedPaymentWebhookIdempotencyKey !== undefined) {
+        const idempotencyKey = required(input.trustedPaymentWebhookIdempotencyKey, 'trustedPaymentWebhookIdempotencyKey');
+        if (!dependencies.paymentWebhookEvidenceStore) {
+          throw new Error('Trusted payment webhook evidence store is required when binding Finance clearance to a webhook event.');
+        }
+        trustedPaymentEvidence = await dependencies.paymentWebhookEvidenceStore.get(idempotencyKey);
+        if (!trustedPaymentEvidence) {
+          throw new Error('Trusted persisted payment webhook evidence was not found.');
+        }
+        assertTrustedPaymentEvidenceMatchesExpected(trustedPaymentEvidence, input.expected);
+      }
 
       const verification = await dependencies.integrations.execute<PaymentVerificationInput, PaymentVerificationOutput>({
         integrationId: paymentIntegrationId,
@@ -72,13 +117,17 @@ export function createFinancePaymentClearanceWorkflow(dependencies: {
       });
 
       const evaluated = evaluateFinanceClearance(input.expected, verification);
+      const evidenceReferences = uniqueEvidenceReferences([
+        ...(trustedPaymentEvidence ? [trustedPaymentEvidence.evidenceReference] : []),
+        ...evaluated.evidenceReferences,
+      ]);
       const decision: PersistedFinanceClearanceDecision = {
         clearanceId,
         commercialRecordReference: input.expected.commercialRecordReference,
         providerPaymentReference: input.expected.providerPaymentReference,
         state: evaluated.state,
         reason: evaluated.reason,
-        evidenceReferences: evaluated.evidenceReferences,
+        evidenceReferences,
         amountMinor: input.expected.expectedAmountMinor,
         currency: input.expected.currency,
         verifiedAt: decisionTimestamp(verification.output),
