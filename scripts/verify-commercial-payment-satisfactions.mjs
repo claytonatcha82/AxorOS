@@ -128,7 +128,6 @@ try {
   const depositClearance = clearances.get('PRODUCTION_START');
   if (!depositClearance) throw new Error('deposit clearance fixture was not created.');
 
-  await assert.rejects?.(() => undefined);
   let wrongGateBlocked = false;
   try {
     await assertCommercialPaymentGateSatisfied({ requirementStore, satisfactionStore }, {
