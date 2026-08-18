@@ -17,6 +17,7 @@ export interface ApiConfig {
   gmailClientSecret?: string;
   gmailRefreshToken?: string;
   gmailIdentityAddresses?: Readonly<Record<string, string>>;
+  paystackSecretKey?: string;
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>([
@@ -66,6 +67,15 @@ function parseGmailIdentityAddresses(value: string | undefined): Readonly<Record
     throw new Error('AXOROS_GMAIL_IDENTITY_ADDRESSES must contain at least one identity.');
   }
   return addresses;
+}
+
+function parsePaystackSecretKey(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (!trimmed.startsWith('sk_test_') && !trimmed.startsWith('sk_live_')) {
+    throw new Error('AXOROS_PAYSTACK_SECRET_KEY must be a Paystack test or live secret key.');
+  }
+  return trimmed;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -128,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error('Gmail draft integration requires client ID, client secret, refresh token, and identity addresses together.');
   }
 
+  const paystackSecretKey = parsePaystackSecretKey(env.AXOROS_PAYSTACK_SECRET_KEY);
+
   const config: ApiConfig = {
     environment: rawEnvironment as AxorOSEnvironment,
     host: env.AXOROS_API_HOST ?? '127.0.0.1',
@@ -145,6 +157,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
   if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
+  if (paystackSecretKey) config.paystackSecretKey = paystackSecretKey;
 
   return config;
 }
