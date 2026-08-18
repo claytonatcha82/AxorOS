@@ -14,10 +14,10 @@ function mockPoolQuery(implementation: (sql: string, values?: readonly unknown[]
 const decision: PersistedFinanceClearanceDecision = {
   clearanceId: 'finance-clearance:test:1', commercialRecordReference: 'commercial:test:1', providerPaymentReference: 'pay_test_1',
   state: 'FINANCE_CLEARED', reason: 'Provider payment evidence matches the governed commercial record.',
-  evidenceReferences: ['payment-provider:sandbox:evt_1'], amountMinor: 125000, currency: 'ZAR', verifiedAt: '2026-08-18T08:40:00.000Z',
+  evidenceReferences: ['payment-provider:sandbox:evt_1'], amountMinor: 125000, currency: 'ZAR', verifiedAt: '2026-08-18T08:40:00.123Z',
 };
 
-function persistedRow(value: PersistedFinanceClearanceDecision): Record<string, unknown> {
+function persistedRow(value: PersistedFinanceClearanceDecision, verifiedAt: unknown = value.verifiedAt): Record<string, unknown> {
   return {
     clearance_id: value.clearanceId,
     commercial_record_reference: value.commercialRecordReference,
@@ -27,7 +27,7 @@ function persistedRow(value: PersistedFinanceClearanceDecision): Record<string, 
     evidence_references: value.evidenceReferences,
     amount_minor: String(value.amountMinor),
     currency: value.currency,
-    verified_at: value.verifiedAt,
+    verified_at: verifiedAt,
   };
 }
 
@@ -50,6 +50,16 @@ test('exact Finance clearance replay is treated as an idempotent duplicate', asy
   assert.equal(await store.save(decision), 'duplicate');
 });
 
+test('exact Finance clearance replay remains duplicate when PostgreSQL returns timestamptz as Date', async () => {
+  let calls = 0;
+  const store = new FinanceClearancePostgresStore(mockPoolQuery(() => {
+    calls += 1;
+    if (calls === 1) return { rowCount: 0, rows: [] };
+    return { rowCount: 1, rows: [persistedRow(decision, new Date(decision.verifiedAt))] };
+  }));
+  assert.equal(await store.save(decision), 'duplicate');
+});
+
 test('conflicting reuse of a Finance clearance ID is rejected', async () => {
   let calls = 0;
   const conflicting = { ...decision, amountMinor: decision.amountMinor + 1 };
@@ -68,6 +78,11 @@ test('insert conflict without an authoritative Finance clearance row is rejected
 
 test('trusted Finance clearance decision is loaded from PostgreSQL', async () => {
   const store = new FinanceClearancePostgresStore(mockPoolQuery(() => ({ rowCount: 1, rows: [persistedRow(decision)] })));
+  assert.deepEqual(await store.get(decision.clearanceId), decision);
+});
+
+test('PostgreSQL Date timestamps are preserved to ISO milliseconds when loaded', async () => {
+  const store = new FinanceClearancePostgresStore(mockPoolQuery(() => ({ rowCount: 1, rows: [persistedRow(decision, new Date(decision.verifiedAt))] })));
   assert.deepEqual(await store.get(decision.clearanceId), decision);
 });
 
