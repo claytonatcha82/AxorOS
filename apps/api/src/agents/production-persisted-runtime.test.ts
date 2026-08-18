@@ -93,6 +93,25 @@ function createPool(initial: AgentRuntimeExecutionRecord, financeCleared: boolea
         }] : [],
       };
     }
+    if (sql.includes('from finance.payment_current_state')) {
+      return {
+        rowCount: financeCleared ? 1 : 0,
+        rows: financeCleared ? [{
+          provider: 'sandbox',
+          provider_payment_reference: 'pay:persisted:1',
+          commercial_record_reference: 'commercial:persisted:1',
+          payment_status: 'CONFIRMED',
+          authority_state: 'AUTHORIZED',
+          reason: 'Verified provider payment confirmation supports Finance authorization.',
+          latest_event_type: 'payment_paid',
+          latest_provider_event_reference: 'payment-provider:persisted:event:1',
+          latest_evidence_reference: 'payment-provider:persisted:event:1',
+          latest_occurred_at: new Date('2026-08-18T17:10:00.000Z'),
+          amount_minor: '10000',
+          currency: 'ZAR',
+        }] : [],
+      };
+    }
     if (sql.startsWith('update runtime.agent_executions')) {
       current = {
         task: JSON.parse(String(values[6])) as AgentRuntimeExecutionRecord['task'],
