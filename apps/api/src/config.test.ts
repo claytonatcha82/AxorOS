@@ -39,6 +39,21 @@ test('loadConfig rejects invalid Control Center URLs', () => {
   );
 });
 
+test('loadConfig reads a strong control-plane token from the environment', () => {
+  const config = loadConfig({
+    AXOROS_CONTROL_PLANE_TOKEN: '  control-plane-token-1234567890abcdef  ',
+  });
+
+  assert.equal(config.controlPlaneToken, 'control-plane-token-1234567890abcdef');
+});
+
+test('loadConfig rejects a weak control-plane token', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_CONTROL_PLANE_TOKEN: 'too-short' }),
+    /at least 32 characters/,
+  );
+});
+
 test('loadConfig reads Gemini credentials and optional model from environment', () => {
   const config = loadConfig({
     GEMINI_API_KEY: '  secret-key  ',
