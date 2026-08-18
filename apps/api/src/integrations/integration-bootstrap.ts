@@ -3,6 +3,7 @@ import { DeterministicPaymentIntegration } from './deterministic-payment-integra
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration } from './gmail-draft-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
+import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
 
 export interface IntegrationBootstrapResult {
@@ -21,6 +22,12 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
   const paymentSandbox = new DeterministicPaymentIntegration();
   registry.register(paymentSandbox);
   registeredIntegrationIds.push(paymentSandbox.integrationId);
+
+  if (config.paystackSecretKey) {
+    const paystack = createPaystackPaymentIntegration({ secretKey: config.paystackSecretKey });
+    registry.register(paystack);
+    registeredIntegrationIds.push(paystack.integrationId);
+  }
 
   if (config.geminiApiKey) {
     const gemini = createGeminiModelIntegration({
