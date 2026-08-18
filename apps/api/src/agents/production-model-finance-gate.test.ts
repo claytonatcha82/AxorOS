@@ -4,6 +4,7 @@ import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import { registerProductionModelCapabilities, PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './production-model-capabilities.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
+import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ExternalIntegration, IntegrationRequest, IntegrationResponse } from '../integrations/integration-contract.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
@@ -27,17 +28,37 @@ const cleared: PersistedFinanceClearanceDecision = {
   amountMinor: 10000, currency: 'ZAR', verifiedAt: '2026-08-18T08:50:00.000Z',
 };
 
+const authorizedPaymentState: PersistedFinancePaymentCurrentState = {
+  provider: 'test-provider',
+  providerPaymentReference: cleared.providerPaymentReference,
+  commercialRecordReference: cleared.commercialRecordReference,
+  paymentStatus: 'CONFIRMED',
+  authorityState: 'AUTHORIZED',
+  reason: 'Provider payment remains authorized.',
+  latestEventType: 'payment_paid',
+  latestProviderEventReference: 'event:test:paid:1',
+  latestEvidenceReference: cleared.evidenceReferences[0]!,
+  latestOccurredAt: cleared.verifiedAt,
+  amountMinor: cleared.amountMinor,
+  currency: cleared.currency,
+};
+
 function task(context: AgentRuntimeTask['context'] = {}): AgentRuntimeTask {
   const now = '2026-08-18T08:50:00.000Z';
   return { taskId: 'task-production-model-gate', executionId: 'exec-production-model-gate', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft implementation', priority: 'normal', context, knowledgeReferences: [], inputs: { implementationBrief: 'Create the governed implementation draft.' }, expectedOutput: 'Technical draft', dependencies: [], risks: [], confidence: 1, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 1, correlationId: 'corr-production-model-gate', createdAt: now, updatedAt: now };
 }
 
-function setup(decision: PersistedFinanceClearanceDecision | null) {
+function setup(decision: PersistedFinanceClearanceDecision | null, paymentState: PersistedFinancePaymentCurrentState | null = authorizedPaymentState) {
   const model = new CountingModelIntegration();
   const integrations = new IntegrationRegistry();
   integrations.register(model);
   const handlers = new AgentRuntimeHandlerRegistry();
-  registerProductionModelCapabilities(handlers, integrations, { async get() { return decision; } });
+  registerProductionModelCapabilities(
+    handlers,
+    integrations,
+    { async get() { return decision; } },
+    { async get() { return paymentState; } },
+  );
   return { model, handler: handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY) };
 }
 
@@ -59,7 +80,13 @@ test('Production model provider is never called when persisted clearance is miss
   assert.equal(model.calls, 0);
 });
 
-test('Production model capability executes after trusted persisted FINANCE_CLEARED evidence', async () => {
+test('Production model provider is never called when authoritative current payment state is missing', async () => {
+  const { model, handler } = setup(cleared, null);
+  await assert.rejects(() => handler.execute(task({ financeClearanceId: cleared.clearanceId, commercialRecordReference: cleared.commercialRecordReference })), /current payment state/);
+  assert.equal(model.calls, 0);
+});
+
+test('Production model capability executes after trusted persisted clearance and current payment authorization', async () => {
   const { model, handler } = setup(cleared);
   const result = await handler.execute(task({ financeClearanceId: cleared.clearanceId, commercialRecordReference: cleared.commercialRecordReference }));
   assert.equal(model.calls, 1);
