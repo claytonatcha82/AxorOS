@@ -10,6 +10,7 @@ const evidence = createPaymentWebhookEvidence({
 });
 
 const persistedEvidence = {
+  idempotency_key: evidence.idempotencyKey,
   provider: evidence.provider,
   provider_event_reference: evidence.providerEventReference,
   provider_payment_reference: evidence.providerPaymentReference,
@@ -39,6 +40,11 @@ test('Postgres payment webhook store accepts a newly inserted provider event', a
   assert.match(capturedSql, /on conflict do nothing/i);
   assert.equal(capturedValues[0], evidence.idempotencyKey);
   assert.equal(capturedValues[2], evidence.providerEventReference);
+});
+
+test('authoritative persisted payment webhook evidence can be reloaded by idempotency key', async () => {
+  const store = new PaymentWebhookPostgresStore(mockPoolQuery(() => ({ rowCount: 1, rows: [persistedEvidence] })));
+  assert.deepEqual(await store.get(evidence.idempotencyKey), evidence);
 });
 
 test('exact Postgres unique conflict is treated as duplicate without reprocessing', async () => {
