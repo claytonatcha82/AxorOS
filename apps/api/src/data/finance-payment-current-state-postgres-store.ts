@@ -1,4 +1,3 @@
-import type { Pool, PoolClient } from 'pg';
 import { evaluateFinancePaymentLifecycle } from '../agents/finance-payment-lifecycle.js';
 import type { PaymentWebhookEvidence, PaymentWebhookEventType } from '../integrations/payment-webhook-evidence.js';
 import type { FinancePaymentAuthorityState } from '../agents/finance-payment-lifecycle.js';
@@ -28,7 +27,9 @@ export class FinancePaymentCurrentStateIntegrityConflictError extends Error {
   }
 }
 
-type Queryable = Pick<Pool | PoolClient, 'query'>;
+interface Queryable {
+  query(sql: string, params: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+}
 
 function normaliseTimestamp(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
@@ -79,7 +80,7 @@ export class FinancePaymentCurrentStatePostgresStore {
         where provider = $1 and provider_payment_reference = $2`,
       [provider, providerPaymentReference],
     );
-    return result.rows[0] ? rowToState(result.rows[0] as Record<string, unknown>) : null;
+    return result.rows[0] ? rowToState(result.rows[0]) : null;
   }
 
   async apply(evidence: PaymentWebhookEvidence): Promise<FinancePaymentCurrentStateApplyResult> {
