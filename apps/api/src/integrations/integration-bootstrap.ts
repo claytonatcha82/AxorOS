@@ -1,4 +1,5 @@
 import type { ApiConfig } from '../config.js';
+import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration } from './gmail-draft-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
@@ -16,6 +17,10 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
   const sandbox = createSandboxModelIntegration();
   registry.register(sandbox);
   registeredIntegrationIds.push(sandbox.integrationId);
+
+  const paymentSandbox = new DeterministicPaymentIntegration();
+  registry.register(paymentSandbox);
+  registeredIntegrationIds.push(paymentSandbox.integrationId);
 
   if (config.geminiApiKey) {
     const gemini = createGeminiModelIntegration({
