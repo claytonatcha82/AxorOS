@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
+import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import {
@@ -15,6 +16,7 @@ export interface ProductionRuntimeBootstrapDependencies {
 export interface ProductionRuntimeBootstrapResult {
   handlers: AgentRuntimeHandlerRegistry;
   financeClearanceStore: FinanceClearancePostgresStore;
+  financePaymentStateStore: FinancePaymentCurrentStatePostgresStore;
 }
 
 export function createProductionRuntimeBootstrap(
@@ -22,14 +24,16 @@ export function createProductionRuntimeBootstrap(
 ): ProductionRuntimeBootstrapResult {
   const handlers = new AgentRuntimeHandlerRegistry();
   const financeClearanceStore = new FinanceClearancePostgresStore(dependencies.pool);
+  const financePaymentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
 
   registerProductionModelCapabilities(
     handlers,
     dependencies.integrations,
     financeClearanceStore,
+    financePaymentStateStore,
   );
 
   handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
 
-  return { handlers, financeClearanceStore };
+  return { handlers, financeClearanceStore, financePaymentStateStore };
 }
