@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
 import { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
+import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import {
@@ -19,6 +20,7 @@ export interface ProductionRuntimeBootstrapResult {
   financeClearanceStore: FinanceClearancePostgresStore;
   financePaymentStateStore: FinancePaymentCurrentStatePostgresStore;
   commercialPaymentRequirementStore: CommercialPaymentRequirementPostgresStore;
+  commercialPaymentSatisfactionStore: CommercialPaymentSatisfactionPostgresStore;
 }
 
 export function createProductionRuntimeBootstrap(
@@ -28,6 +30,7 @@ export function createProductionRuntimeBootstrap(
   const financeClearanceStore = new FinanceClearancePostgresStore(dependencies.pool);
   const financePaymentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
   const commercialPaymentRequirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
+  const commercialPaymentSatisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
 
   registerProductionModelCapabilities(
     handlers,
@@ -35,6 +38,7 @@ export function createProductionRuntimeBootstrap(
     financeClearanceStore,
     financePaymentStateStore,
     commercialPaymentRequirementStore,
+    commercialPaymentSatisfactionStore,
   );
 
   handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
@@ -44,5 +48,6 @@ export function createProductionRuntimeBootstrap(
     financeClearanceStore,
     financePaymentStateStore,
     commercialPaymentRequirementStore,
+    commercialPaymentSatisfactionStore,
   };
 }
