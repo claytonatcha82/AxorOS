@@ -54,7 +54,7 @@ function outcome(): RuntimeExecutionOutcome {
 
 async function withServer(
   run: (baseUrl: string, calls: () => number) => Promise<void>,
-  token: string | undefined = controlPlaneToken,
+  token: string | null = controlPlaneToken,
 ): Promise<void> {
   let commandCalls = 0;
   const fallback: RequestListener = (_request, response) => {
@@ -62,7 +62,7 @@ async function withServer(
     response.end(JSON.stringify({ fallback: true }));
   };
   const handler = createControlPlaneRequestHandler({
-    config: { controlCenterUrl, ...(token ? { controlPlaneToken: token } : {}) },
+    config: { controlCenterUrl, ...(token !== null ? { controlPlaneToken: token } : {}) },
     productionCommand: {
       async execute(executionId) {
         commandCalls += 1;
@@ -154,7 +154,7 @@ test('Production control-plane endpoint fails closed when authentication is not 
     assert.equal(response.status, 503);
     assert.equal(body.error.code, 'control_plane_auth_not_configured');
     assert.equal(calls(), 0);
-  }, undefined);
+  }, null);
 });
 
 test('Production control-plane endpoint rejects payload fields that could bypass server governance', async () => {
