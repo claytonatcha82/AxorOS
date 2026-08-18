@@ -30,6 +30,7 @@
     "finance:payment:satisfactions:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-commercial-payment-satisfaction-migration.mjs",
     "finance:payment:satisfactions:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-commercial-payment-satisfactions.mjs",
     "finance:paystack:stage1:verify": "npm run verify:paystack:stage1 --workspace @axoros/api",
+    "paystack:test:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/smoke-paystack-test-mode.mjs",
     "production:finance:handoff:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-production-finance-handoff.mjs",
     "production:runtime:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-production-persisted-runtime.mjs",
     "gemini:smoke:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/smoke-gemini.mjs",
