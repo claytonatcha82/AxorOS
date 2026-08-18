@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "verify:paystack:stage1": "tsx --test src/agents/paystack-finance-production.synthetic.e2e.test.ts"
   },
   "dependencies": {
     "@axoros/contracts": "0.1.0",
