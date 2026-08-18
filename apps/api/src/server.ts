@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
+import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
 import { createBetterStackLogSink } from './better-stack.js';
@@ -24,6 +25,10 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
+const financePaymentRuntime = createFinancePaymentRuntime({
+  pool: databasePool,
+  integrations: integrationRegistry,
+});
 const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
@@ -108,6 +113,8 @@ async function start(): Promise<void> {
       knowledgeRetrievalConfigured: true,
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
+      financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
+      paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
       productionRuntimeConfigured: Boolean(
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
