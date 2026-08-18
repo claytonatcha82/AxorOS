@@ -86,10 +86,24 @@ function createPool(initial: AgentRuntimeExecutionRecord, financeCleared: boolea
           provider_payment_reference: 'pay:persisted:1',
           state: 'FINANCE_CLEARED',
           reason: 'Provider evidence matched.',
-          evidence_references: ['payment-provider:persisted:event:1'],
+          evidence_references: ['payment-provider:sandbox:event:1'],
           amount_minor: '10000',
           currency: 'ZAR',
           verified_at: new Date('2026-08-18T17:10:00.000Z'),
+        }] : [],
+      };
+    }
+    if (sql.includes('from finance.commercial_payment_requirements')) {
+      return {
+        rowCount: financeCleared ? 1 : 0,
+        rows: financeCleared ? [{
+          commercial_record_reference: 'commercial:persisted:1',
+          gate: 'PRODUCTION_START',
+          requirement_reference: 'deposit:persisted:1',
+          requirement_type: 'DEPOSIT',
+          required_amount_minor: '10000',
+          currency: 'ZAR',
+          status: 'ACTIVE',
         }] : [],
       };
     }
@@ -104,8 +118,8 @@ function createPool(initial: AgentRuntimeExecutionRecord, financeCleared: boolea
           authority_state: 'AUTHORIZED',
           reason: 'Verified provider payment confirmation supports Finance authorization.',
           latest_event_type: 'payment_paid',
-          latest_provider_event_reference: 'payment-provider:persisted:event:1',
-          latest_evidence_reference: 'payment-provider:persisted:event:1',
+          latest_provider_event_reference: 'event:1',
+          latest_evidence_reference: 'payment-provider:sandbox:event:1',
           latest_occurred_at: new Date('2026-08-18T17:10:00.000Z'),
           amount_minor: '10000',
           currency: 'ZAR',
@@ -145,7 +159,7 @@ function integrations(model: CountingModelIntegration): IntegrationRegistry {
   return registry;
 }
 
-test('persisted Production orchestrator executes governed handler only after persisted Finance clearance', async () => {
+test('persisted Production orchestrator executes governed handler only after persisted Finance clearance and payment requirement', async () => {
   const model = new CountingModelIntegration();
   const runtime = createPersistedProductionRuntime({
     pool: createPool(record(), true),
