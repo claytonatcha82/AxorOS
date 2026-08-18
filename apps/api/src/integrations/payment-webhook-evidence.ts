@@ -1,4 +1,12 @@
-export type PaymentWebhookEventType = 'payment_paid' | 'payment_pending' | 'payment_failed' | 'payment_refunded' | 'unknown';
+export type PaymentWebhookEventType =
+  | 'payment_paid'
+  | 'payment_pending'
+  | 'payment_failed'
+  | 'payment_refunded'
+  | 'payment_reversed'
+  | 'payment_disputed'
+  | 'payment_chargeback'
+  | 'unknown';
 
 export interface PaymentWebhookEnvelope {
   provider: string;
