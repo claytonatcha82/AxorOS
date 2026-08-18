@@ -12,10 +12,27 @@ const cleared: PersistedFinanceClearanceDecision = {
 
 function task(context: Record<string, unknown>): AgentRuntimeTask {
   return {
-    executionId: 'exec:1', taskId: 'task:1', sourceAgent: 'operations_agent', destinationAgent: 'production_agent',
-    capabilityId: 'production.technical_assistance', status: 'ready', priority: 'normal', risk: 'low', approvalRequired: false,
-    inputs: { prompt: 'Build the approved client website.' }, context, knowledgeReferences: [], retryCount: 0,
-    createdAt: '2026-08-18T08:40:00.000Z', updatedAt: '2026-08-18T08:40:00.000Z',
+    taskId: 'task:1',
+    executionId: 'exec:1',
+    originAgent: 'operations_agent',
+    destinationAgent: 'production_agent',
+    objective: 'Build the approved client website.',
+    priority: 'normal',
+    context,
+    knowledgeReferences: [],
+    inputs: { prompt: 'Build the approved client website.' },
+    expectedOutput: 'Approved client website production output.',
+    dependencies: [],
+    risks: [],
+    confidence: 1,
+    approvalRequired: false,
+    status: 'ready',
+    nextAction: 'execute_destination_capability',
+    attempt: 1,
+    maxAttempts: 3,
+    correlationId: 'correlation:1',
+    createdAt: '2026-08-18T08:40:00.000Z',
+    updatedAt: '2026-08-18T08:40:00.000Z',
   };
 }
 
