@@ -87,19 +87,6 @@ export function createGooglePlacesLeadResearchIntegration(
           }),
         });
       } catch {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: blockedOutput, evidenceReferences: [], retryable: true };
-      }
-
-      let payload: GooglePlacesSearchResponse;
-      try {
-        payload = await response.json() as GooglePlacesSearchResponse;
-      } catch {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: blockedOutput, evidenceReferences: [], retryable: response.status >= 500 };
-      }
-
-      if (!response.ok) {
-        const providerErrorCode = payload.error?.status?.trim() || (payload.error?.code !== undefined ? String(payload.error.code) : `HTTP_${response.status}`);
-        const providerErrorMessage = sanitizeProviderMessage(payload.error?.message, apiKey);
         return {
           integrationId: 'research.google-places',
           operation: request.operation,
@@ -108,8 +95,88 @@ export function createGooglePlacesLeadResearchIntegration(
           status: 'failed',
           output: {
             ...blockedOutput,
-            ...(providerErrorCode ? { providerErrorCode } : {}),
-            ...(providerErrorMessage ? { providerErrorMessage } : {}),
+            providerErrorCode: 'NETWORK_ERROR',
+            providerErrorMessage: 'Google Places request failed before an HTTP response was received.',
+          },
+          evidenceReferences: [],
+          retryable: true,
+        };
+      }
+
+      let rawBody = '';
+      try {
+        rawBody = await response.text();
+      } catch {
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'failed',
+          output: {
+            ...blockedOutput,
+            providerErrorCode: `HTTP_${response.status}`,
+            providerErrorMessage: 'Google Places response body could not be read.',
+          },
+          evidenceReferences: [],
+          retryable: response.status === 429 || response.status >= 500,
+        };
+      }
+
+      let payload: GooglePlacesSearchResponse = {};
+      if (rawBody.trim()) {
+        try {
+          payload = JSON.parse(rawBody) as GooglePlacesSearchResponse;
+        } catch {
+          if (!response.ok) {
+            return {
+              integrationId: 'research.google-places',
+              operation: request.operation,
+              provider: 'google-places',
+              mode: request.mode,
+              status: 'failed',
+              output: {
+                ...blockedOutput,
+                providerErrorCode: `HTTP_${response.status}`,
+                providerErrorMessage: sanitizeProviderMessage(rawBody, apiKey) ?? 'Google Places returned a non-JSON error response.',
+              },
+              evidenceReferences: [],
+              retryable: response.status === 429 || response.status >= 500,
+            };
+          }
+
+          return {
+            integrationId: 'research.google-places',
+            operation: request.operation,
+            provider: 'google-places',
+            mode: request.mode,
+            status: 'failed',
+            output: {
+              ...blockedOutput,
+              providerErrorCode: `HTTP_${response.status}`,
+              providerErrorMessage: 'Google Places returned an unexpected non-JSON success response.',
+            },
+            evidenceReferences: [],
+            retryable: false,
+          };
+        }
+      }
+
+      if (!response.ok) {
+        const providerErrorCode = payload.error?.status?.trim() || (payload.error?.code !== undefined ? String(payload.error.code) : `HTTP_${response.status}`);
+        const providerErrorMessage = sanitizeProviderMessage(payload.error?.message, apiKey)
+          ?? sanitizeProviderMessage(rawBody, apiKey)
+          ?? 'Google Places request failed without a provider message.';
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'failed',
+          output: {
+            ...blockedOutput,
+            providerErrorCode,
+            providerErrorMessage,
           },
           evidenceReferences: [],
           retryable: response.status === 429 || response.status >= 500,
