@@ -2,6 +2,7 @@ import type { ApiConfig } from '../config.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration } from './gmail-draft-integration.js';
+import { createGooglePlacesLeadResearchIntegration } from './google-places-lead-research-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
 import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
@@ -47,6 +48,12 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     });
     registry.register(gmail);
     registeredIntegrationIds.push(gmail.integrationId);
+  }
+
+  if (config.googlePlacesApiKey) {
+    const googlePlaces = createGooglePlacesLeadResearchIntegration({ apiKey: config.googlePlacesApiKey });
+    registry.register(googlePlaces);
+    registeredIntegrationIds.push(googlePlaces.integrationId);
   }
 
   return { registry, registeredIntegrationIds };
