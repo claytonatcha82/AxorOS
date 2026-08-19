@@ -6,7 +6,7 @@ export interface OfficialWebsiteSelectionInput {
 }
 
 export type OfficialWebsiteSelection =
-  | { status: 'selected'; websiteUrl: string; evidence: PublicWebSearchResult[] }
+  | { status: 'selected'; websiteUrl: string; companyName: string; evidence: PublicWebSearchResult[] }
   | { status: 'ambiguous'; candidateUrls: string[] }
   | { status: 'not_found'; candidateUrls: [] };
 
@@ -27,6 +27,13 @@ function registrableCandidate(result: PublicWebSearchResult): { origin: string; 
     if (THIRD_PARTY_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return null;
     return { origin: `${url.protocol}//${url.host}/`, hostname };
   } catch { return null; }
+}
+
+function independentlySourcedCompanyName(evidence: PublicWebSearchResult[]): string | null {
+  const title = evidence[0]?.title.trim();
+  if (!title) return null;
+  const firstSegment = title.split(/\s[|–—]\s/)[0]?.trim();
+  return firstSegment || title;
 }
 
 export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): OfficialWebsiteSelection {
@@ -56,10 +63,10 @@ export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): Off
   if (ranked.length === 0) return { status: 'not_found', candidateUrls: [] };
   const [bestOrigin, best] = ranked[0]!;
   const second = ranked[1];
-  // Fail closed unless the strongest candidate has substantial identity evidence and
-  // is strictly stronger than any competing domain.
   if (best.score < 4 || (second && second[1].score >= best.score)) {
     return { status: 'ambiguous', candidateUrls: ranked.map(([origin]) => origin) };
   }
-  return { status: 'selected', websiteUrl: bestOrigin, evidence: best.evidence };
+  const companyName = independentlySourcedCompanyName(best.evidence);
+  if (!companyName) return { status: 'ambiguous', candidateUrls: ranked.map(([origin]) => origin) };
+  return { status: 'selected', websiteUrl: bestOrigin, companyName, evidence: best.evidence };
 }
