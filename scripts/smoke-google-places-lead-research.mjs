@@ -34,7 +34,9 @@ const response = await registry.execute({
 });
 
 if (response.status !== 'succeeded') {
-  throw new Error(`Google Places smoke test failed with status ${response.status}; retryable=${response.retryable}`);
+  const code = response.output.providerErrorCode ?? 'not-reported';
+  const message = response.output.providerErrorMessage ?? 'not-reported';
+  throw new Error(`Google Places smoke test failed with status ${response.status}; retryable=${response.retryable}; providerCode=${code}; providerMessage=${message}`);
 }
 
 if (!Array.isArray(response.output.candidates) || response.output.candidates.length === 0) {
