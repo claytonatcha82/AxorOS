@@ -17,6 +17,7 @@ export interface ApiConfig {
   gmailClientSecret?: string;
   gmailRefreshToken?: string;
   gmailIdentityAddresses?: Readonly<Record<string, string>>;
+  googlePlacesApiKey?: string;
   paystackSecretKey?: string;
   paymentIntegrationId?: 'payment.paystack';
   paymentIntegrationMode?: 'sandbox' | 'live';
@@ -140,6 +141,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error('Gmail draft integration requires client ID, client secret, refresh token, and identity addresses together.');
   }
 
+  const googlePlacesApiKey = env.AXOROS_GOOGLE_PLACES_API_KEY?.trim() || undefined;
+
   const paystackSecretKey = parsePaystackSecretKey(env.AXOROS_PAYSTACK_SECRET_KEY);
   const requestedPaymentIntegration = env.AXOROS_PAYMENT_INTEGRATION?.trim();
   if (requestedPaymentIntegration && requestedPaymentIntegration !== 'sandbox' && requestedPaymentIntegration !== 'paystack') {
@@ -166,6 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
   if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
+  if (googlePlacesApiKey) config.googlePlacesApiKey = googlePlacesApiKey;
   if (paystackSecretKey) config.paystackSecretKey = paystackSecretKey;
   if (requestedPaymentIntegration === 'paystack' && paystackSecretKey) {
     config.paymentIntegrationId = 'payment.paystack';
