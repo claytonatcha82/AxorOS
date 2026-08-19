@@ -53,6 +53,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
         const companyName = requireText(candidate.displayName, 'candidate.displayName');
+        const opportunitySummary = candidateSummary(candidate);
 
         const outcome = await runInTransaction(async (tx) => {
           const existing = await tx.findLeadByGooglePlaceId(providerPlaceId);
@@ -61,7 +62,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
           const lead = await tx.createLead({
             companyName,
             source: 'google_places',
-            ...(candidateSummary(candidate) ? { opportunitySummary: candidateSummary(candidate) } : {}),
+            ...(opportunitySummary !== undefined ? { opportunitySummary } : {}),
             evidence: [googlePlaceEvidence(providerPlaceId, query)],
           });
 
