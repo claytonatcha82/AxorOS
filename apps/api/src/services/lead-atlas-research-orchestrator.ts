@@ -14,9 +14,9 @@ export interface AtlasLeadResearchInput {
   correlationId: string;
 }
 
-export interface QualifiedEnrichedLead extends LeadResearchWorkflowOutput['enriched'][number] {
+export type QualifiedEnrichedLead = LeadResearchWorkflowOutput['enriched'][number] & {
   preliminaryQualification: PreliminaryLeadQualificationResult;
-}
+};
 
 export interface AtlasLeadResearchOutput {
   queries: string[];
