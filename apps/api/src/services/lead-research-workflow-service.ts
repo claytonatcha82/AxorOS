@@ -27,6 +27,7 @@ export interface EnrichedLeadResearchResult {
   providerPlaceId: string;
   companyName: string;
   officialWebsiteUrl: string;
+  publicWebEvidence: PublicWebSearchResult[];
 }
 
 export interface LeadResearchWorkflowOutput {
@@ -123,6 +124,7 @@ export function createLeadResearchWorkflowService(
           providerPlaceId: candidate.providerPlaceId,
           companyName: selection.companyName,
           officialWebsiteUrl: selection.websiteUrl,
+          publicWebEvidence: selection.evidence,
         });
       }
 
