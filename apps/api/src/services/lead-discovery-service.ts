@@ -1,4 +1,4 @@
-import type { LeadBusinessCandidate, LeadBusinessSearchOutput } from '../integrations/lead-research-integration.js';
+import type { LeadBusinessSearchOutput } from '../integrations/lead-research-integration.js';
 import type { LeadRecord, OperationalRepository } from '../data/operational-repository.js';
 import type { TransactionRunner } from '../data/transaction.js';
 
@@ -18,12 +18,15 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
-function googlePlaceEvidence(providerPlaceId: string, query: string) {
+function internalDiscoveryLabel(providerPlaceId: string): string {
+  return `Google Place ${providerPlaceId}`;
+}
+
+function googlePlaceEvidence(providerPlaceId: string) {
   return {
     kind: 'lead_discovery',
     provider: 'google_places',
     providerPlaceId,
-    query,
     evidenceReference: `google-places:place:${providerPlaceId}`,
   } as const;
 }
@@ -37,33 +40,25 @@ function evidenceContainsGooglePlace(evidence: unknown, providerPlaceId: string)
   });
 }
 
-function candidateSummary(candidate: LeadBusinessCandidate): string | undefined {
-  const types = candidate.types.slice(0, 5).join(', ');
-  return types ? `Discovered business categories: ${types}.` : undefined;
-}
-
 export function createLeadDiscoveryService(repository: OperationalRepository, runInTransaction: TransactionRunner) {
   return {
     async persistDiscovery(input: PersistLeadDiscoveryInput): Promise<PersistLeadDiscoveryResult> {
-      const query = requireText(input.discovery.query, 'discovery.query');
+      requireText(input.discovery.query, 'discovery.query');
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       const created: LeadRecord[] = [];
       const duplicates: Array<{ providerPlaceId: string; leadId: string }> = [];
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
-        const companyName = requireText(candidate.displayName, 'candidate.displayName');
-        const opportunitySummary = candidateSummary(candidate);
 
         const outcome = await runInTransaction(async (tx) => {
           const existing = await tx.findLeadByGooglePlaceId(providerPlaceId);
           if (existing) return { kind: 'duplicate' as const, lead: existing };
 
           const lead = await tx.createLead({
-            companyName,
+            companyName: internalDiscoveryLabel(providerPlaceId),
             source: 'google_places',
-            ...(opportunitySummary !== undefined ? { opportunitySummary } : {}),
-            evidence: [googlePlaceEvidence(providerPlaceId, query)],
+            evidence: [googlePlaceEvidence(providerPlaceId)],
           });
 
           await tx.createWorkflowEvent({
@@ -74,7 +69,6 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
               leadId: lead.id,
               provider: 'google_places',
               providerPlaceId,
-              query,
               evidenceReference: `google-places:place:${providerPlaceId}`,
             },
           });
