@@ -13,6 +13,11 @@ interface GooglePlacesSearchResponse {
     formattedAddress?: string;
     types?: string[];
   }>;
+  error?: {
+    code?: number;
+    status?: string;
+    message?: string;
+  };
 }
 
 export interface GooglePlacesLeadResearchIntegrationOptions {
@@ -22,6 +27,12 @@ export interface GooglePlacesLeadResearchIntegrationOptions {
 }
 
 const FIELD_MASK = 'places.id,places.displayName.text,places.formattedAddress,places.types';
+
+function sanitizeProviderMessage(message: string | undefined, apiKey: string): string | undefined {
+  const trimmed = message?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replaceAll(apiKey, '[REDACTED]').slice(0, 500);
+}
 
 export function createGooglePlacesLeadResearchIntegration(
   options: GooglePlacesLeadResearchIntegrationOptions,
@@ -47,56 +58,18 @@ export function createGooglePlacesLeadResearchIntegration(
       };
 
       if (request.operation !== 'search_businesses') {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'blocked',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: false,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
       }
-
       if (request.requestedBy !== 'lead_agent' && request.requestedBy !== 'human_executive') {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'blocked',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: false,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
       }
-
       if (request.mode !== 'live' || request.risk !== 'low') {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'blocked',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: false,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
       }
 
       const inputErrors = validateLeadBusinessSearchInput(request.input);
       if (inputErrors.length > 0) {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'blocked',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: false,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
       }
 
       let response: Response;
@@ -114,42 +87,30 @@ export function createGooglePlacesLeadResearchIntegration(
           }),
         });
       } catch {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'failed',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: true,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: blockedOutput, evidenceReferences: [], retryable: true };
       }
 
       let payload: GooglePlacesSearchResponse;
       try {
         payload = await response.json() as GooglePlacesSearchResponse;
       } catch {
-        return {
-          integrationId: 'research.google-places',
-          operation: request.operation,
-          provider: 'google-places',
-          mode: request.mode,
-          status: 'failed',
-          output: blockedOutput,
-          evidenceReferences: [],
-          retryable: response.status >= 500,
-        };
+        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: blockedOutput, evidenceReferences: [], retryable: response.status >= 500 };
       }
 
       if (!response.ok) {
+        const providerErrorCode = payload.error?.status?.trim() || (payload.error?.code !== undefined ? String(payload.error.code) : `HTTP_${response.status}`);
+        const providerErrorMessage = sanitizeProviderMessage(payload.error?.message, apiKey);
         return {
           integrationId: 'research.google-places',
           operation: request.operation,
           provider: 'google-places',
           mode: request.mode,
           status: 'failed',
-          output: blockedOutput,
+          output: {
+            ...blockedOutput,
+            ...(providerErrorCode ? { providerErrorCode } : {}),
+            ...(providerErrorMessage ? { providerErrorMessage } : {}),
+          },
           evidenceReferences: [],
           retryable: response.status === 429 || response.status >= 500,
         };
@@ -176,10 +137,7 @@ export function createGooglePlacesLeadResearchIntegration(
         provider: 'google-places',
         mode: request.mode,
         status: 'succeeded',
-        output: {
-          query: request.input.query.trim(),
-          candidates,
-        },
+        output: { query: request.input.query.trim(), candidates },
         evidenceReferences: candidates.map((candidate) => `google-places:place:${candidate.providerPlaceId}`),
         retryable: false,
       };
