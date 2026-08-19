@@ -14,6 +14,8 @@ export interface LeadBusinessCandidate {
 export interface LeadBusinessSearchOutput {
   query: string;
   candidates: LeadBusinessCandidate[];
+  providerErrorCode?: string;
+  providerErrorMessage?: string;
 }
 
 export function validateLeadBusinessSearchInput(input: LeadBusinessSearchInput): string[] {
