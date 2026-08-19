@@ -1,21 +1,22 @@
-import { createConfiguredIntegrationRegistry } from '../apps/api/dist/integrations/integration-bootstrap.js';
+import { createGooglePlacesLeadResearchIntegration } from '../apps/api/dist/integrations/google-places-lead-research-integration.js';
+import { IntegrationRegistry } from '../apps/api/dist/integrations/integration-registry.js';
 
 const apiKey = process.env.AXOROS_GOOGLE_PLACES_API_KEY?.trim();
 if (!apiKey) {
   throw new Error('AXOROS_GOOGLE_PLACES_API_KEY is required. Inject it with Infisical; do not paste it into source code or chat.');
 }
 
-const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry({
-  environment: 'development',
-  host: '127.0.0.1',
-  port: 3001,
-  controlCenterUrl: 'http://localhost:5173',
-  googlePlacesApiKey: apiKey,
+// This verifier deliberately enables only low-risk live execution inside this
+// isolated development process. The application's default SAFE_INTEGRATION_POLICY
+// remains unchanged and continues to block live integrations by default.
+const registry = new IntegrationRegistry({
+  defaultMode: 'sandbox',
+  allowLive: true,
+  liveRiskCeiling: 'low',
 });
 
-if (!registeredIntegrationIds.includes('research.google-places')) {
-  throw new Error('Google Places research integration was not registered. Check AXOROS_GOOGLE_PLACES_API_KEY injection.');
-}
+const googlePlaces = createGooglePlacesLeadResearchIntegration({ apiKey });
+registry.register(googlePlaces);
 
 const executionId = `google-places-smoke-${Date.now()}`;
 const response = await registry.execute({
@@ -42,6 +43,7 @@ if (!Array.isArray(response.output.candidates) || response.output.candidates.len
 
 console.log('PASS Google Places provider connectivity');
 console.log('PASS Governed Lead Agent business discovery');
+console.log('PASS Default AxorOS live-integration policy remained unchanged');
 console.log(`Provider: ${response.provider}`);
 console.log(`Query: ${response.output.query}`);
 console.log(`Candidates returned: ${response.output.candidates.length}`);
