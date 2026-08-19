@@ -6,6 +6,7 @@ import { createGooglePlacesLeadResearchIntegration } from './google-places-lead-
 import { IntegrationRegistry } from './integration-registry.js';
 import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
+import { createTavilyPublicWebResearchIntegration } from './tavily-public-web-research-integration.js';
 
 export interface IntegrationBootstrapResult {
   registry: IntegrationRegistry;
@@ -54,6 +55,12 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     const googlePlaces = createGooglePlacesLeadResearchIntegration({ apiKey: config.googlePlacesApiKey });
     registry.register(googlePlaces);
     registeredIntegrationIds.push(googlePlaces.integrationId);
+  }
+
+  if (config.tavilyApiKey) {
+    const tavily = createTavilyPublicWebResearchIntegration({ apiKey: config.tavilyApiKey });
+    registry.register(tavily);
+    registeredIntegrationIds.push(tavily.integrationId);
   }
 
   return { registry, registeredIntegrationIds };
