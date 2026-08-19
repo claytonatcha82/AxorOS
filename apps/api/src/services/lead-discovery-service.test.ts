@@ -7,7 +7,7 @@ function lead(id: string, placeId: string) {
   return {
     id,
     clientId: null,
-    companyName: 'Example Business',
+    companyName: `Google Place ${placeId}`,
     contactName: null,
     contactEmail: null,
     source: 'google_places',
@@ -30,7 +30,7 @@ function createMock(existingPlaceId?: string) {
     async createLead(input: Record<string, unknown>) {
       createdInputs.push(input);
       const evidence = input.evidence as Array<{ providerPlaceId: string }>;
-      return { ...lead('lead-new', evidence[0]?.providerPlaceId ?? 'unknown'), companyName: String(input.companyName), opportunitySummary: input.opportunitySummary ? String(input.opportunitySummary) : null, evidence: input.evidence };
+      return { ...lead('lead-new', evidence[0]?.providerPlaceId ?? 'unknown'), companyName: String(input.companyName), evidence: input.evidence };
     },
     async createWorkflowEvent(input: unknown) {
       events.push(input);
@@ -45,31 +45,47 @@ function createMock(existingPlaceId?: string) {
   };
 }
 
-test('persists a discovered business as a new governed lead with minimal provider evidence', async () => {
+test('persists only storage-safe Google Place identity and internal metadata', async () => {
   const mock = createMock();
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.persistDiscovery({
     discovery: {
       query: 'web design businesses in Durban, South Africa',
-      candidates: [{ providerPlaceId: 'place-123', displayName: ' Example Business ', formattedAddress: 'Durban', types: ['establishment', 'point_of_interest'], source: 'google_places' }],
+      candidates: [{ providerPlaceId: 'place-123', displayName: 'Example Business', formattedAddress: 'Durban', types: ['establishment'], source: 'google_places' }],
     },
   });
 
   assert.equal(result.created.length, 1);
   assert.equal(result.duplicates.length, 0);
   assert.deepEqual(mock.createdInputs[0], {
-    companyName: 'Example Business',
+    companyName: 'Google Place place-123',
     source: 'google_places',
-    opportunitySummary: 'Discovered business categories: establishment, point_of_interest.',
-    evidence: [{ kind: 'lead_discovery', provider: 'google_places', providerPlaceId: 'place-123', query: 'web design businesses in Durban, South Africa', evidenceReference: 'google-places:place:place-123' }],
+    evidence: [{ kind: 'lead_discovery', provider: 'google_places', providerPlaceId: 'place-123', evidenceReference: 'google-places:place:place-123' }],
   });
   assert.equal(mock.events.length, 1);
   assert.deepEqual(mock.events[0], {
     eventType: 'lead_discovered',
     actorType: 'agent',
     actorId: 'lead_agent',
-    payload: { leadId: 'lead-new', provider: 'google_places', providerPlaceId: 'place-123', query: 'web design businesses in Durban, South Africa', evidenceReference: 'google-places:place:place-123' },
+    payload: { leadId: 'lead-new', provider: 'google_places', providerPlaceId: 'place-123', evidenceReference: 'google-places:place:place-123' },
   });
+});
+
+test('does not persist Google display name, address, types, or search query', async () => {
+  const mock = createMock();
+  const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
+  await service.persistDiscovery({
+    discovery: {
+      query: 'sensitive search query',
+      candidates: [{ providerPlaceId: 'place-123', displayName: 'Provider Business Name', formattedAddress: 'Provider Address', types: ['provider_type'], source: 'google_places' }],
+    },
+  });
+
+  const persisted = JSON.stringify({ input: mock.createdInputs[0], event: mock.events[0] });
+  assert.equal(persisted.includes('Provider Business Name'), false);
+  assert.equal(persisted.includes('Provider Address'), false);
+  assert.equal(persisted.includes('provider_type'), false);
+  assert.equal(persisted.includes('sensitive search query'), false);
 });
 
 test('deduplicates by Google Place ID and does not create another lead or event', async () => {
