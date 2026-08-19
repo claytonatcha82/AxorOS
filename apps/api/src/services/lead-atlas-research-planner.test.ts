@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createLeadAtlasResearchPlanner } from './lead-atlas-research-planner.js';
+
+function package_(title: string, context: string) {
+  return {
+    query: title,
+    context,
+    sources: [{ reference: '[ATLAS-01]', score: 1, citation: { title, path: `Volume 1 - Agency/${title}.md.md` } }],
+    includedItems: 1,
+    truncated: false,
+    characterCount: context.length,
+  };
+}
+
+function atlas() {
+  return {
+    idealClientProfile: package_('Ideal Client Profile', `# Target Industries\n\n- Construction\n- Engineering\n- Manufacturing\n- Healthcare\n- Hospitality\n- Property\n\n# Geographic Focus\nSouth Africa`),
+    leadGeneration: package_('Lead Generation System', 'Quality over quantity.'),
+    leadQualification: package_('Lead Qualification', 'Business fit and project fit.'),
+    leadAgentGovernance: package_('Lead Agent', 'Atlas OS remains the single source of truth.'),
+  } as never;
+}
+
+test('derives broad business discovery queries from Atlas target industries', () => {
+  const plan = createLeadAtlasResearchPlanner().plan({ atlas: atlas(), geographicFocus: 'South Africa', maxQueries: 4 });
+  assert.deepEqual(plan.queries, [
+    'Construction businesses in South Africa',
+    'Engineering businesses in South Africa',
+    'Manufacturing businesses in South Africa',
+    'Healthcare businesses in South Africa',
+  ]);
+  assert.equal(plan.queries.some((query) => /web design|website developer/i.test(query)), false);
+  assert.ok(plan.atlasSourcePaths.some((path) => path.includes('Ideal Client Profile')));
+});
+
+test('fails closed when Atlas does not provide target industries', () => {
+  const missing = atlas() as any;
+  missing.idealClientProfile = package_('Ideal Client Profile', '# Purpose\nNo target industry section here.');
+  assert.throws(() => createLeadAtlasResearchPlanner().plan({ atlas: missing }), /Target Industries/);
+});
