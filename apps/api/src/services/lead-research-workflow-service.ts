@@ -2,6 +2,8 @@ import type { LeadBusinessCandidate, LeadBusinessSearchOutput } from '../integra
 import type { PublicWebSearchOutput, PublicWebSearchResult } from '../integrations/public-web-research-integration.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { LeadDiscoveryService } from './lead-discovery-service.js';
+import type { LeadPublicWebEnrichmentService } from './lead-public-web-enrichment-service.js';
+import { selectOfficialWebsite } from './lead-official-website-selector.js';
 
 export interface LeadResearchWorkflowInput {
   query: string;
@@ -15,11 +17,21 @@ export interface LeadResearchWorkflowInput {
 export interface LeadResearchProposal {
   leadId: string;
   providerPlaceId: string;
+  selectionStatus: 'ambiguous' | 'not_found';
+  candidateUrls: string[];
   publicWebResults: PublicWebSearchResult[];
+}
+
+export interface EnrichedLeadResearchResult {
+  leadId: string;
+  providerPlaceId: string;
+  companyName: string;
+  officialWebsiteUrl: string;
 }
 
 export interface LeadResearchWorkflowOutput {
   discovered: number;
+  enriched: EnrichedLeadResearchResult[];
   proposals: LeadResearchProposal[];
 }
 
@@ -34,7 +46,11 @@ function webQueryFor(candidate: LeadBusinessCandidate): string {
   return parts.join(' ').slice(0, 400);
 }
 
-export function createLeadResearchWorkflowService(registry: IntegrationRegistry, discoveryService: LeadDiscoveryService) {
+export function createLeadResearchWorkflowService(
+  registry: IntegrationRegistry,
+  discoveryService: LeadDiscoveryService,
+  enrichmentService: LeadPublicWebEnrichmentService,
+) {
   return {
     async research(input: LeadResearchWorkflowInput): Promise<LeadResearchWorkflowOutput> {
       const query = requireText(input.query, 'query');
@@ -57,10 +73,9 @@ export function createLeadResearchWorkflowService(registry: IntegrationRegistry,
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
       }
 
+      const enriched: EnrichedLeadResearchResult[] = [];
       const proposals: LeadResearchProposal[] = [];
       for (const candidate of discovery.output.candidates) {
-        // Persist one candidate at a time so the returned lead ID remains bound to the
-        // exact provider identity even when some discoveries are duplicates.
         const persisted = await discoveryService.persistDiscovery({
           discovery: { query: discovery.output.query, candidates: [candidate] },
           actorId: 'lead_agent',
@@ -84,14 +99,34 @@ export function createLeadResearchWorkflowService(registry: IntegrationRegistry,
         });
         if (web.status !== 'succeeded') continue;
 
-        proposals.push({
+        const selection = selectOfficialWebsite({ businessName: candidate.displayName, results: web.output.results });
+        if (selection.status !== 'selected') {
+          proposals.push({
+            leadId,
+            providerPlaceId: candidate.providerPlaceId,
+            selectionStatus: selection.status,
+            candidateUrls: selection.candidateUrls,
+            publicWebResults: web.output.results,
+          });
+          continue;
+        }
+
+        const lead = await enrichmentService.enrich({
           leadId,
+          companyName: selection.companyName,
+          officialWebsiteUrl: selection.websiteUrl,
+          supportingResults: selection.evidence,
+          actorId: 'lead_agent',
+        });
+        enriched.push({
+          leadId: lead.id,
           providerPlaceId: candidate.providerPlaceId,
-          publicWebResults: web.output.results,
+          companyName: selection.companyName,
+          officialWebsiteUrl: selection.websiteUrl,
         });
       }
 
-      return { discovered: discovery.output.candidates.length, proposals };
+      return { discovered: discovery.output.candidates.length, enriched, proposals };
     },
   };
 }
