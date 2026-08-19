@@ -1,3 +1,4 @@
+import type { KnowledgeContextPackage } from '../knowledge/knowledge-context-service.js';
 import type { LeadAtlasContextBundle } from './lead-atlas-context-service.js';
 
 export interface LeadResearchPlanInput {
@@ -19,7 +20,15 @@ function unique(values: string[]): string[] {
 }
 
 function atlasPaths(atlas: LeadAtlasContextBundle): string[] {
-  return unique(Object.values(atlas).flatMap((package_) => package_.sources.map((source) => source.citation.path)));
+  const packages: KnowledgeContextPackage[] = [
+    atlas.idealClientProfile,
+    atlas.leadGeneration,
+    atlas.leadQualification,
+    atlas.leadAgentGovernance,
+  ];
+  return unique(packages.flatMap((package_) =>
+    package_.sources.map((source) => source.citation.path)
+  ));
 }
 
 function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
