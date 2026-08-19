@@ -24,6 +24,7 @@ test('configured registry always includes model and payment sandboxes and omits 
   assert.equal(registry.get('payment.paystack'), undefined);
   assert.equal(registry.get('model.gemini'), undefined);
   assert.equal(registry.get('email.gmail'), undefined);
+  assert.equal(registry.get('research.google-places'), undefined);
 });
 
 test('configured registry registers Paystack test verification only in sandbox mode', () => {
@@ -70,4 +71,16 @@ test('configured registry registers Gmail as draft-only when complete credential
   assert.equal(gmail.provider, 'google-gmail');
   assert.deepEqual(gmail.supportedModes, ['draft']);
   assert.deepEqual(gmail.supportedOperations, ['create_draft']);
+});
+
+test('configured registry registers Google Places as live read-only research when a key is configured', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    googlePlacesApiKey: 'google-places-key',
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'research.google-places']);
+  const places = registry.require('research.google-places');
+  assert.equal(places.provider, 'google-places');
+  assert.deepEqual(places.supportedModes, ['live']);
+  assert.deepEqual(places.supportedOperations, ['search_businesses']);
 });
