@@ -56,7 +56,7 @@ export function createTavilyPublicWebResearchIntegration(options: TavilyPublicWe
     supportedOperations: ['search_public_web'],
 
     async execute(request: IntegrationRequest<PublicWebSearchInput>): Promise<IntegrationResponse<PublicWebSearchOutput>> {
-      const outputBase = { query: request.input.query?.trim() ?? '' };
+      const outputBase: PublicWebSearchOutput = { query: request.input.query?.trim() ?? '', results: [] };
       if (request.operation !== 'search_public_web') {
         return { integrationId: this.integrationId, operation: request.operation, provider: this.provider, mode: request.mode, status: 'blocked', output: outputBase, evidenceReferences: [], retryable: false };
       }
