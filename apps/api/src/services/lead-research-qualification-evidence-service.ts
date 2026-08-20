@@ -45,10 +45,18 @@ export function createLeadResearchQualificationEvidenceService() {
       const industries = targetIndustries(input.atlas);
       const matchedIndustry = industries.find((industry) => text.includes(industry.toLowerCase()));
 
+      const businessFit = matchedIndustry && references.length > 0
+        ? {
+            score: null,
+            evidenceReferences: references,
+            missingInformation: [
+              `Atlas target-industry evidence found (${matchedIndustry}), but Atlas does not define a deterministic numeric Business Fit score for industry match alone. Human-supervised or Atlas-constrained interpretation is required.`,
+            ],
+          }
+        : emptyAssessment('Target-industry or broader Ideal Client Profile fit is not yet evidenced.');
+
       const assessments: LeadResearchQualificationAssessments = {
-        businessFit: matchedIndustry && references.length > 0
-          ? { score: 7, evidenceReferences: references, missingInformation: ['Human review required to confirm full Ideal Client Profile fit.'] }
-          : emptyAssessment('Target-industry or broader Ideal Client Profile fit is not yet evidenced.'),
+        businessFit,
         projectFit: emptyAssessment('No requested project or service requirement has been evidenced yet.'),
         partnershipPotential: emptyAssessment('Long-term partnership, maintenance, growth, or automation potential requires further evidence.'),
         decisionMakerAccess: emptyAssessment('A decision-maker and their authority have not yet been verified.'),
