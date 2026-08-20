@@ -22,6 +22,7 @@ export interface EmailMessageInput {
 export interface EmailDraftOutput {
   messageId?: string;
   draftId?: string;
+  threadReference?: string;
   fromIdentity: string;
   recipients: readonly string[];
   subject: string;
