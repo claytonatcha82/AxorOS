@@ -66,6 +66,69 @@ test('configured registry exposes supervised Sales Gmail send only when the expl
   assert.deepEqual(gmail.supportedOperations, ['create_draft', 'send_email']);
 });
 
+test('configured registry keeps supervised Gmail live execution blocked when explicit flag is absent', async () => {
+  const { registry } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+  }));
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'email.gmail',
+      operation: 'send_email',
+      requestedBy: 'sales_agent',
+      executionId: 'exec-disabled',
+      correlationId: 'corr-disabled',
+      mode: 'live',
+      risk: 'medium',
+      idempotencyKey: 'sales-supervised-email-send:gate-disabled',
+      input: {},
+    }),
+    /live integration execution is disabled by policy/,
+  );
+});
+
+test('configured registry scopes supervised Gmail live policy to send_email at medium risk', async () => {
+  const { registry } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+    gmailSupervisedSalesSendEnabled: true,
+  }));
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'email.gmail',
+      operation: 'send_email',
+      requestedBy: 'sales_agent',
+      executionId: 'exec-high-risk',
+      correlationId: 'corr-high-risk',
+      mode: 'live',
+      risk: 'high',
+      idempotencyKey: 'sales-supervised-email-send:gate-high-risk',
+      input: {},
+    }),
+    /exceeds policy ceiling medium/,
+  );
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'research.google-places',
+      operation: 'search_businesses',
+      requestedBy: 'lead_agent',
+      executionId: 'exec-research',
+      correlationId: 'corr-research',
+      mode: 'live',
+      risk: 'low',
+      input: {},
+    }),
+    /live integration execution is disabled by policy/,
+  );
+});
+
 test('configured registry registers Google Places as live read-only research when a key is configured', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({ googlePlacesApiKey: 'google-places-key' }));
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'research.google-places']);
