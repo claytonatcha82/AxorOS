@@ -8,7 +8,7 @@ function atlas() {
   } as never;
 }
 
-test('scores only a qualification category directly supported by current public-web evidence', () => {
+test('records target-industry evidence without inventing a numeric business-fit score', () => {
   const assessments = createLeadResearchQualificationEvidenceService().build({
     atlas: atlas(),
     companyName: 'Acme Engineering',
@@ -16,8 +16,9 @@ test('scores only a qualification category directly supported by current public-
     publicWebResults: [{ title: 'Acme Engineering | Home', url: 'https://acme.example/', content: 'Engineering services for industrial clients.' }],
   });
 
-  assert.equal(assessments.businessFit.score, 7);
+  assert.equal(assessments.businessFit.score, null);
   assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://acme.example/']);
+  assert.match(assessments.businessFit.missingInformation[0]!, /does not define a deterministic numeric Business Fit score/i);
   assert.equal(assessments.projectFit.score, null);
   assert.equal(assessments.partnershipPotential.score, null);
   assert.equal(assessments.decisionMakerAccess.score, null);
@@ -33,6 +34,7 @@ test('does not invent business-fit score when target-industry evidence is absent
     publicWebResults: [{ title: 'Example Business', url: 'https://example.test/', content: 'Independent business information.' }],
   });
   assert.equal(assessments.businessFit.score, null);
+  assert.deepEqual(assessments.businessFit.evidenceReferences, []);
   assert.match(assessments.businessFit.missingInformation[0]!, /Target-industry/);
 });
 
