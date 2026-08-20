@@ -34,7 +34,8 @@ export function createSalesIntegrationEmailTransport(
       }
 
       const providerMessageId = requiredString(response.output.messageId, 'providerMessageId');
-      return { providerMessageId };
+      const providerThreadReference = requiredString(response.output.threadReference, 'providerThreadReference');
+      return { providerMessageId, providerThreadReference };
     },
   };
 }
