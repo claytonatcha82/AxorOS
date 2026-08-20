@@ -17,6 +17,7 @@ export interface ApiConfig {
   gmailClientSecret?: string;
   gmailRefreshToken?: string;
   gmailIdentityAddresses?: Readonly<Record<string, string>>;
+  gmailSupervisedSalesSendEnabled?: true;
   googlePlacesApiKey?: string;
   tavilyApiKey?: string;
   paystackSecretKey?: string;
@@ -92,6 +93,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const configuredGmailParts = gmailParts.filter((part) => part !== undefined).length;
   if (configuredGmailParts !== 0 && configuredGmailParts !== gmailParts.length) throw new Error('Gmail draft integration requires client ID, client secret, refresh token, and identity addresses together.');
 
+  const requestedSupervisedSalesSend = env.AXOROS_GMAIL_SUPERVISED_SALES_SEND?.trim();
+  if (requestedSupervisedSalesSend && requestedSupervisedSalesSend !== 'enabled' && requestedSupervisedSalesSend !== 'disabled') {
+    throw new Error('AXOROS_GMAIL_SUPERVISED_SALES_SEND must be enabled or disabled.');
+  }
+  if (requestedSupervisedSalesSend === 'enabled') {
+    if (configuredGmailParts !== gmailParts.length) {
+      throw new Error('Supervised Sales Gmail sending requires complete Gmail configuration.');
+    }
+    if (!gmailIdentityAddresses?.sales?.trim()) {
+      throw new Error('Supervised Sales Gmail sending requires a configured sales email identity.');
+    }
+  }
+
   const googlePlacesApiKey = env.AXOROS_GOOGLE_PLACES_API_KEY?.trim() || undefined;
   const tavilyApiKey = env.AXOROS_TAVILY_API_KEY?.trim() || undefined;
   const paystackSecretKey = parsePaystackSecretKey(env.AXOROS_PAYSTACK_SECRET_KEY);
@@ -110,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
   if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
+  if (requestedSupervisedSalesSend === 'enabled') config.gmailSupervisedSalesSendEnabled = true;
   if (googlePlacesApiKey) config.googlePlacesApiKey = googlePlacesApiKey;
   if (tavilyApiKey) config.tavilyApiKey = tavilyApiKey;
   if (paystackSecretKey) config.paystackSecretKey = paystackSecretKey;
