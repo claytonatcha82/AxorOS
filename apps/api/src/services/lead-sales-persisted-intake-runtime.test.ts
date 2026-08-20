@@ -6,10 +6,11 @@ import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-re
 import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
 import { createPersistedLeadSalesIntakeRuntime } from './lead-sales-persisted-intake-runtime.js';
 
-function createPool(): Pool {
+function createPool() {
   const executions = new Map<string, AgentRuntimeExecutionRecord>();
   const idempotency = new Set<string>();
-  const events: Array<Record<string, unknown>> = [];
+  const runtimeEvents: Array<Record<string, unknown>> = [];
+  const workflowEvents: Array<Record<string, unknown>> = [];
 
   const query = async (sql: string, values: readonly unknown[] = []) => {
     if (sql.includes('from runtime.agent_executions') && sql.includes('where execution_id = $1')) {
@@ -61,7 +62,7 @@ function createPool(): Pool {
     }
 
     if (sql.includes('insert into runtime.agent_events')) {
-      events.push({
+      runtimeEvents.push({
         event_id: values[0],
         execution_id: values[1],
         event_type: values[4],
@@ -77,8 +78,46 @@ function createPool(): Pool {
     }
 
     if (sql.includes('from runtime.agent_events')) {
-      const matching = events.filter((event) => event.execution_id === String(values[0]));
+      const matching = runtimeEvents.filter((event) => event.execution_id === String(values[0]));
       return { rowCount: matching.length, rows: matching };
+    }
+
+    if (sql.includes('from operational.leads') && sql.includes('where id = $1')) {
+      if (String(values[0]) !== 'lead-1') return { rowCount: 0, rows: [] };
+      const now = '2026-08-20T17:00:00.000Z';
+      return {
+        rowCount: 1,
+        rows: [{
+          id: 'lead-1',
+          client_id: null,
+          company_name: 'Example Engineering',
+          contact_name: 'Jane Doe',
+          contact_email: 'jane@example.com',
+          source: 'google_places',
+          opportunity_summary: 'Potential website redesign opportunity.',
+          lead_score: null,
+          status: 'new',
+          evidence: [],
+          created_at: now,
+          updated_at: now,
+        }],
+      };
+    }
+
+    if (sql.startsWith('insert into operational.workflow_events')) {
+      const createdAt = '2026-08-20T17:10:00.000Z';
+      const row = {
+        id: `workflow-${workflowEvents.length + 1}`,
+        client_id: values[0],
+        project_id: values[1],
+        event_type: values[2],
+        actor_type: values[3],
+        actor_id: values[4],
+        payload: JSON.parse(String(values[5])),
+        created_at: createdAt,
+      };
+      workflowEvents.push(row);
+      return { rowCount: 1, rows: [row] };
     }
 
     if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rowCount: 1, rows: [] };
@@ -87,9 +126,12 @@ function createPool(): Pool {
 
   const client = { query, release() {} };
   return {
-    query,
-    async connect() { return client; },
-  } as unknown as Pool;
+    pool: {
+      query,
+      async connect() { return client; },
+    } as unknown as Pool,
+    workflowEvents,
+  };
 }
 
 function createQueuedTask() {
@@ -113,9 +155,7 @@ function createQueuedTask() {
   });
 }
 
-test('persisted Sales intake runtime activates and processes intake without dispatch or outreach authority', async () => {
-  const pool = createPool();
-  const runtime = createPersistedLeadSalesIntakeRuntime(pool);
+async function registerQueuedTask(runtime: ReturnType<typeof createPersistedLeadSalesIntakeRuntime>) {
   const task = createQueuedTask();
   const commitRuntimeMutation = runtime.store.commitRuntimeMutation;
   if (!commitRuntimeMutation) throw new Error('test requires atomic runtime mutations.');
@@ -126,8 +166,15 @@ test('persisted Sales intake runtime activates and processes intake without disp
       commitRuntimeMutation,
     },
   });
-
   await registration.register(task);
+  return task;
+}
+
+test('persisted Sales intake runtime activates and processes intake without dispatch or outreach authority', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadSalesIntakeRuntime(harness.pool);
+  const task = await registerQueuedTask(runtime);
+
   const activated = await runtime.commands.activateIntake(task.executionId);
   assert.equal(activated.task.status, 'ready');
   assert.equal(activated.task.nextAction, 'execute_internal_sales_intake');
@@ -140,20 +187,70 @@ test('persisted Sales intake runtime activates and processes intake without disp
   assert.equal(processed.record.result?.output.nextAction, 'define_governed_sales_opportunity_assessment');
 });
 
-test('persisted Sales intake runtime refuses processing before explicit activation', async () => {
-  const pool = createPool();
-  const runtime = createPersistedLeadSalesIntakeRuntime(pool);
-  const task = createQueuedTask();
-  const commitRuntimeMutation = runtime.store.commitRuntimeMutation;
-  if (!commitRuntimeMutation) throw new Error('test requires atomic runtime mutations.');
-  const registration = createLeadSalesIntakeRegistrationService({
-    store: {
-      getExecution: runtime.store.getExecution,
-      hasIdempotencyKey: runtime.store.hasIdempotencyKey,
-      commitRuntimeMutation,
-    },
+test('persisted Sales intake runtime records an evidence-backed Sales opportunity assessment after completed intake', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadSalesIntakeRuntime(harness.pool);
+  const task = await registerQueuedTask(runtime);
+  await runtime.commands.activateIntake(task.executionId);
+  await runtime.commands.processIntake(task.executionId);
+
+  const outcome = await runtime.commands.assessOpportunity(task.executionId, {
+    decisionMaker: 'Jane Doe',
+    industry: 'Engineering',
+    country: 'South Africa',
+    businessSummary: 'Engineering company requiring a stronger digital presence.',
+    websiteAudit: 'Existing website is outdated and weak on conversion.',
+    painPoints: ['Outdated website', 'Weak conversion path'],
+    recommendedServices: ['Website redesign'],
+    priority: 'normal',
+    confidence: 0.9,
+    previousContact: 'none_recorded',
   });
-  await registration.register(task);
+
+  assert.equal(outcome.assessment.assessmentStatus, 'context_complete');
+  assert.deepEqual(outcome.assessment.missingInformation, []);
+  assert.equal(outcome.assessment.outreachAuthorised, false);
+  assert.equal(outcome.assessment.pricingAuthorised, false);
+  assert.equal(outcome.assessment.commercialCommitmentAuthorised, false);
+  assert.equal(harness.workflowEvents.length, 1);
+  assert.equal(harness.workflowEvents[0]?.event_type, 'sales_opportunity_assessment_recorded');
+  const payload = harness.workflowEvents[0]?.payload as Record<string, unknown>;
+  assert.equal(payload.assessmentStatus, 'context_complete');
+  assert.equal(payload.outreachAuthorised, false);
+  assert.equal(payload.pricingAuthorised, false);
+  assert.equal(payload.commercialCommitmentAuthorised, false);
+});
+
+test('persisted Sales intake runtime persists incomplete Sales context without inventing missing information', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadSalesIntakeRuntime(harness.pool);
+  const task = await registerQueuedTask(runtime);
+  await runtime.commands.activateIntake(task.executionId);
+  await runtime.commands.processIntake(task.executionId);
+
+  const outcome = await runtime.commands.assessOpportunity(task.executionId);
+  assert.equal(outcome.assessment.assessmentStatus, 'context_incomplete');
+  assert.ok(outcome.assessment.missingInformation.includes('industry'));
+  assert.ok(outcome.assessment.missingInformation.includes('website_audit'));
+  assert.equal(harness.workflowEvents.length, 1);
+});
+
+test('persisted Sales intake runtime refuses assessment before internal intake completes', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadSalesIntakeRuntime(harness.pool);
+  const task = await registerQueuedTask(runtime);
+
+  await assert.rejects(
+    () => runtime.commands.assessOpportunity(task.executionId),
+    /requires a completed internal Sales intake/i,
+  );
+  assert.equal(harness.workflowEvents.length, 0);
+});
+
+test('persisted Sales intake runtime refuses processing before explicit activation', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadSalesIntakeRuntime(harness.pool);
+  const task = await registerQueuedTask(runtime);
 
   await assert.rejects(
     () => runtime.commands.processIntake(task.executionId),
