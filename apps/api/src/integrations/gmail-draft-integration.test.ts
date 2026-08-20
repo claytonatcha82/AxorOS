@@ -86,6 +86,7 @@ test('creates a real Gmail mailbox draft through drafts.create only', async () =
   assert.equal(result.status, 'drafted');
   assert.equal(result.output.draftId, 'draft-123');
   assert.equal(result.output.messageId, 'msg-123');
+  assert.equal(result.output.threadReference, 'thread-123');
   assert.equal(result.externalReference, 'draft-123');
   assert.deepEqual(result.evidenceReferences, ['gmail:draft:draft-123']);
   assert.equal(calls.length, 2);
@@ -147,6 +148,7 @@ test('sends through the existing Gmail integration only when supervised Sales se
   const result = await integration.execute(sendRequest());
   assert.equal(result.status, 'succeeded');
   assert.equal(result.output.messageId, 'sent-123');
+  assert.equal(result.output.threadReference, 'thread-123');
   assert.equal(result.externalReference, 'sent-123');
   assert.deepEqual(result.evidenceReferences, ['gmail:message:sent-123']);
   assert.equal(calls[1]?.url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
