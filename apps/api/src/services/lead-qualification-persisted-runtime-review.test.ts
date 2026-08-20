@@ -13,10 +13,11 @@ const disposition: LeadQualificationDisposition = {
   atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
 };
 
-function createPool(): Pool {
+function createPool() {
   let current: AgentRuntimeExecutionRecord | null = null;
   const idempotency = new Set<string>();
-  const events: Array<{ type: string; actor: string }> = [];
+  const runtimeEvents: Array<Record<string, unknown>> = [];
+  const workflowEvents: Array<Record<string, unknown>> = [];
 
   const query = async (sql: string, values: readonly unknown[] = []) => {
     if (sql.includes('from runtime.agent_executions') && sql.includes('where execution_id = $1')) {
@@ -62,7 +63,19 @@ function createPool(): Pool {
     }
 
     if (sql.includes('insert into runtime.agent_events')) {
-      events.push({ type: String(values[4]), actor: String(values[5]) });
+      runtimeEvents.push({
+        event_id: values[0],
+        execution_id: values[1],
+        task_id: values[2],
+        correlation_id: values[3],
+        event_type: values[4],
+        actor: values[5],
+        from_status: values[6],
+        to_status: values[7],
+        payload: JSON.parse(String(values[8])),
+        idempotency_key: values[9],
+        occurred_at: values[10],
+      });
       return { rowCount: 1, rows: [] };
     }
 
@@ -71,19 +84,69 @@ function createPool(): Pool {
       return { rowCount: 1, rows: [] };
     }
 
+    if (sql.includes('from runtime.agent_events')) {
+      return {
+        rowCount: runtimeEvents.length,
+        rows: runtimeEvents.filter((event) => event.execution_id === String(values[0])),
+      };
+    }
+
+    if (sql.includes('from operational.leads') && sql.includes('where id = $1')) {
+      if (String(values[0]) !== 'lead-1') return { rowCount: 0, rows: [] };
+      const now = '2026-08-20T17:00:00.000Z';
+      return {
+        rowCount: 1,
+        rows: [{
+          id: 'lead-1',
+          client_id: null,
+          company_name: 'Example Engineering',
+          contact_name: null,
+          contact_email: null,
+          source: 'google_places',
+          opportunity_summary: null,
+          lead_score: null,
+          status: 'new',
+          evidence: [],
+          created_at: now,
+          updated_at: now,
+        }],
+      };
+    }
+
+    if (sql.startsWith('insert into operational.workflow_events')) {
+      const createdAt = '2026-08-20T17:05:00.000Z';
+      const row = {
+        id: `workflow-${workflowEvents.length + 1}`,
+        client_id: values[0],
+        project_id: values[1],
+        event_type: values[2],
+        actor_type: values[3],
+        actor_id: values[4],
+        payload: JSON.parse(String(values[5])),
+        created_at: createdAt,
+      };
+      workflowEvents.push(row);
+      return { rowCount: 1, rows: [row] };
+    }
+
     if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rowCount: 1, rows: [] };
-    if (sql.includes('from runtime.agent_events')) return { rowCount: 0, rows: [] };
     throw new Error(`unexpected test SQL: ${sql}`);
   };
 
   const client = { query, release() {} };
   return {
-    query,
-    async connect() { return client; },
-  } as unknown as Pool;
+    pool: {
+      query,
+      async connect() { return client; },
+    } as unknown as Pool,
+    workflowEvents,
+  };
 }
 
-function createTask(runtime: ReturnType<typeof createPersistedLeadQualificationRuntimeReview>) {
+function createTask(
+  runtime: ReturnType<typeof createPersistedLeadQualificationRuntimeReview>,
+  taskDisposition: LeadQualificationDisposition = disposition,
+) {
   return runtime.taskService.createTask({
     taskId: 'lead-qualification-review-task:disposition-1',
     executionId: 'lead-qualification-review:disposition-1',
@@ -91,14 +154,15 @@ function createTask(runtime: ReturnType<typeof createPersistedLeadQualificationR
     leadId: 'lead-1',
     qualificationRecordId: 'qualification-1',
     dispositionRecordId: 'disposition-1',
-    disposition,
+    disposition: taskDisposition,
     confidence: 1,
     createdAt: '2026-08-20T17:00:00.000Z',
   });
 }
 
-test('persisted review runtime registers, requests, and resolves human executive approval', async () => {
-  const runtime = createPersistedLeadQualificationRuntimeReview(createPool());
+test('approved approve_advance review durably records Sales handoff eligibility without authorising dispatch or outreach', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime);
   await runtime.registration.register(task);
 
@@ -112,10 +176,54 @@ test('persisted review runtime registers, requests, and resolves human executive
   assert.equal(approved.record.task.status, 'ready');
   assert.equal(approved.record.task.approvalRequired, false);
   assert.equal(approved.record.task.nextAction, 'execute_destination_capability');
+  assert.equal(harness.workflowEvents.length, 1);
+  assert.equal(harness.workflowEvents[0]?.event_type, 'lead_sales_handoff_eligibility_recorded');
+  assert.deepEqual(harness.workflowEvents[0]?.payload, {
+    leadId: 'lead-1',
+    qualificationRecordId: 'qualification-1',
+    dispositionRecordId: 'disposition-1',
+    reviewExecutionId: 'lead-qualification-review:disposition-1',
+    reviewTaskId: 'lead-qualification-review-task:disposition-1',
+    eligible: true,
+    recommendedAction: 'approve_advance',
+    humanApprovalActor: 'human_executive',
+    atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
+    salesDispatchAuthorised: false,
+    outreachAuthorised: false,
+  });
+});
+
+test('approved non-advance review does not create Sales handoff eligibility', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
+  const task = createTask(runtime, {
+    ...disposition,
+    recommendedAction: 'collect_more_evidence',
+    reasons: ['Additional evidence is required before handoff.'],
+  });
+  await runtime.registration.register(task);
+  await runtime.commands.requestReview(task.executionId);
+  const approved = await runtime.commands.resolveReview(task.executionId, 'approved');
+
+  assert.equal(approved.record.task.status, 'ready');
+  assert.equal(harness.workflowEvents.length, 0);
+});
+
+test('rejected review does not create Sales handoff eligibility', async () => {
+  const harness = createPool();
+  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
+  const task = createTask(runtime);
+  await runtime.registration.register(task);
+  await runtime.commands.requestReview(task.executionId);
+  const rejected = await runtime.commands.resolveReview(task.executionId, 'rejected', 'Do not advance.');
+
+  assert.equal(rejected.record.task.status, 'escalated');
+  assert.equal(harness.workflowEvents.length, 0);
 });
 
 test('persisted review runtime does not allow resolution before the review gate is requested', async () => {
-  const runtime = createPersistedLeadQualificationRuntimeReview(createPool());
+  const harness = createPool();
+  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime);
   await runtime.registration.register(task);
 
