@@ -1,12 +1,14 @@
 import type { IntegrationRequest, IntegrationResponse } from './integration-contract.js';
 import type { EmailDraftOutput, EmailIntegration, EmailMessageInput } from './email-integration.js';
 import { validateEmailMessage } from './email-integration.js';
+import { assertAgentMayUseEmailIdentity } from './email-identity-policy.js';
 
 export interface GmailDraftIntegrationOptions {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
   identityAddresses: Readonly<Record<string, string>>;
+  allowSupervisedSalesSend?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -31,6 +33,16 @@ interface GmailDraftResponse {
   };
 }
 
+interface GmailSendResponse {
+  id?: string;
+  threadId?: string;
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+  };
+}
+
 function base64Url(value: string): string {
   return Buffer.from(value, 'utf8')
     .toString('base64')
@@ -41,8 +53,8 @@ function base64Url(value: string): string {
 
 function formatAddress(name: string | undefined, email: string): string {
   if (!name?.trim()) return email;
-  const safeName = name.replace(/[\r\n"]/g, '').trim();
-  return `"${safeName}" <${email}>`;
+  const safeName = name.replace(/[\r\n\"]/g, '').trim();
+  return `\"${safeName}\" <${email}>`;
 }
 
 function buildMimeMessage(input: EmailMessageInput, fromAddress: string): string {
@@ -63,7 +75,7 @@ function buildMimeMessage(input: EmailMessageInput, fromAddress: string): string
   const boundary = `axoros_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   return [
     ...headers,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/alternative; boundary=\"${boundary}\"`,
     '',
     `--${boundary}`,
     'Content-Type: text/plain; charset=UTF-8',
@@ -79,6 +91,7 @@ function buildMimeMessage(input: EmailMessageInput, fromAddress: string): string
 
 export function createGmailDraftIntegration(options: GmailDraftIntegrationOptions): EmailIntegration {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const allowSupervisedSalesSend = options.allowSupervisedSalesSend === true;
 
   if (!options.clientId.trim()) throw new Error('Gmail clientId is required.');
   if (!options.clientSecret.trim()) throw new Error('Gmail clientSecret is required.');
@@ -109,13 +122,28 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
     integrationId: 'email.gmail',
     kind: 'email',
     provider: 'google-gmail',
-    supportedModes: ['draft'],
-    supportedOperations: ['create_draft'],
+    supportedModes: allowSupervisedSalesSend ? ['draft', 'live'] : ['draft'],
+    supportedOperations: allowSupervisedSalesSend ? ['create_draft', 'send_email'] : ['create_draft'],
     async execute(
       request: IntegrationRequest<EmailMessageInput>,
     ): Promise<IntegrationResponse<EmailDraftOutput>> {
-      if (request.mode !== 'draft' || request.operation !== 'create_draft') {
-        throw new Error('Gmail integration is draft-only and supports create_draft only.');
+      const isDraft = request.mode === 'draft' && request.operation === 'create_draft';
+      const isSupervisedSalesSend = allowSupervisedSalesSend
+        && request.mode === 'live'
+        && request.operation === 'send_email'
+        && request.requestedBy === 'sales_agent'
+        && request.input.fromIdentity === 'sales';
+
+      if (!isDraft && !isSupervisedSalesSend) {
+        throw new Error('Gmail integration only supports draft creation by default and supervised Sales sending when explicitly enabled.');
+      }
+
+      if (request.requestedBy !== 'human_executive') {
+        assertAgentMayUseEmailIdentity(request.requestedBy, request.input.fromIdentity);
+      }
+
+      if (isSupervisedSalesSend && !request.idempotencyKey?.trim()) {
+        throw new Error('Supervised Gmail send requires an idempotencyKey.');
       }
 
       const errors = validateEmailMessage(request.input);
@@ -128,16 +156,69 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
 
       const accessToken = await getAccessToken();
       const mime = buildMimeMessage(request.input, fromAddress);
-      const response = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+
+      if (isDraft) {
+        const response = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: { raw: base64Url(mime) } }),
+        });
+        const payload = (await response.json()) as GmailDraftResponse;
+        if (!response.ok || !payload.id) {
+          const detail = payload.error?.message ?? `HTTP ${response.status}`;
+          return {
+            integrationId: 'email.gmail',
+            operation: request.operation,
+            provider: 'google-gmail',
+            mode: request.mode,
+            status: 'failed',
+            output: {
+              fromIdentity: request.input.fromIdentity,
+              recipients: request.input.to.map((recipient) => recipient.email),
+              subject: request.input.subject,
+              preview: detail,
+            },
+            evidenceReferences: [],
+            retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+          };
+        }
+
+        const output: EmailDraftOutput = {
+          draftId: payload.id,
+          fromIdentity: request.input.fromIdentity,
+          recipients: request.input.to.map((recipient) => recipient.email),
+          subject: request.input.subject,
+          preview: request.input.textBody.slice(0, 160),
+          ...(payload.message?.id ? { messageId: payload.message.id } : {}),
+        };
+
+        return {
+          integrationId: 'email.gmail',
+          operation: request.operation,
+          provider: 'google-gmail',
+          mode: request.mode,
+          status: 'drafted',
+          output,
+          externalReference: payload.id,
+          evidenceReferences: [`gmail:draft:${payload.id}`],
+          retryable: false,
+        };
+      }
+
+      const response = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: { raw: base64Url(mime) } }),
+        body: JSON.stringify({ raw: base64Url(mime) }),
       });
-      const payload = (await response.json()) as GmailDraftResponse;
+      const payload = (await response.json()) as GmailSendResponse;
       if (!response.ok || !payload.id) {
         const detail = payload.error?.message ?? `HTTP ${response.status}`;
         return {
@@ -157,24 +238,21 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
         };
       }
 
-      const output: EmailDraftOutput = {
-        draftId: payload.id,
-        fromIdentity: request.input.fromIdentity,
-        recipients: request.input.to.map((recipient) => recipient.email),
-        subject: request.input.subject,
-        preview: request.input.textBody.slice(0, 160),
-        ...(payload.message?.id ? { messageId: payload.message.id } : {}),
-      };
-
       return {
         integrationId: 'email.gmail',
         operation: request.operation,
         provider: 'google-gmail',
         mode: request.mode,
-        status: 'drafted',
-        output,
+        status: 'succeeded',
+        output: {
+          messageId: payload.id,
+          fromIdentity: request.input.fromIdentity,
+          recipients: request.input.to.map((recipient) => recipient.email),
+          subject: request.input.subject,
+          preview: request.input.textBody.slice(0, 160),
+        },
         externalReference: payload.id,
-        evidenceReferences: [`gmail:draft:${payload.id}`],
+        evidenceReferences: [`gmail:message:${payload.id}`],
         retryable: false,
       };
     },
