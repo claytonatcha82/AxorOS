@@ -12,6 +12,26 @@ export interface GmailDraftIntegrationOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface GmailThreadMessageEvidence {
+  messageId: string;
+  threadReference: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  internalDate?: string;
+  snippet?: string;
+  textBody?: string;
+}
+
+export interface GmailThreadEvidence {
+  threadReference: string;
+  messages: readonly GmailThreadMessageEvidence[];
+}
+
+export interface GmailEmailIntegration extends EmailIntegration {
+  readThread(threadReference: string): Promise<GmailThreadEvidence>;
+}
+
 interface GmailTokenResponse {
   access_token?: string;
   expires_in?: number;
@@ -43,12 +63,41 @@ interface GmailSendResponse {
   };
 }
 
+interface GmailMessagePart {
+  mimeType?: string;
+  headers?: Array<{ name?: string; value?: string }>;
+  body?: { data?: string };
+  parts?: GmailMessagePart[];
+}
+
+interface GmailThreadMessageResponse {
+  id?: string;
+  threadId?: string;
+  internalDate?: string;
+  snippet?: string;
+  payload?: GmailMessagePart;
+}
+
+interface GmailThreadResponse {
+  id?: string;
+  messages?: GmailThreadMessageResponse[];
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+  };
+}
+
 function base64Url(value: string): string {
   return Buffer.from(value, 'utf8')
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
+}
+
+function decodeBase64Url(value: string): string {
+  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
 }
 
 function formatAddress(name: string | undefined, email: string): string {
@@ -89,7 +138,34 @@ function buildMimeMessage(input: EmailMessageInput, fromAddress: string): string
   ].join('\r\n');
 }
 
-export function createGmailDraftIntegration(options: GmailDraftIntegrationOptions): EmailIntegration {
+function headerValue(part: GmailMessagePart | undefined, name: string): string | undefined {
+  const value = part?.headers?.find((header) => header.name?.toLowerCase() === name.toLowerCase())?.value?.trim();
+  return value || undefined;
+}
+
+function textBody(part: GmailMessagePart | undefined): string | undefined {
+  if (!part) return undefined;
+  if ((!part.mimeType || part.mimeType === 'text/plain') && part.body?.data) {
+    const decoded = decodeBase64Url(part.body.data).trim();
+    if (decoded) return decoded;
+  }
+
+  for (const child of part.parts ?? []) {
+    if (child.mimeType === 'text/plain') {
+      const decoded = textBody(child);
+      if (decoded) return decoded;
+    }
+  }
+
+  for (const child of part.parts ?? []) {
+    const decoded = textBody(child);
+    if (decoded) return decoded;
+  }
+
+  return undefined;
+}
+
+export function createGmailDraftIntegration(options: GmailDraftIntegrationOptions): GmailEmailIntegration {
   const fetchImpl = options.fetchImpl ?? fetch;
   const allowSupervisedSalesSend = options.allowSupervisedSalesSend === true;
 
@@ -124,6 +200,56 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
     provider: 'google-gmail',
     supportedModes: allowSupervisedSalesSend ? ['draft', 'live'] : ['draft'],
     supportedOperations: allowSupervisedSalesSend ? ['create_draft', 'send_email'] : ['create_draft'],
+    async readThread(threadReference: string): Promise<GmailThreadEvidence> {
+      const normalizedThreadReference = threadReference.trim();
+      if (!normalizedThreadReference) throw new Error('Gmail threadReference is required.');
+
+      const accessToken = await getAccessToken();
+      const response = await fetchImpl(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(normalizedThreadReference)}?format=full`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        },
+      );
+      const payload = (await response.json()) as GmailThreadResponse;
+      if (!response.ok || !payload.id) {
+        const detail = payload.error?.message ?? `HTTP ${response.status}`;
+        throw new Error(`Gmail thread retrieval failed: ${detail}.`);
+      }
+      if (payload.id !== normalizedThreadReference) {
+        throw new Error('Gmail thread retrieval returned a different thread reference.');
+      }
+
+      const messages = (payload.messages ?? []).map((message): GmailThreadMessageEvidence => {
+        const messageId = message.id?.trim();
+        if (!messageId) throw new Error('Gmail thread message id is required.');
+        const messageThreadReference = message.threadId?.trim();
+        if (!messageThreadReference || messageThreadReference !== normalizedThreadReference) {
+          throw new Error('Gmail thread message reference does not match the requested thread.');
+        }
+
+        const from = headerValue(message.payload, 'From');
+        const to = headerValue(message.payload, 'To');
+        const subject = headerValue(message.payload, 'Subject');
+        const body = textBody(message.payload);
+        return {
+          messageId,
+          threadReference: messageThreadReference,
+          ...(from ? { from } : {}),
+          ...(to ? { to } : {}),
+          ...(subject ? { subject } : {}),
+          ...(message.internalDate?.trim() ? { internalDate: message.internalDate.trim() } : {}),
+          ...(message.snippet?.trim() ? { snippet: message.snippet.trim() } : {}),
+          ...(body ? { textBody: body } : {}),
+        };
+      });
+
+      return { threadReference: payload.id, messages };
+    },
     async execute(
       request: IntegrationRequest<EmailMessageInput>,
     ): Promise<IntegrationResponse<EmailDraftOutput>> {
