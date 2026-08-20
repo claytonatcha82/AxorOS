@@ -4,16 +4,20 @@ import type { ExternalIntegration, IntegrationRequest } from '../integrations/in
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { createSalesIntegrationEmailTransport } from './sales-integration-email-transport.js';
 
+function liveSalesPolicy() {
+  return {
+    defaultMode: 'sandbox' as const,
+    allowLive: false,
+    liveRiskCeiling: 'low' as const,
+    liveOperationRules: [
+      { integrationId: 'email.gmail', operation: 'send_email', riskCeiling: 'medium' as const },
+    ],
+  };
+}
+
 function registryHarness() {
   const requests: IntegrationRequest[] = [];
-  const registry = new IntegrationRegistry({
-    defaultMode: 'sandbox',
-    allowLive: false,
-    liveRiskCeiling: 'low',
-    liveOperationRules: [
-      { integrationId: 'email.gmail', operation: 'send_email', riskCeiling: 'medium' },
-    ],
-  });
+  const registry = new IntegrationRegistry(liveSalesPolicy());
 
   const integration: ExternalIntegration = {
     integrationId: 'email.gmail',
@@ -47,19 +51,19 @@ function registryHarness() {
   return { registry, requests };
 }
 
+const message = { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' };
+const context = {
+  sendGateRecordId: 'gate-1',
+  executionId: 'sales-supervised-email-send:gate-1',
+  correlationId: 'lead-1',
+  idempotencyKey: 'sales-supervised-email-send:gate-1',
+};
+
 test('bridges supervised Sales message to the existing Gmail integration contract', async () => {
   const { registry, requests } = registryHarness();
   const transport = createSalesIntegrationEmailTransport(registry);
 
-  const result = await transport.send(
-    { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' },
-    {
-      sendGateRecordId: 'gate-1',
-      executionId: 'sales-supervised-email-send:gate-1',
-      correlationId: 'lead-1',
-      idempotencyKey: 'sales-supervised-email-send:gate-1',
-    },
-  );
+  const result = await transport.send(message, context);
 
   assert.deepEqual(result, { providerMessageId: 'gmail-message-1' });
   assert.equal(requests.length, 1);
@@ -105,22 +109,38 @@ test('does not bypass the integration registry live policy', async () => {
 
   const transport = createSalesIntegrationEmailTransport(registry);
   await assert.rejects(
-    () => transport.send(
-      { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' },
-      {
-        sendGateRecordId: 'gate-1',
-        executionId: 'sales-supervised-email-send:gate-1',
-        correlationId: 'lead-1',
-        idempotencyKey: 'sales-supervised-email-send:gate-1',
-      },
-    ),
+    () => transport.send(message, context),
     /live integration execution is disabled by policy/,
   );
 });
 
 test('rejects a provider success without a message id', async () => {
-  const { registry } = registryHarness();
-  const registered = registry.require('email.gmail');
-  registry['integrations'].delete?.('email.gmail');
-  void registered;
+  const registry = new IntegrationRegistry(liveSalesPolicy());
+  registry.register({
+    integrationId: 'email.gmail',
+    kind: 'email',
+    provider: 'google-gmail-test',
+    supportedModes: ['live'],
+    supportedOperations: ['send_email'],
+    async execute(request) {
+      return {
+        integrationId: request.integrationId,
+        operation: request.operation,
+        provider: 'google-gmail-test',
+        mode: request.mode,
+        status: 'succeeded',
+        output: {
+          fromIdentity: 'sales',
+          recipients: ['owner@example.com'],
+          subject: 'Website opportunity',
+          preview: 'missing provider id',
+        },
+        evidenceReferences: [],
+        retryable: false,
+      };
+    },
+  });
+
+  const transport = createSalesIntegrationEmailTransport(registry);
+  await assert.rejects(() => transport.send(message, context), /providerMessageId is required/);
 });
