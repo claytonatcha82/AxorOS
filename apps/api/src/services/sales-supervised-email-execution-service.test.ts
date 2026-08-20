@@ -27,9 +27,14 @@ function fixtures(overrides: Partial<Record<string, WorkflowEventRecord>> = {}) 
   ]);
 }
 
-function harness(events = fixtures()) {
+function harness(events = fixtures(), transportError?: Error) {
   const sent: SalesEmailMessage[] = [];
   const created: any[] = [];
+  const reservations: string[] = [];
+  const markedSent: Array<{ gateId: string; providerMessageId: string }> = [];
+  const markedFailed: Array<{ gateId: string; errorMessage: string }> = [];
+  const reserved = new Set<string>();
+
   const service = createSalesSupervisedEmailExecutionService(
     {
       async getWorkflowEventById(id) { return events.get(id) ?? null; },
@@ -39,17 +44,61 @@ function harness(events = fixtures()) {
       },
     },
     {
-      async send(message) { sent.push(message); return { providerMessageId: 'provider-message-1' }; },
+      async send(message) {
+        sent.push(message);
+        if (transportError) throw transportError;
+        return { providerMessageId: 'provider-message-1' };
+      },
+    },
+    {
+      async reserve(gateId, idempotencyKey) {
+        if (reserved.has(gateId)) throw new Error(`Sales email send gate ${gateId} already has a durable send attempt.`);
+        reserved.add(gateId);
+        reservations.push(idempotencyKey);
+        return {
+          sendGateRecordId: gateId,
+          idempotencyKey,
+          status: 'reserved' as const,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      },
+      async markSent(gateId, providerMessageId) {
+        markedSent.push({ gateId, providerMessageId });
+        return {
+          sendGateRecordId: gateId,
+          idempotencyKey: `sales-supervised-email-send:${gateId}`,
+          status: 'sent' as const,
+          providerMessageId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      },
+      async markFailed(gateId, errorMessage) {
+        markedFailed.push({ gateId, errorMessage });
+        return {
+          sendGateRecordId: gateId,
+          idempotencyKey: `sales-supervised-email-send:${gateId}`,
+          status: 'failed' as const,
+          errorMessage,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      },
     },
   );
-  return { service, sent, created };
+
+  return { service, sent, created, reservations, markedSent, markedFailed };
 }
 
 test('executes one supervised email from persisted approved authority and draft content', async () => {
-  const { service, sent, created } = harness();
+  const { service, sent, created, reservations, markedSent, markedFailed } = harness();
   const result = await service.execute('gate-1');
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' });
+  assert.deepEqual(reservations, ['sales-supervised-email-send:gate-1']);
+  assert.deepEqual(markedSent, [{ gateId: 'gate-1', providerMessageId: 'provider-message-1' }]);
+  assert.equal(markedFailed.length, 0);
   assert.equal(result.execution.humanSendApprovalVerified, true);
   assert.equal(result.execution.sendExecuted, true);
   assert.equal(result.execution.providerMessageId, 'provider-message-1');
@@ -58,29 +107,48 @@ test('executes one supervised email from persisted approved authority and draft 
   assert.equal(created[0].eventType, 'sales_supervised_email_sent');
 });
 
+test('blocks replay before a second transport call', async () => {
+  const { service, sent } = harness();
+  await service.execute('gate-1');
+  await assert.rejects(() => service.execute('gate-1'), /already has a durable send attempt/);
+  assert.equal(sent.length, 1);
+});
+
+test('marks a reserved attempt failed when transport execution fails', async () => {
+  const { service, sent, markedSent, markedFailed, created } = harness(fixtures(), new Error('provider unavailable'));
+  await assert.rejects(() => service.execute('gate-1'), /provider unavailable/);
+  assert.equal(sent.length, 1);
+  assert.equal(markedSent.length, 0);
+  assert.deepEqual(markedFailed, [{ gateId: 'gate-1', errorMessage: 'provider unavailable' }]);
+  assert.equal(created.length, 0);
+});
+
 test('does not call transport when send gate is rejected', async () => {
   const events = fixtures();
   const gate = events.get('gate-1')!;
   events.set('gate-1', { ...gate, payload: { ...(gate.payload as object), decision: 'rejected', sendAuthorised: false, nextAction: 'return_to_outreach_review' } });
-  const { service, sent } = harness(events);
+  const { service, sent, reservations } = harness(events);
   await assert.rejects(() => service.execute('gate-1'), /explicit human send approval|not authorised/);
   assert.equal(sent.length, 0);
+  assert.equal(reservations.length, 0);
 });
 
 test('does not call transport when send authority is forged without human provenance', async () => {
   const events = fixtures();
   const gate = events.get('gate-1')!;
   events.set('gate-1', { ...gate, actorType: 'agent', actorId: 'sales_agent' });
-  const { service, sent } = harness(events);
+  const { service, sent, reservations } = harness(events);
   await assert.rejects(() => service.execute('gate-1'), /human executive send-gate provenance/);
   assert.equal(sent.length, 0);
+  assert.equal(reservations.length, 0);
 });
 
 test('does not call transport when gate and draft reference different leads', async () => {
   const events = fixtures();
   const gate = events.get('gate-1')!;
   events.set('gate-1', { ...gate, payload: { ...(gate.payload as object), leadId: 'lead-2' } });
-  const { service, sent } = harness(events);
+  const { service, sent, reservations } = harness(events);
   await assert.rejects(() => service.execute('gate-1'), /different leads/);
   assert.equal(sent.length, 0);
+  assert.equal(reservations.length, 0);
 });
