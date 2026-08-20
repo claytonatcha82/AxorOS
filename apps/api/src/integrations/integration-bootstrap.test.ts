@@ -51,6 +51,21 @@ test('configured registry registers Gmail as draft-only when complete credential
   assert.deepEqual(gmail.supportedOperations, ['create_draft']);
 });
 
+test('configured registry exposes supervised Sales Gmail send only when the explicit flag is enabled', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+    gmailSupervisedSalesSendEnabled: true,
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'email.gmail']);
+  const gmail = registry.require('email.gmail');
+  assert.deepEqual(gmail.supportedModes, ['draft', 'live']);
+  assert.deepEqual(gmail.supportedOperations, ['create_draft', 'send_email']);
+});
+
 test('configured registry registers Google Places as live read-only research when a key is configured', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({ googlePlacesApiKey: 'google-places-key' }));
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'research.google-places']);
