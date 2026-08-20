@@ -5,6 +5,7 @@ import type { LeadResearchQualificationEvidenceService } from './lead-research-q
 import type { LeadPreliminaryQualificationService, PreliminaryLeadQualificationResult } from './lead-preliminary-qualification-service.js';
 import type { LeadPreliminaryQualificationPersistenceService } from './lead-preliminary-qualification-persistence-service.js';
 import type { LeadQualificationDisposition, LeadQualificationDispositionService } from './lead-qualification-disposition-service.js';
+import type { LeadQualificationDispositionPersistenceService } from './lead-qualification-disposition-persistence-service.js';
 
 export interface AtlasLeadResearchInput {
   geographicFocus?: string;
@@ -20,6 +21,7 @@ export type QualifiedEnrichedLead = LeadResearchWorkflowOutput['enriched'][numbe
   preliminaryQualification: PreliminaryLeadQualificationResult;
   preliminaryQualificationRecordId: string;
   qualificationDisposition: LeadQualificationDisposition;
+  qualificationDispositionRecordId: string;
 };
 
 export interface AtlasLeadResearchOutput {
@@ -44,11 +46,12 @@ export function createLeadAtlasResearchOrchestrator(
   qualificationService?: Pick<LeadPreliminaryQualificationService, 'evaluate'>,
   qualificationPersistence?: Pick<LeadPreliminaryQualificationPersistenceService, 'persist'>,
   dispositionService?: Pick<LeadQualificationDispositionService, 'evaluate'>,
+  dispositionPersistence?: Pick<LeadQualificationDispositionPersistenceService, 'persist'>,
 ) {
-  const qualificationDependencies = [evidenceBuilder, qualificationService, qualificationPersistence, dispositionService];
+  const qualificationDependencies = [evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence];
   const configuredQualificationDependencies = qualificationDependencies.filter(Boolean).length;
   if (configuredQualificationDependencies !== 0 && configuredQualificationDependencies !== qualificationDependencies.length) {
-    throw new Error('Lead qualification pipeline requires evidence builder, qualification service, persistence service, and disposition service together.');
+    throw new Error('Lead qualification pipeline requires evidence builder, qualification service, qualification persistence, disposition service, and disposition persistence together.');
   }
 
   return {
@@ -79,8 +82,8 @@ export function createLeadAtlasResearchOrchestrator(
         proposals.push(...result.proposals);
 
         for (const lead of result.enriched) {
-          if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService) {
-            throw new Error('Atlas Lead research produced an enriched lead without a fully configured qualification disposition pipeline.');
+          if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence) {
+            throw new Error('Atlas Lead research produced an enriched lead without a fully configured qualification disposition persistence pipeline.');
           }
           const assessments = evidenceBuilder.build({
             atlas,
@@ -96,11 +99,18 @@ export function createLeadAtlasResearchOrchestrator(
             actorId: 'lead_agent',
           });
           const qualificationDisposition = dispositionService.evaluate(preliminaryQualification);
+          const persistedDisposition = await dispositionPersistence.persist({
+            leadId: lead.leadId,
+            qualificationRecordId: persistedQualification.id,
+            disposition: qualificationDisposition,
+            actorId: 'lead_agent',
+          });
           enriched.push({
             ...lead,
             preliminaryQualification,
             preliminaryQualificationRecordId: persistedQualification.id,
             qualificationDisposition,
+            qualificationDispositionRecordId: persistedDisposition.id,
           });
         }
       }
