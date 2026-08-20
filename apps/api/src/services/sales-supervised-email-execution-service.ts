@@ -105,7 +105,7 @@ export function createSalesSupervisedEmailExecutionService(
       };
 
       const idempotencyKey = `sales-supervised-email-send:${gateRecord.id}`;
-      await sendAttempts.reserve(gateRecord.id, idempotencyKey);
+      await sendAttempts.reserve(gateRecord.id, draftRecord.id, leadId, idempotencyKey);
 
       const sendContext: SalesEmailSendContext = {
         sendGateRecordId: gateRecord.id,
