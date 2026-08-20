@@ -69,6 +69,43 @@ test('explicit live policy still enforces risk ceiling', async () => {
   );
 });
 
+test('scoped live rule authorises only the named integration operation', async () => {
+  const registry = new IntegrationRegistry({
+    defaultMode: 'sandbox',
+    allowLive: false,
+    liveRiskCeiling: 'low',
+    scopedLiveRules: [{ integrationId: 'email.primary', operation: 'send_message', riskCeiling: 'medium' }],
+  });
+  registry.register(integration());
+
+  const response = await registry.execute(request({ mode: 'live', risk: 'medium', idempotencyKey: 'live:exec-1:send' }));
+  assert.equal(response.status, 'succeeded');
+
+  await assert.rejects(
+    () => registry.execute(request({ integrationId: 'email.other', mode: 'live', risk: 'medium', idempotencyKey: 'live:exec-1:other' })),
+    /live integration execution is disabled by policy/,
+  );
+  await assert.rejects(
+    () => registry.execute(request({ operation: 'delete_mailbox', mode: 'live', risk: 'medium', idempotencyKey: 'live:exec-1:delete' })),
+    /live integration execution is disabled by policy/,
+  );
+});
+
+test('scoped live rule enforces its own risk ceiling', async () => {
+  const registry = new IntegrationRegistry({
+    defaultMode: 'sandbox',
+    allowLive: false,
+    liveRiskCeiling: 'low',
+    scopedLiveRules: [{ integrationId: 'email.primary', operation: 'send_message', riskCeiling: 'medium' }],
+  });
+  registry.register(integration());
+
+  await assert.rejects(
+    () => registry.execute(request({ mode: 'live', risk: 'high', idempotencyKey: 'live:exec-1:high' })),
+    /exceeds policy ceiling medium/,
+  );
+});
+
 test('live medium-risk request requires idempotency key', async () => {
   const registry = new IntegrationRegistry({ defaultMode: 'sandbox', allowLive: true, liveRiskCeiling: 'medium' });
   registry.register(integration());
