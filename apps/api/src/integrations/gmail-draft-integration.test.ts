@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createGmailDraftIntegration } from './gmail-draft-integration.js';
 
+function encoded(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 function makeFetch() {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {
@@ -24,6 +28,56 @@ function makeFetch() {
 
     if (url === 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send') {
       return new Response(JSON.stringify({ id: 'sent-123', threadId: 'thread-123' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url === 'https://gmail.googleapis.com/gmail/v1/users/me/threads/thread-123?format=full') {
+      return new Response(JSON.stringify({
+        id: 'thread-123',
+        messages: [
+          {
+            id: 'sent-123',
+            threadId: 'thread-123',
+            internalDate: '1787250000000',
+            snippet: 'Synthetic approved supervised message.',
+            payload: {
+              mimeType: 'text/plain',
+              headers: [
+                { name: 'From', value: 'sales@example.test' },
+                { name: 'To', value: 'prospect@example.test' },
+                { name: 'Subject', value: 'Synthetic website discussion' },
+              ],
+              body: { data: encoded('Synthetic approved supervised message.') },
+            },
+          },
+          {
+            id: 'reply-456',
+            threadId: 'thread-123',
+            internalDate: '1787250300000',
+            snippet: 'Thanks, please send more information.',
+            payload: {
+              mimeType: 'multipart/alternative',
+              headers: [
+                { name: 'From', value: 'Prospect <prospect@example.test>' },
+                { name: 'To', value: 'sales@example.test' },
+                { name: 'Subject', value: 'Re: Synthetic website discussion' },
+              ],
+              parts: [
+                {
+                  mimeType: 'text/plain',
+                  body: { data: encoded('Thanks, please send more information.') },
+                },
+                {
+                  mimeType: 'text/html',
+                  body: { data: encoded('<p>Thanks, please send more information.</p>') },
+                },
+              ],
+            },
+          },
+        ],
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -102,6 +156,48 @@ test('creates a real Gmail mailbox draft through drafts.create only', async () =
   assert.match(decoded, /To: \"Synthetic Prospect\" <prospect@example\.test>/);
   assert.match(decoded, /Subject: Synthetic website discussion/);
   assert.match(decoded, /Synthetic draft body\. Do not send\./);
+});
+
+test('reads one exact Gmail thread without creating, sending, or modifying mail', async () => {
+  const { fetchImpl, calls } = makeFetch();
+  const integration = createGmailDraftIntegration({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    refreshToken: 'refresh-token',
+    identityAddresses: { sales: 'sales@example.test' },
+    fetchImpl,
+  });
+
+  const thread = await integration.readThread('thread-123');
+
+  assert.equal(thread.threadReference, 'thread-123');
+  assert.equal(thread.messages.length, 2);
+  assert.deepEqual(thread.messages[0], {
+    messageId: 'sent-123',
+    threadReference: 'thread-123',
+    from: 'sales@example.test',
+    to: 'prospect@example.test',
+    subject: 'Synthetic website discussion',
+    internalDate: '1787250000000',
+    snippet: 'Synthetic approved supervised message.',
+    textBody: 'Synthetic approved supervised message.',
+  });
+  assert.deepEqual(thread.messages[1], {
+    messageId: 'reply-456',
+    threadReference: 'thread-123',
+    from: 'Prospect <prospect@example.test>',
+    to: 'sales@example.test',
+    subject: 'Re: Synthetic website discussion',
+    internalDate: '1787250300000',
+    snippet: 'Thanks, please send more information.',
+    textBody: 'Thanks, please send more information.',
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.url, 'https://oauth2.googleapis.com/token');
+  assert.equal(calls[1]?.url, 'https://gmail.googleapis.com/gmail/v1/users/me/threads/thread-123?format=full');
+  assert.equal(calls[1]?.init?.method, 'GET');
+  assert.equal(calls.some((call) => call.url.includes('/drafts')), false);
+  assert.equal(calls.some((call) => call.url.includes('/messages/send')), false);
 });
 
 test('rejects an unconfigured sender identity before calling Gmail', async () => {
