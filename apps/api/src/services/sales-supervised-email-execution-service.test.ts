@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSalesSupervisedEmailExecutionService, type SalesEmailMessage } from './sales-supervised-email-execution-service.js';
+import { createSalesSupervisedEmailExecutionService, type SalesEmailMessage, type SalesEmailSendContext } from './sales-supervised-email-execution-service.js';
 import type { WorkflowEventRecord } from '../data/operational-repository.js';
 
 function record(id: string, eventType: string, actorType: string, actorId: string | null, payload: unknown): WorkflowEventRecord {
@@ -29,6 +29,7 @@ function fixtures(overrides: Partial<Record<string, WorkflowEventRecord>> = {}) 
 
 function harness(events = fixtures(), transportError?: Error) {
   const sent: SalesEmailMessage[] = [];
+  const contexts: SalesEmailSendContext[] = [];
   const created: any[] = [];
   const reservations: string[] = [];
   const markedSent: Array<{ gateId: string; providerMessageId: string }> = [];
@@ -44,8 +45,9 @@ function harness(events = fixtures(), transportError?: Error) {
       },
     },
     {
-      async send(message) {
+      async send(message, context) {
         sent.push(message);
+        contexts.push(context);
         if (transportError) throw transportError;
         return { providerMessageId: 'provider-message-1' };
       },
@@ -88,14 +90,20 @@ function harness(events = fixtures(), transportError?: Error) {
     },
   );
 
-  return { service, sent, created, reservations, markedSent, markedFailed };
+  return { service, sent, contexts, created, reservations, markedSent, markedFailed };
 }
 
 test('executes one supervised email from persisted approved authority and draft content', async () => {
-  const { service, sent, created, reservations, markedSent, markedFailed } = harness();
+  const { service, sent, contexts, created, reservations, markedSent, markedFailed } = harness();
   const result = await service.execute('gate-1');
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' });
+  assert.deepEqual(contexts[0], {
+    sendGateRecordId: 'gate-1',
+    executionId: 'sales-supervised-email-send:gate-1',
+    correlationId: 'lead-1',
+    idempotencyKey: 'sales-supervised-email-send:gate-1',
+  });
   assert.deepEqual(reservations, ['sales-supervised-email-send:gate-1']);
   assert.deepEqual(markedSent, [{ gateId: 'gate-1', providerMessageId: 'provider-message-1' }]);
   assert.equal(markedFailed.length, 0);
