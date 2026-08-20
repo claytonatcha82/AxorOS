@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { AgentRuntimeExecutionRecord } from './agents/agent-runtime-state.js';
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
+import type { SalesOpportunityContext } from './services/sales-opportunity-assessment-service.js';
 
 const controlPlaneToken = 'control-plane-test-token-1234567890abcdef';
 const controlCenterUrl = 'http://localhost:5173';
@@ -59,8 +60,44 @@ function taskRecord(status: 'queued' | 'ready' | 'completed'): AgentRuntimeExecu
   };
 }
 
-async function withServer(run: (baseUrl: string, calls: { activate: number; process: number }) => Promise<void>): Promise<void> {
-  const calls = { activate: 0, process: 0 };
+function assessmentOutcome(salesContext: SalesOpportunityContext) {
+  const missingInformation = Object.keys(salesContext).length === 0 ? ['industry', 'country'] : [];
+  return {
+    assessment: {
+      leadId: 'lead-1',
+      salesIntakeExecutionId: 'sales-intake:workflow-1',
+      company: 'Example Engineering',
+      contactName: 'Jane Example',
+      contactEmail: 'jane@example.com',
+      source: 'google_places',
+      opportunitySummary: 'Potential website redesign.',
+      existingLeadScore: null,
+      salesContext,
+      assessmentStatus: missingInformation.length === 0 ? 'context_complete' as const : 'context_incomplete' as const,
+      missingInformation,
+      atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
+      outreachAuthorised: false as const,
+      pricingAuthorised: false as const,
+      commercialCommitmentAuthorised: false as const,
+      nextAction: missingInformation.length === 0
+        ? 'prepare_governed_sales_context' as const
+        : 'retrieve_missing_sales_context' as const,
+    },
+    record: {
+      id: 'workflow-assessment-1',
+      clientId: null,
+      projectId: null,
+      eventType: 'sales_opportunity_assessment_recorded',
+      actorType: 'agent',
+      actorId: 'sales_agent',
+      payload: {},
+      createdAt: now,
+    },
+  };
+}
+
+async function withServer(run: (baseUrl: string, calls: { activate: number; process: number; assess: number }) => Promise<void>): Promise<void> {
+  const calls = { activate: 0, process: 0, assess: 0 };
   const fallback: RequestListener = (_request, response) => {
     response.writeHead(418);
     response.end();
@@ -77,6 +114,11 @@ async function withServer(run: (baseUrl: string, calls: { activate: number; proc
         calls.process += 1;
         assert.equal(executionId, 'sales-intake:workflow-1');
         return { record: taskRecord('completed'), replayed: false };
+      },
+      async assessOpportunity(executionId, salesContext = {}) {
+        calls.assess += 1;
+        assert.equal(executionId, 'sales-intake:workflow-1');
+        return assessmentOutcome(salesContext);
       },
     },
     fallback,
@@ -109,6 +151,7 @@ test('authenticated control plane activates queued Sales intake without authoris
     assert.equal(body.data.outreachAuthorised, false);
     assert.equal(calls.activate, 1);
     assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 0);
   });
 });
 
@@ -129,6 +172,69 @@ test('authenticated control plane processes internal Sales intake without prospe
     assert.equal(body.data.outreachAuthorised, false);
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 1);
+    assert.equal(calls.assess, 0);
+  });
+});
+
+test('authenticated control plane persists evidence-backed Sales opportunity assessment', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const salesContext: SalesOpportunityContext = {
+      decisionMaker: 'Jane Example',
+      industry: 'Engineering',
+      country: 'South Africa',
+      businessSummary: 'Engineering services company.',
+      websiteAudit: 'Public website requires modernization.',
+      painPoints: ['Outdated website'],
+      recommendedServices: ['Website redesign'],
+      priority: 'normal',
+      confidence: 0.8,
+      previousContact: 'No previous contact recorded.',
+    };
+    const response = await fetch(`${baseUrl}/api/v1/control/sales-intake/assess`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ executionId: 'sales-intake:workflow-1', salesContext }),
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      data: {
+        assessmentRecordId: string;
+        assessmentStatus: string;
+        missingInformation: string[];
+        outreachAuthorised: boolean;
+        pricingAuthorised: boolean;
+        commercialCommitmentAuthorised: boolean;
+      };
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.assessmentRecordId, 'workflow-assessment-1');
+    assert.equal(body.data.assessmentStatus, 'context_complete');
+    assert.deepEqual(body.data.missingInformation, []);
+    assert.equal(body.data.outreachAuthorised, false);
+    assert.equal(body.data.pricingAuthorised, false);
+    assert.equal(body.data.commercialCommitmentAuthorised, false);
+    assert.equal(calls.activate, 0);
+    assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 1);
+  });
+});
+
+test('Sales opportunity assessment allows missing evidence to remain explicit', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/sales-intake/assess`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ executionId: 'sales-intake:workflow-1', salesContext: {} }),
+    });
+    const body = await response.json() as { ok: boolean; data: { assessmentStatus: string; missingInformation: string[] } };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.assessmentStatus, 'context_incomplete');
+    assert.deepEqual(body.data.missingInformation, ['industry', 'country']);
+    assert.equal(calls.assess, 1);
   });
 });
 
@@ -145,5 +251,26 @@ test('Sales intake controls reject caller-supplied authority fields', async () =
     assert.equal(body.error.code, 'invalid_sales_intake_command');
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 0);
+  });
+});
+
+test('Sales opportunity assessment rejects caller-supplied authority or unsupported context fields', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/sales-intake/assess`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        executionId: 'sales-intake:workflow-1',
+        salesContext: { industry: 'Engineering', outreachAuthorised: true },
+      }),
+    });
+    const body = await response.json() as { error: { code: string } };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, 'invalid_sales_opportunity_assessment');
+    assert.equal(calls.activate, 0);
+    assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 0);
   });
 });
