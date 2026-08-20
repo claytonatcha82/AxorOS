@@ -30,7 +30,7 @@ export interface SalesSupervisedEmailExecution {
   recipientEmail: string;
   subject: string;
   providerMessageId: string;
-  providerThreadReference: string;
+  providerThreadReference?: string;
   supervised: true;
   humanSendApprovalVerified: true;
   sendExecuted: true;
