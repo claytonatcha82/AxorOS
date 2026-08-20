@@ -8,11 +8,15 @@ import type {
   SalesOpportunityAssessment,
   SalesOpportunityContext,
 } from './services/sales-opportunity-assessment-service.js';
+import type { SalesOutreachDraftReviewDecision } from './services/sales-outreach-draft-review-service.js';
 import type { SalesSupervisedEmailExecution } from './services/sales-supervised-email-execution-service.js';
+import type { SalesSupervisedSendDecision } from './services/sales-supervised-send-gate-service.js';
 
 const SALES_INTAKE_ACTIVATE_PATH = '/api/v1/control/sales-intake/activate';
 const SALES_INTAKE_PROCESS_PATH = '/api/v1/control/sales-intake/process';
 const SALES_INTAKE_ASSESS_PATH = '/api/v1/control/sales-intake/assess';
+const SALES_EMAIL_REVIEW_DRAFT_PATH = '/api/v1/control/sales-email/review-draft';
+const SALES_EMAIL_SEND_GATE_PATH = '/api/v1/control/sales-email/send-gate';
 const SALES_EMAIL_SEND_PATH = '/api/v1/control/sales-email/send';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
@@ -23,6 +27,41 @@ export interface SalesIntakeControlPlaneDependencies {
     processIntake(executionId: string): Promise<RuntimeExecutionOutcome>;
     assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{
       assessment: SalesOpportunityAssessment;
+      record: WorkflowEventRecord;
+    }>;
+  };
+  salesOutreachDraftReviewCommand?: {
+    review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{
+      review: {
+        draftRecordId: string;
+        leadId: string;
+        decision: SalesOutreachDraftReviewDecision;
+        reviewer: 'human_executive';
+        reviewComplete: true;
+        outreachAuthorised: false;
+        sendAuthorised: false;
+        pricingAuthorised: false;
+        commercialCommitmentAuthorised: false;
+        nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft';
+      };
+      record: WorkflowEventRecord;
+    }>;
+  };
+  salesSupervisedSendGateCommand?: {
+    decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision): Promise<{
+      gate: {
+        draftReviewRecordId: string;
+        draftRecordId: string;
+        leadId: string;
+        decision: SalesSupervisedSendDecision;
+        approver: 'human_executive';
+        supervised: true;
+        outreachAuthorised: false;
+        sendAuthorised: boolean;
+        pricingAuthorised: false;
+        commercialCommitmentAuthorised: false;
+        nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review';
+      };
       record: WorkflowEventRecord;
     }>;
   };
@@ -86,6 +125,30 @@ function validSendGateOnlyBody(body: Record<string, unknown>): body is { sendGat
     && keys[0] === 'sendGateRecordId'
     && typeof body.sendGateRecordId === 'string'
     && Boolean(body.sendGateRecordId.trim());
+}
+
+function validDraftReviewBody(
+  body: Record<string, unknown>,
+): body is { draftRecordId: string; decision: SalesOutreachDraftReviewDecision } {
+  const keys = Object.keys(body);
+  return keys.length === 2
+    && keys.includes('draftRecordId')
+    && keys.includes('decision')
+    && typeof body.draftRecordId === 'string'
+    && Boolean(body.draftRecordId.trim())
+    && (body.decision === 'approved' || body.decision === 'rejected');
+}
+
+function validSupervisedSendGateBody(
+  body: Record<string, unknown>,
+): body is { draftReviewRecordId: string; decision: SalesSupervisedSendDecision } {
+  const keys = Object.keys(body);
+  return keys.length === 2
+    && keys.includes('draftReviewRecordId')
+    && keys.includes('decision')
+    && typeof body.draftReviewRecordId === 'string'
+    && Boolean(body.draftReviewRecordId.trim())
+    && (body.decision === 'approved' || body.decision === 'rejected');
 }
 
 const SALES_CONTEXT_KEYS = new Set([
@@ -152,6 +215,8 @@ function isSalesControlPath(path: string | undefined): boolean {
   return path === SALES_INTAKE_ACTIVATE_PATH
     || path === SALES_INTAKE_PROCESS_PATH
     || path === SALES_INTAKE_ASSESS_PATH
+    || path === SALES_EMAIL_REVIEW_DRAFT_PATH
+    || path === SALES_EMAIL_SEND_GATE_PATH
     || path === SALES_EMAIL_SEND_PATH;
 }
 
@@ -214,6 +279,84 @@ export function createSalesIntakeControlPlaneRequestHandler(
             : 'Request body must be a JSON object.',
         },
       }, corsHeaders);
+      return;
+    }
+
+    if (request.url === SALES_EMAIL_REVIEW_DRAFT_PATH) {
+      if (!validDraftReviewBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_sales_outreach_draft_review_command',
+            message: 'Request body must contain only draftRecordId and an approved or rejected decision.',
+          },
+        }, corsHeaders);
+        return;
+      }
+      if (!dependencies.salesOutreachDraftReviewCommand) {
+        sendJson(response, 503, { ok: false, error: { code: 'sales_outreach_draft_review_not_configured', message: 'Sales outreach draft review is not configured.' } }, corsHeaders);
+        return;
+      }
+      try {
+        const outcome = await dependencies.salesOutreachDraftReviewCommand.review(body.draftRecordId, body.decision);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            draftRecordId: outcome.review.draftRecordId,
+            leadId: outcome.review.leadId,
+            reviewRecordId: outcome.record.id,
+            decision: outcome.review.decision,
+            reviewer: outcome.review.reviewer,
+            sendAuthorised: outcome.review.sendAuthorised,
+            pricingAuthorised: outcome.review.pricingAuthorised,
+            commercialCommitmentAuthorised: outcome.review.commercialCommitmentAuthorised,
+            nextAction: outcome.review.nextAction,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sales outreach draft review failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'sales_outreach_draft_review_rejected', message } }, corsHeaders);
+      }
+      return;
+    }
+
+    if (request.url === SALES_EMAIL_SEND_GATE_PATH) {
+      if (!validSupervisedSendGateBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_sales_supervised_send_gate_command',
+            message: 'Request body must contain only draftReviewRecordId and an approved or rejected decision.',
+          },
+        }, corsHeaders);
+        return;
+      }
+      if (!dependencies.salesSupervisedSendGateCommand) {
+        sendJson(response, 503, { ok: false, error: { code: 'sales_supervised_send_gate_not_configured', message: 'Sales supervised send gate is not configured.' } }, corsHeaders);
+        return;
+      }
+      try {
+        const outcome = await dependencies.salesSupervisedSendGateCommand.decide(body.draftReviewRecordId, body.decision);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            draftReviewRecordId: outcome.gate.draftReviewRecordId,
+            draftRecordId: outcome.gate.draftRecordId,
+            leadId: outcome.gate.leadId,
+            sendGateRecordId: outcome.record.id,
+            decision: outcome.gate.decision,
+            approver: outcome.gate.approver,
+            supervised: outcome.gate.supervised,
+            sendAuthorised: outcome.gate.sendAuthorised,
+            pricingAuthorised: outcome.gate.pricingAuthorised,
+            commercialCommitmentAuthorised: outcome.gate.commercialCommitmentAuthorised,
+            nextAction: outcome.gate.nextAction,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sales supervised send gate failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'sales_supervised_send_gate_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
