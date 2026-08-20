@@ -85,6 +85,7 @@ test('loadConfig reads complete Gmail draft credentials and identity addresses',
     sales: 'sales@example.test',
     support: 'support@example.test',
   });
+  assert.equal(config.gmailSupervisedSalesSendEnabled, undefined);
 });
 
 test('loadConfig rejects partial Gmail draft configuration', () => {
@@ -98,6 +99,57 @@ test('loadConfig rejects invalid Gmail identity JSON', () => {
   assert.throws(
     () => loadConfig({ AXOROS_GMAIL_IDENTITY_ADDRESSES: 'not-json' }),
     /Invalid AXOROS_GMAIL_IDENTITY_ADDRESSES JSON/,
+  );
+});
+
+test('loadConfig explicitly enables supervised Sales Gmail sending with complete Sales identity configuration', () => {
+  const config = loadConfig({
+    AXOROS_GMAIL_CLIENT_ID: 'client-id',
+    AXOROS_GMAIL_CLIENT_SECRET: 'client-secret',
+    AXOROS_GMAIL_REFRESH_TOKEN: 'refresh-token',
+    AXOROS_GMAIL_IDENTITY_ADDRESSES: '{"sales":"sales@example.test"}',
+    AXOROS_GMAIL_SUPERVISED_SALES_SEND: 'enabled',
+  });
+
+  assert.equal(config.gmailSupervisedSalesSendEnabled, true);
+});
+
+test('loadConfig keeps supervised Sales Gmail sending disabled unless explicitly enabled', () => {
+  const config = loadConfig({
+    AXOROS_GMAIL_CLIENT_ID: 'client-id',
+    AXOROS_GMAIL_CLIENT_SECRET: 'client-secret',
+    AXOROS_GMAIL_REFRESH_TOKEN: 'refresh-token',
+    AXOROS_GMAIL_IDENTITY_ADDRESSES: '{"sales":"sales@example.test"}',
+    AXOROS_GMAIL_SUPERVISED_SALES_SEND: 'disabled',
+  });
+
+  assert.equal(config.gmailSupervisedSalesSendEnabled, undefined);
+});
+
+test('loadConfig refuses supervised Sales Gmail sending without complete Gmail configuration', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_GMAIL_SUPERVISED_SALES_SEND: 'enabled' }),
+    /requires complete Gmail configuration/,
+  );
+});
+
+test('loadConfig refuses supervised Sales Gmail sending without the Sales identity', () => {
+  assert.throws(
+    () => loadConfig({
+      AXOROS_GMAIL_CLIENT_ID: 'client-id',
+      AXOROS_GMAIL_CLIENT_SECRET: 'client-secret',
+      AXOROS_GMAIL_REFRESH_TOKEN: 'refresh-token',
+      AXOROS_GMAIL_IDENTITY_ADDRESSES: '{"support":"support@example.test"}',
+      AXOROS_GMAIL_SUPERVISED_SALES_SEND: 'enabled',
+    }),
+    /requires a configured sales email identity/,
+  );
+});
+
+test('loadConfig rejects unknown supervised Sales Gmail send settings', () => {
+  assert.throws(
+    () => loadConfig({ AXOROS_GMAIL_SUPERVISED_SALES_SEND: 'yes' }),
+    /must be enabled or disabled/,
   );
 });
 
