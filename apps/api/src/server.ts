@@ -21,7 +21,9 @@ import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-cont
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
 import { createSalesIntegrationEmailTransport } from './services/sales-integration-email-transport.js';
+import { createSalesOutreachDraftReviewService } from './services/sales-outreach-draft-review-service.js';
 import { createSalesSupervisedEmailExecutionService } from './services/sales-supervised-email-execution-service.js';
+import { createSalesSupervisedSendGateService } from './services/sales-supervised-send-gate-service.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -35,6 +37,8 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
+const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operationalRepository);
+const salesSupervisedSendGate = createSalesSupervisedSendGateService(operationalRepository);
 const salesEmailTransport = createSalesIntegrationEmailTransport(integrationRegistry);
 const salesEmailSendAttempts = new SalesEmailSendAttemptPostgresStore(databasePool);
 const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(
@@ -87,6 +91,8 @@ const controlPlaneRequestHandler = createControlPlaneRequestHandler({
 const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
   config,
   salesIntakeCommand: salesIntakeRuntime.commands,
+  salesOutreachDraftReviewCommand: salesOutreachDraftReview,
+  salesSupervisedSendGateCommand: salesSupervisedSendGate,
   salesEmailCommand: salesSupervisedEmailExecution,
   fallback: controlPlaneRequestHandler,
 });
@@ -167,6 +173,8 @@ async function start(): Promise<void> {
       leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesIntakeRuntimeConfigured: true,
       salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedEmailRuntimeConfigured: true,
       salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedGmailConfigured: Boolean(
