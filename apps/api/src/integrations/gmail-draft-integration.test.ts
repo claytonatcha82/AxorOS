@@ -163,7 +163,7 @@ test('refuses supervised send without an idempotency key before calling Gmail', 
     fetchImpl,
   });
 
-  const request = { ...sendRequest(), idempotencyKey: undefined };
+  const { idempotencyKey: _omittedIdempotencyKey, ...request } = sendRequest();
   await assert.rejects(() => integration.execute(request), /requires an idempotencyKey/);
   assert.equal(calls.length, 0);
 });
