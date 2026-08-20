@@ -6,8 +6,10 @@ const atlas = {} as never;
 
 function qualificationDependencies() {
   const persisted: Array<Record<string, unknown>> = [];
+  const persistedDispositions: Array<Record<string, unknown>> = [];
   return {
     persisted,
+    persistedDispositions,
     evidenceBuilder: { build() { return { businessFit: { score: 7, evidenceReferences: ['public-web:https://example.test/'], missingInformation: [] } }; } },
     qualificationService: { evaluate() { return { totalScore: null, suggestedStatus: 'insufficient_information', humanReviewRequired: true, missingInformation: ['More evidence required.'], atlasSourcePaths: ['Lead Qualification'] }; } },
     qualificationPersistence: { async persist(input: Record<string, unknown>) { persisted.push(input); return { id: `qualification-${persisted.length}` }; } },
@@ -21,10 +23,14 @@ function qualificationDependencies() {
         atlasSourcePaths: ['Lead Qualification'],
       };
     } },
+    dispositionPersistence: { async persist(input: Record<string, unknown>) {
+      persistedDispositions.push(input);
+      return { id: `disposition-${persistedDispositions.length}` };
+    } },
   };
 }
 
-test('executes only Atlas-planned discovery queries and durably records preliminary qualification before conservative disposition', async () => {
+test('executes only Atlas-planned discovery queries and durably records qualification and conservative disposition', async () => {
   const calls: Array<Record<string, unknown>> = [];
   const atlasContext = { async load() { return atlas; } };
   const planner = {
@@ -39,8 +45,8 @@ test('executes only Atlas-planned discovery queries and durably records prelimin
       return { discovered: 1, enriched: [{ leadId: `lead-${calls.length}`, providerPlaceId: `place-${calls.length}`, companyName: 'Example Engineering', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [{ title: 'Example Engineering', url: 'https://example.test/', content: 'Engineering services.' }] }], proposals: [] };
     },
   };
-  const { evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, persisted } = qualificationDependencies();
-  const result = await createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never, qualificationService as never, qualificationPersistence as never, dispositionService as never).research({
+  const { evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence, persisted, persistedDispositions } = qualificationDependencies();
+  const result = await createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never, qualificationService as never, qualificationPersistence as never, dispositionService as never, dispositionPersistence as never).research({
     geographicFocus: 'South Africa', country: 'south africa', maxQueries: 2, maxBusinessesPerQuery: 3, executionId: 'exec-1', correlationId: 'corr-1',
   });
 
@@ -52,11 +58,17 @@ test('executes only Atlas-planned discovery queries and durably records prelimin
   assert.equal(result.enriched[0]?.qualificationDisposition.disposition, 'hold');
   assert.equal(result.enriched[0]?.qualificationDisposition.recommendedAction, 'collect_more_evidence');
   assert.equal(result.enriched[0]?.qualificationDisposition.humanApprovalRequired, true);
+  assert.equal(result.enriched[0]?.qualificationDispositionRecordId, 'disposition-1');
   assert.equal(result.enriched[1]?.preliminaryQualificationRecordId, 'qualification-2');
-  assert.equal(result.enriched[1]?.qualificationDisposition.disposition, 'hold');
+  assert.equal(result.enriched[1]?.qualificationDispositionRecordId, 'disposition-2');
   assert.equal(persisted.length, 2);
+  assert.equal(persistedDispositions.length, 2);
   assert.equal(persisted[0]?.leadId, 'lead-1');
   assert.equal(persisted[0]?.actorId, 'lead_agent');
+  assert.equal(persistedDispositions[0]?.leadId, 'lead-1');
+  assert.equal(persistedDispositions[0]?.qualificationRecordId, 'qualification-1');
+  assert.equal(persistedDispositions[0]?.actorId, 'lead_agent');
+  assert.equal((persistedDispositions[0]?.disposition as Record<string, unknown>)?.recommendedAction, 'collect_more_evidence');
   assert.equal(calls.some((call) => /web design|website developer/i.test(String(call.query))), false);
   assert.equal(calls[0]?.executionId, 'exec-1:atlas-query-1');
   assert.equal(calls[1]?.executionId, 'exec-1:atlas-query-2');
@@ -67,16 +79,16 @@ test('fails before external research when Atlas context cannot be loaded', async
   const atlasContext = { async load() { throw new Error('Required Atlas OS source was not retrieved: Ideal Client Profile.'); } };
   const planner = { plan() { throw new Error('planner should not run'); } };
   const workflow = { async research() { workflowCalled = true; return { discovered: 0, enriched: [], proposals: [] }; } };
-  const { evidenceBuilder, qualificationService, qualificationPersistence, dispositionService } = qualificationDependencies();
-  await assert.rejects(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never, qualificationService as never, qualificationPersistence as never, dispositionService as never).research({ executionId: 'exec-1', correlationId: 'corr-1' }), /Required Atlas OS source/);
+  const { evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence } = qualificationDependencies();
+  await assert.rejects(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never, qualificationService as never, qualificationPersistence as never, dispositionService as never, dispositionPersistence as never).research({ executionId: 'exec-1', correlationId: 'corr-1' }), /Required Atlas OS source/);
   assert.equal(workflowCalled, false);
 });
 
-test('fails closed if an enriched lead reaches Atlas orchestration without the full qualification disposition pipeline', async () => {
+test('fails closed if an enriched lead reaches Atlas orchestration without the full disposition persistence pipeline', async () => {
   const atlasContext = { async load() { return atlas; } };
   const planner = { plan() { return { queries: ['Construction businesses'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
   const workflow = { async research() { return { discovered: 1, enriched: [{ leadId: 'lead-1', providerPlaceId: 'place-1', companyName: 'Example', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [] }], proposals: [] }; } };
-  await assert.rejects(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never).research({ executionId: 'exec-1', correlationId: 'corr-1' }), /without a fully configured qualification disposition pipeline/);
+  await assert.rejects(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never).research({ executionId: 'exec-1', correlationId: 'corr-1' }), /without a fully configured qualification disposition persistence pipeline/);
 });
 
 test('rejects partially configured qualification dependencies at construction time', () => {
@@ -84,5 +96,5 @@ test('rejects partially configured qualification dependencies at construction ti
   const planner = { plan() { return { queries: [], atlasSourcePaths: [] }; } };
   const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [] }; } };
   const { evidenceBuilder } = qualificationDependencies();
-  assert.throws(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never), /requires evidence builder, qualification service, persistence service, and disposition service together/);
+  assert.throws(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never), /requires evidence builder, qualification service, qualification persistence, disposition service, and disposition persistence together/);
 });
