@@ -16,6 +16,7 @@ export interface SalesEmailSendContext {
 
 export interface SalesEmailTransportResult {
   providerMessageId: string;
+  providerThreadReference: string;
 }
 
 export interface SalesEmailTransport {
@@ -29,6 +30,7 @@ export interface SalesSupervisedEmailExecution {
   recipientEmail: string;
   subject: string;
   providerMessageId: string;
+  providerThreadReference: string;
   supervised: true;
   humanSendApprovalVerified: true;
   sendExecuted: true;
@@ -115,9 +117,11 @@ export function createSalesSupervisedEmailExecutionService(
       };
 
       let providerMessageId: string;
+      let providerThreadReference: string;
       try {
         const transportResult = await transport.send(message, sendContext);
         providerMessageId = requiredString(transportResult.providerMessageId, 'providerMessageId');
+        providerThreadReference = requiredString(transportResult.providerThreadReference, 'providerThreadReference');
         await sendAttempts.markSent(gateRecord.id, providerMessageId);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -132,6 +136,7 @@ export function createSalesSupervisedEmailExecutionService(
         recipientEmail: message.to,
         subject: message.subject,
         providerMessageId,
+        providerThreadReference,
         supervised: true,
         humanSendApprovalVerified: true,
         sendExecuted: true,
