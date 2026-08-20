@@ -194,6 +194,7 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
           subject: request.input.subject,
           preview: request.input.textBody.slice(0, 160),
           ...(payload.message?.id ? { messageId: payload.message.id } : {}),
+          ...(payload.message?.threadId ? { threadReference: payload.message.threadId } : {}),
         };
 
         return {
@@ -246,6 +247,7 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
         status: 'succeeded',
         output: {
           messageId: payload.id,
+          ...(payload.threadId ? { threadReference: payload.threadId } : {}),
           fromIdentity: request.input.fromIdentity,
           recipients: request.input.to.map((recipient) => recipient.email),
           subject: request.input.subject,
