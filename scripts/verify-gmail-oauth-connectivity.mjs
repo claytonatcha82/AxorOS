@@ -5,6 +5,14 @@ const required = [
   'AXOROS_GMAIL_IDENTITY_ADDRESSES',
 ];
 
+const requireReadScope = process.argv.includes('--require-read');
+const gmailThreadReadScopes = new Set([
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.metadata',
+]);
+
 for (const key of required) {
   if (!process.env[key]?.trim()) {
     console.error(`FAIL  ${key} is required for Gmail OAuth connectivity verification`);
@@ -50,6 +58,29 @@ async function main() {
   }
 
   console.log('PASS  Gmail OAuth refresh token produced a fresh access token');
+
+  if (requireReadScope) {
+    const tokenInfoResponse = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(tokenPayload.access_token)}`,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+    );
+    const tokenInfo = await tokenInfoResponse.json();
+    if (!tokenInfoResponse.ok) {
+      const detail = tokenInfo?.error_description ?? tokenInfo?.error ?? `HTTP ${tokenInfoResponse.status}`;
+      throw new Error(`Gmail access-token scope inspection failed: ${detail}`);
+    }
+
+    const grantedScopes = typeof tokenInfo.scope === 'string'
+      ? tokenInfo.scope.split(/\s+/).map((scope) => scope.trim()).filter(Boolean)
+      : [];
+    if (!grantedScopes.some((scope) => gmailThreadReadScopes.has(scope))) {
+      throw new Error(
+        'Gmail OAuth token does not grant thread-read access. Re-authorize with gmail.readonly (preferred) or another Gmail thread-read scope.',
+      );
+    }
+
+    console.log('PASS  Gmail OAuth token grants thread-read access');
+  }
 
   const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
     method: 'GET',
