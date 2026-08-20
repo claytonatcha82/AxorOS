@@ -46,6 +46,7 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
       clientSecret: config.gmailClientSecret,
       refreshToken: config.gmailRefreshToken,
       identityAddresses: config.gmailIdentityAddresses,
+      ...(config.gmailSupervisedSalesSendEnabled ? { allowSupervisedSalesSend: true } : {}),
     });
     registry.register(gmail);
     registeredIntegrationIds.push(gmail.integrationId);
