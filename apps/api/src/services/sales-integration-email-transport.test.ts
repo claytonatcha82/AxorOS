@@ -31,6 +31,7 @@ function registryHarness() {
         status: 'succeeded',
         output: {
           messageId: 'gmail-message-1',
+          threadReference: 'gmail-thread-1',
           fromIdentity: 'sales',
           recipients: ['owner@example.com'],
           subject: 'Website opportunity',
@@ -61,7 +62,7 @@ test('bridges supervised Sales message to the existing Gmail integration contrac
     },
   );
 
-  assert.deepEqual(result, { providerMessageId: 'gmail-message-1' });
+  assert.deepEqual(result, { providerMessageId: 'gmail-message-1', providerThreadReference: 'gmail-thread-1' });
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0], {
     integrationId: 'email.gmail',
@@ -141,6 +142,7 @@ test('rejects a provider success without a message id', async () => {
         mode: request.mode,
         status: 'succeeded',
         output: {
+          threadReference: 'gmail-thread-1',
           fromIdentity: 'sales',
           recipients: ['owner@example.com'],
           subject: 'Website opportunity',
@@ -164,5 +166,55 @@ test('rejects a provider success without a message id', async () => {
       },
     ),
     /providerMessageId is required/,
+  );
+});
+
+test('rejects a provider success without a thread reference', async () => {
+  const registry = new IntegrationRegistry({
+    defaultMode: 'sandbox',
+    allowLive: false,
+    liveRiskCeiling: 'low',
+    scopedLiveRules: [
+      { integrationId: 'email.gmail', operation: 'send_email', riskCeiling: 'medium' },
+    ],
+  });
+  registry.register({
+    integrationId: 'email.gmail',
+    kind: 'email',
+    provider: 'google-gmail-test',
+    supportedModes: ['live'],
+    supportedOperations: ['send_email'],
+    async execute(request) {
+      return {
+        integrationId: request.integrationId,
+        operation: request.operation,
+        provider: 'google-gmail-test',
+        mode: request.mode,
+        status: 'succeeded',
+        output: {
+          messageId: 'gmail-message-1',
+          fromIdentity: 'sales',
+          recipients: ['owner@example.com'],
+          subject: 'Website opportunity',
+          preview: 'Hello from AxorOS',
+        },
+        evidenceReferences: [],
+        retryable: false,
+      };
+    },
+  });
+
+  const transport = createSalesIntegrationEmailTransport(registry);
+  await assert.rejects(
+    () => transport.send(
+      { to: 'owner@example.com', subject: 'Website opportunity', body: 'Hello from AxorOS' },
+      {
+        sendGateRecordId: 'gate-1',
+        executionId: 'sales-supervised-email-send:gate-1',
+        correlationId: 'lead-1',
+        idempotencyKey: 'sales-supervised-email-send:gate-1',
+      },
+    ),
+    /providerThreadReference is required/,
   );
 });
