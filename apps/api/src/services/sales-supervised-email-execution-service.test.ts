@@ -62,7 +62,7 @@ function harness(events = fixtures(), transportError?: Error) {
         sent.push(message);
         contexts.push(context);
         if (transportError) throw transportError;
-        return { providerMessageId: 'provider-message-1' };
+        return { providerMessageId: 'provider-message-1', providerThreadReference: 'gmail-thread-1' };
       },
     },
     {
@@ -110,9 +110,11 @@ test('executes one supervised email from persisted approved authority and draft 
   assert.equal(result.execution.humanSendApprovalVerified, true);
   assert.equal(result.execution.sendExecuted, true);
   assert.equal(result.execution.providerMessageId, 'provider-message-1');
+  assert.equal(result.execution.providerThreadReference, 'gmail-thread-1');
   assert.equal(result.execution.pricingAuthorised, false);
   assert.equal(result.execution.commercialCommitmentAuthorised, false);
   assert.equal(created[0].eventType, 'sales_supervised_email_sent');
+  assert.equal(created[0].payload.providerThreadReference, 'gmail-thread-1');
 });
 
 test('blocks replay before a second transport call', async () => {
