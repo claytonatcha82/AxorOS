@@ -3,9 +3,15 @@ import type { AgentRuntimeExecutionRecord } from './agents/agent-runtime-state.j
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
+import type { WorkflowEventRecord } from './data/operational-repository.js';
+import type {
+  SalesOpportunityAssessment,
+  SalesOpportunityContext,
+} from './services/sales-opportunity-assessment-service.js';
 
 const SALES_INTAKE_ACTIVATE_PATH = '/api/v1/control/sales-intake/activate';
 const SALES_INTAKE_PROCESS_PATH = '/api/v1/control/sales-intake/process';
+const SALES_INTAKE_ASSESS_PATH = '/api/v1/control/sales-intake/assess';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
 export interface SalesIntakeControlPlaneDependencies {
@@ -13,6 +19,10 @@ export interface SalesIntakeControlPlaneDependencies {
   salesIntakeCommand: {
     activateIntake(executionId: string): Promise<AgentRuntimeExecutionRecord>;
     processIntake(executionId: string): Promise<RuntimeExecutionOutcome>;
+    assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{
+      assessment: SalesOpportunityAssessment;
+      record: WorkflowEventRecord;
+    }>;
   };
   fallback: RequestListener;
 }
@@ -62,8 +72,70 @@ function validExecutionOnlyBody(body: Record<string, unknown>): body is { execut
     && Boolean(body.executionId.trim());
 }
 
+const SALES_CONTEXT_KEYS = new Set([
+  'decisionMaker',
+  'industry',
+  'country',
+  'businessSummary',
+  'websiteAudit',
+  'painPoints',
+  'recommendedServices',
+  'priority',
+  'confidence',
+  'previousContact',
+]);
+
+function validOptionalText(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && Boolean(value.trim()));
+}
+
+function validOptionalTextList(value: unknown): boolean {
+  return value === undefined || (
+    Array.isArray(value)
+    && value.length > 0
+    && value.every((entry) => typeof entry === 'string' && Boolean(entry.trim()))
+  );
+}
+
+function validSalesContext(value: unknown): value is SalesOpportunityContext {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  const context = value as Record<string, unknown>;
+  if (!Object.keys(context).every((key) => SALES_CONTEXT_KEYS.has(key))) return false;
+  if (!validOptionalText(context.decisionMaker)) return false;
+  if (!validOptionalText(context.industry)) return false;
+  if (!validOptionalText(context.country)) return false;
+  if (!validOptionalText(context.businessSummary)) return false;
+  if (!validOptionalText(context.websiteAudit)) return false;
+  if (!validOptionalTextList(context.painPoints)) return false;
+  if (!validOptionalTextList(context.recommendedServices)) return false;
+  if (!validOptionalText(context.priority)) return false;
+  if (!validOptionalText(context.previousContact)) return false;
+  if (
+    context.confidence !== undefined
+    && (typeof context.confidence !== 'number'
+      || !Number.isFinite(context.confidence)
+      || context.confidence < 0
+      || context.confidence > 1)
+  ) return false;
+  return true;
+}
+
+function validAssessmentBody(
+  body: Record<string, unknown>,
+): body is { executionId: string; salesContext?: SalesOpportunityContext } {
+  const keys = Object.keys(body);
+  if (!keys.every((key) => key === 'executionId' || key === 'salesContext')) return false;
+  if (!keys.includes('executionId')) return false;
+  if (typeof body.executionId !== 'string' || !body.executionId.trim()) return false;
+  return validSalesContext(body.salesContext);
+}
+
 function isSalesIntakePath(path: string | undefined): boolean {
-  return path === SALES_INTAKE_ACTIVATE_PATH || path === SALES_INTAKE_PROCESS_PATH;
+  return path === SALES_INTAKE_ACTIVATE_PATH
+    || path === SALES_INTAKE_PROCESS_PATH
+    || path === SALES_INTAKE_ASSESS_PATH;
 }
 
 export function createSalesIntakeControlPlaneRequestHandler(
@@ -125,6 +197,44 @@ export function createSalesIntakeControlPlaneRequestHandler(
             : 'Request body must be a JSON object.',
         },
       }, corsHeaders);
+      return;
+    }
+
+    if (request.url === SALES_INTAKE_ASSESS_PATH) {
+      if (!validAssessmentBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_sales_opportunity_assessment',
+            message: 'Request body must contain executionId and only supported evidence-backed salesContext fields.',
+          },
+        }, corsHeaders);
+        return;
+      }
+
+      try {
+        const outcome = await dependencies.salesIntakeCommand.assessOpportunity(
+          body.executionId,
+          body.salesContext ?? {},
+        );
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            executionId: outcome.assessment.salesIntakeExecutionId,
+            leadId: outcome.assessment.leadId,
+            assessmentRecordId: outcome.record.id,
+            assessmentStatus: outcome.assessment.assessmentStatus,
+            missingInformation: outcome.assessment.missingInformation,
+            nextAction: outcome.assessment.nextAction,
+            outreachAuthorised: outcome.assessment.outreachAuthorised,
+            pricingAuthorised: outcome.assessment.pricingAuthorised,
+            commercialCommitmentAuthorised: outcome.assessment.commercialCommitmentAuthorised,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sales opportunity assessment failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'sales_opportunity_assessment_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
