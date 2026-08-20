@@ -7,6 +7,8 @@ import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import { createLeadSalesHandoffEligibilityPersistenceService } from './lead-sales-handoff-eligibility-persistence-service.js';
 import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-eligibility-service.js';
+import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
+import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
 
 const LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY = 'lead_qualification_human_review_gate';
 
@@ -28,17 +30,17 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const handlers = new AgentRuntimeHandlerRegistry();
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
   const taskService = createLeadQualificationRuntimeReviewService();
-  const registration = createLeadQualificationRuntimeReviewRegistrationService({
-    store: {
-      getExecution: store.getExecution,
-      hasIdempotencyKey: store.hasIdempotencyKey,
-      commitRuntimeMutation,
-    },
-  });
+  const registrationStore = {
+    getExecution: store.getExecution,
+    hasIdempotencyKey: store.hasIdempotencyKey,
+    commitRuntimeMutation,
+  };
+  const registration = createLeadQualificationRuntimeReviewRegistrationService({ store: registrationStore });
   const handoffEligibility = createLeadSalesHandoffEligibilityService(store);
-  const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(
-    createOperationalRepository(pool),
-  );
+  const operationalRepository = createOperationalRepository(pool);
+  const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(operationalRepository);
+  const salesIntakeTaskService = createLeadSalesIntakeTaskService();
+  const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
 
   const commands = {
     async requestReview(executionId: string) {
@@ -84,7 +86,16 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
 
       if (decision === 'approved' && record.task.inputs.recommendedAction === 'approve_advance') {
         const eligibility = await handoffEligibility.evaluate(normalizedExecutionId);
-        await handoffEligibilityPersistence.persist({ eligibility });
+        const persistedEligibility = await handoffEligibilityPersistence.persist({ eligibility });
+        const salesIntakeTask = salesIntakeTaskService.createTask({
+          taskId: `sales-intake-task:${persistedEligibility.id}`,
+          executionId: `sales-intake:${persistedEligibility.id}`,
+          correlationId: record.task.correlationId,
+          eligibilityRecordId: persistedEligibility.id,
+          eligibility,
+          createdAt: persistedEligibility.createdAt,
+        });
+        await salesIntakeRegistration.register(salesIntakeTask);
       }
 
       return outcome;
@@ -97,6 +108,8 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
     registration,
     handoffEligibility,
     handoffEligibilityPersistence,
+    salesIntakeTaskService,
+    salesIntakeRegistration,
     commands,
   };
 }
