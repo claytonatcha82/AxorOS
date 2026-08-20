@@ -1,4 +1,5 @@
 import type { OperationalRepository } from '../data/operational-repository.js';
+import type { SalesEmailSendAttemptPostgresStore } from '../data/sales-email-send-attempt-postgres-store.js';
 
 export interface SalesEmailMessage {
   to: string;
@@ -37,6 +38,7 @@ function requiredString(value: unknown, field: string): string {
 export function createSalesSupervisedEmailExecutionService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent'>,
   transport: SalesEmailTransport,
+  sendAttempts: Pick<SalesEmailSendAttemptPostgresStore, 'reserve' | 'markSent' | 'markFailed'>,
 ) {
   return {
     async execute(sendGateRecordId: string) {
@@ -95,8 +97,19 @@ export function createSalesSupervisedEmailExecutionService(
         body: requiredString(draft.body, 'draft.body'),
       };
 
-      const transportResult = await transport.send(message);
-      const providerMessageId = requiredString(transportResult.providerMessageId, 'providerMessageId');
+      const idempotencyKey = `sales-supervised-email-send:${gateRecord.id}`;
+      await sendAttempts.reserve(gateRecord.id, idempotencyKey);
+
+      let providerMessageId: string;
+      try {
+        const transportResult = await transport.send(message);
+        providerMessageId = requiredString(transportResult.providerMessageId, 'providerMessageId');
+        await sendAttempts.markSent(gateRecord.id, providerMessageId);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await sendAttempts.markFailed(gateRecord.id, errorMessage).catch(() => undefined);
+        throw error;
+      }
 
       const execution: SalesSupervisedEmailExecution = {
         sendGateRecordId: gateRecord.id,
