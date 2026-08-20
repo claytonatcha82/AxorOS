@@ -3,7 +3,13 @@ import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
 import { SALES_INTERNAL_INTAKE_CAPABILITY, salesInternalIntakeHandler } from '../agents/sales-internal-intake-handler.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
+import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
+import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
+import {
+  createSalesOpportunityAssessmentService,
+  type SalesOpportunityContext,
+} from './sales-opportunity-assessment-service.js';
 
 function required(value: string, field: string): string {
   const trimmed = value.trim();
@@ -27,6 +33,11 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     hasIdempotencyKey: store.hasIdempotencyKey,
     commitRuntimeMutation,
   });
+  const operationalRepository = createOperationalRepository(pool);
+  const opportunityAssessment = createSalesOpportunityAssessmentService();
+  const opportunityAssessmentPersistence = createSalesOpportunityAssessmentPersistenceService(
+    operationalRepository,
+  );
 
   const commands = {
     async activateIntake(executionId: string) {
@@ -55,6 +66,24 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
         capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
       });
     },
+
+    async assessOpportunity(executionId: string, salesContext: SalesOpportunityContext = {}) {
+      const normalizedExecutionId = required(executionId, 'executionId');
+      const intakeExecution = await store.getExecution(normalizedExecutionId);
+      if (!intakeExecution) throw new Error(`Sales intake execution ${normalizedExecutionId} was not found.`);
+
+      const leadId = required(String(intakeExecution.task.context.leadId ?? ''), 'leadId');
+      const lead = await operationalRepository.getLeadById(leadId);
+      if (!lead) throw new Error(`Lead not found: ${leadId}.`);
+
+      const assessment = opportunityAssessment.assess({
+        intakeExecution,
+        lead,
+        salesContext,
+      });
+      const record = await opportunityAssessmentPersistence.persist({ assessment });
+      return { assessment, record };
+    },
   };
 
   return {
@@ -62,6 +91,8 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     handlers,
     orchestrator,
     activation,
+    opportunityAssessment,
+    opportunityAssessmentPersistence,
     commands,
   };
 }
