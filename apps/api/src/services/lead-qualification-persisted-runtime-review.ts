@@ -17,10 +17,21 @@ function required(value: string, field: string): string {
 
 export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const store = createAgentRuntimePostgresStore(pool);
+  const commitRuntimeMutation = store.commitRuntimeMutation;
+  if (!commitRuntimeMutation) {
+    throw new Error('Persisted Lead qualification review runtime requires atomic runtime mutations.');
+  }
+
   const handlers = new AgentRuntimeHandlerRegistry();
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
   const taskService = createLeadQualificationRuntimeReviewService();
-  const registration = createLeadQualificationRuntimeReviewRegistrationService({ store });
+  const registration = createLeadQualificationRuntimeReviewRegistrationService({
+    store: {
+      getExecution: store.getExecution,
+      hasIdempotencyKey: store.hasIdempotencyKey,
+      commitRuntimeMutation,
+    },
+  });
 
   const commands = {
     async requestReview(executionId: string) {
