@@ -15,7 +15,9 @@ import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent, setExternalLogSink } from './logger.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
+import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
+import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -39,6 +41,7 @@ const productionRuntime = createPersistedProductionRuntime({
   integrations: integrationRegistry,
 });
 const leadQualificationReviewRuntime = createPersistedLeadQualificationRuntimeReview(databasePool);
+const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(databasePool);
 const runtimeStore = productionRuntime.store;
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
   onCycleCompleted(decisions) {
@@ -69,6 +72,11 @@ const controlPlaneRequestHandler = createControlPlaneRequestHandler({
   leadQualificationReviewCommand: leadQualificationReviewRuntime.commands,
   fallback: apiRequestHandler,
 });
+const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
+  config,
+  salesIntakeCommand: salesIntakeRuntime.commands,
+  fallback: controlPlaneRequestHandler,
+});
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
       secretKey: config.paystackSecretKey,
@@ -79,7 +87,7 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
 const server = createServer(createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: controlPlaneRequestHandler,
+  fallback: salesIntakeControlPlaneRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -144,6 +152,8 @@ async function start(): Promise<void> {
       productionRuntimePersistenceConfigured: true,
       leadQualificationReviewRuntimeConfigured: true,
       leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesIntakeRuntimeConfigured: true,
+      salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
       productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
