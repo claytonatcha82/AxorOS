@@ -8,6 +8,8 @@ import { createPersistedProductionRuntime } from './agents/production-persisted-
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
+import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
+import { createOperationalRepository } from './data/operational-repository.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
@@ -18,6 +20,8 @@ import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
+import { createSalesIntegrationEmailTransport } from './services/sales-integration-email-transport.js';
+import { createSalesSupervisedEmailExecutionService } from './services/sales-supervised-email-execution-service.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -30,6 +34,14 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
+const operationalRepository = createOperationalRepository(databasePool);
+const salesEmailTransport = createSalesIntegrationEmailTransport(integrationRegistry);
+const salesEmailSendAttempts = new SalesEmailSendAttemptPostgresStore(databasePool);
+const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(
+  operationalRepository,
+  salesEmailTransport,
+  salesEmailSendAttempts,
+);
 const financePaymentRuntime = createFinancePaymentRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
@@ -75,6 +87,7 @@ const controlPlaneRequestHandler = createControlPlaneRequestHandler({
 const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
   config,
   salesIntakeCommand: salesIntakeRuntime.commands,
+  salesEmailCommand: salesSupervisedEmailExecution,
   fallback: controlPlaneRequestHandler,
 });
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
@@ -154,6 +167,11 @@ async function start(): Promise<void> {
       leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesIntakeRuntimeConfigured: true,
       salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesSupervisedEmailRuntimeConfigured: true,
+      salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesSupervisedGmailConfigured: Boolean(
+        config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail'),
+      ),
       productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
