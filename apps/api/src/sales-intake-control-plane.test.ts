@@ -96,8 +96,10 @@ function assessmentOutcome(salesContext: SalesOpportunityContext) {
   };
 }
 
-async function withServer(run: (baseUrl: string, calls: { activate: number; process: number; assess: number }) => Promise<void>): Promise<void> {
-  const calls = { activate: 0, process: 0, assess: 0 };
+async function withServer(
+  run: (baseUrl: string, calls: { activate: number; process: number; assess: number; send: number }) => Promise<void>,
+): Promise<void> {
+  const calls = { activate: 0, process: 0, assess: 0, send: 0 };
   const fallback: RequestListener = (_request, response) => {
     response.writeHead(418);
     response.end();
@@ -119,6 +121,38 @@ async function withServer(run: (baseUrl: string, calls: { activate: number; proc
         calls.assess += 1;
         assert.equal(executionId, 'sales-intake:workflow-1');
         return assessmentOutcome(salesContext);
+      },
+    },
+    salesEmailCommand: {
+      async execute(sendGateRecordId) {
+        calls.send += 1;
+        assert.equal(sendGateRecordId, 'gate-1');
+        return {
+          execution: {
+            sendGateRecordId: 'gate-1',
+            draftRecordId: 'draft-1',
+            leadId: 'lead-1',
+            recipientEmail: 'owner@example.com',
+            subject: 'Website opportunity',
+            providerMessageId: 'provider-message-1',
+            supervised: true,
+            humanSendApprovalVerified: true,
+            sendExecuted: true,
+            pricingAuthorised: false,
+            commercialCommitmentAuthorised: false,
+            nextAction: 'record_outreach_and_monitor_response',
+          },
+          record: {
+            id: 'sent-record-1',
+            clientId: null,
+            projectId: null,
+            eventType: 'sales_supervised_email_sent',
+            actorType: 'agent',
+            actorId: 'sales_agent',
+            payload: {},
+            createdAt: now,
+          },
+        };
       },
     },
     fallback,
@@ -152,6 +186,7 @@ test('authenticated control plane activates queued Sales intake without authoris
     assert.equal(calls.activate, 1);
     assert.equal(calls.process, 0);
     assert.equal(calls.assess, 0);
+    assert.equal(calls.send, 0);
   });
 });
 
@@ -173,6 +208,7 @@ test('authenticated control plane processes internal Sales intake without prospe
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 1);
     assert.equal(calls.assess, 0);
+    assert.equal(calls.send, 0);
   });
 });
 
@@ -218,6 +254,7 @@ test('authenticated control plane persists evidence-backed Sales opportunity ass
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 0);
     assert.equal(calls.assess, 1);
+    assert.equal(calls.send, 0);
   });
 });
 
@@ -235,6 +272,74 @@ test('Sales opportunity assessment allows missing evidence to remain explicit', 
     assert.equal(body.data.assessmentStatus, 'context_incomplete');
     assert.deepEqual(body.data.missingInformation, ['industry', 'country']);
     assert.equal(calls.assess, 1);
+    assert.equal(calls.send, 0);
+  });
+});
+
+test('authenticated control plane executes supervised Sales email only from a persisted send gate identifier', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/sales-email/send`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ sendGateRecordId: 'gate-1' }),
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      data: {
+        sendGateRecordId: string;
+        draftRecordId: string;
+        leadId: string;
+        sentRecordId: string;
+        providerMessageId: string;
+        supervised: boolean;
+        humanSendApprovalVerified: boolean;
+        sendExecuted: boolean;
+        pricingAuthorised: boolean;
+        commercialCommitmentAuthorised: boolean;
+        nextAction: string;
+      };
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.sendGateRecordId, 'gate-1');
+    assert.equal(body.data.draftRecordId, 'draft-1');
+    assert.equal(body.data.leadId, 'lead-1');
+    assert.equal(body.data.sentRecordId, 'sent-record-1');
+    assert.equal(body.data.providerMessageId, 'provider-message-1');
+    assert.equal(body.data.supervised, true);
+    assert.equal(body.data.humanSendApprovalVerified, true);
+    assert.equal(body.data.sendExecuted, true);
+    assert.equal(body.data.pricingAuthorised, false);
+    assert.equal(body.data.commercialCommitmentAuthorised, false);
+    assert.equal(body.data.nextAction, 'record_outreach_and_monitor_response');
+    assert.equal(calls.send, 1);
+    assert.equal(calls.activate, 0);
+    assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 0);
+  });
+});
+
+test('supervised Sales email control rejects caller-supplied message content or authority', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/sales-email/send`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sendGateRecordId: 'gate-1',
+        recipientEmail: 'attacker@example.com',
+        subject: 'Forged subject',
+        sendAuthorised: true,
+      }),
+    });
+    const body = await response.json() as { error: { code: string } };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, 'invalid_sales_email_send_command');
+    assert.equal(calls.send, 0);
+    assert.equal(calls.activate, 0);
+    assert.equal(calls.process, 0);
+    assert.equal(calls.assess, 0);
   });
 });
 
@@ -252,6 +357,7 @@ test('Sales intake controls reject caller-supplied authority fields', async () =
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 0);
     assert.equal(calls.assess, 0);
+    assert.equal(calls.send, 0);
   });
 });
 
@@ -272,5 +378,6 @@ test('Sales opportunity assessment rejects caller-supplied authority or unsuppor
     assert.equal(calls.activate, 0);
     assert.equal(calls.process, 0);
     assert.equal(calls.assess, 0);
+    assert.equal(calls.send, 0);
   });
 });
