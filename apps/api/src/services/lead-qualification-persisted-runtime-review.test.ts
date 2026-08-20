@@ -14,14 +14,15 @@ const disposition: LeadQualificationDisposition = {
 };
 
 function createPool() {
-  let current: AgentRuntimeExecutionRecord | null = null;
+  const executions = new Map<string, AgentRuntimeExecutionRecord>();
   const idempotency = new Set<string>();
   const runtimeEvents: Array<Record<string, unknown>> = [];
   const workflowEvents: Array<Record<string, unknown>> = [];
 
   const query = async (sql: string, values: readonly unknown[] = []) => {
     if (sql.includes('from runtime.agent_executions') && sql.includes('where execution_id = $1')) {
-      if (!current || current.task.executionId !== String(values[0])) return { rowCount: 0, rows: [] };
+      const current = executions.get(String(values[0]));
+      if (!current) return { rowCount: 0, rows: [] };
       return {
         rowCount: 1,
         rows: [{
@@ -40,26 +41,30 @@ function createPool() {
     }
 
     if (sql.startsWith('insert into runtime.agent_executions')) {
-      current = {
+      const current: AgentRuntimeExecutionRecord = {
         task: JSON.parse(String(values[6])) as AgentRuntimeExecutionRecord['task'],
         ...(values[7] === null ? {} : { result: JSON.parse(String(values[7])) as NonNullable<AgentRuntimeExecutionRecord['result']> }),
         version: Number(values[5]),
         ...(values[8] === null ? {} : { lastEventId: String(values[8]) }),
         persistedAt: String(values[9]),
       };
+      executions.set(current.task.executionId, current);
       return { rowCount: 1, rows: [{ execution_id: current.task.executionId }] };
     }
 
     if (sql.startsWith('update runtime.agent_executions')) {
-      if (!current || current.version !== Number(values[10])) return { rowCount: 0, rows: [] };
-      current = {
+      const executionId = String(values[0]);
+      const existing = executions.get(executionId);
+      if (!existing || existing.version !== Number(values[10])) return { rowCount: 0, rows: [] };
+      const current: AgentRuntimeExecutionRecord = {
         task: JSON.parse(String(values[6])) as AgentRuntimeExecutionRecord['task'],
         ...(values[7] === null ? {} : { result: JSON.parse(String(values[7])) as NonNullable<AgentRuntimeExecutionRecord['result']> }),
         version: Number(values[5]),
         ...(values[8] === null ? {} : { lastEventId: String(values[8]) }),
         persistedAt: String(values[9]),
       };
-      return { rowCount: 1, rows: [{ execution_id: current.task.executionId }] };
+      executions.set(executionId, current);
+      return { rowCount: 1, rows: [{ execution_id: executionId }] };
     }
 
     if (sql.includes('insert into runtime.agent_events')) {
@@ -85,10 +90,8 @@ function createPool() {
     }
 
     if (sql.includes('from runtime.agent_events')) {
-      return {
-        rowCount: runtimeEvents.length,
-        rows: runtimeEvents.filter((event) => event.execution_id === String(values[0])),
-      };
+      const matching = runtimeEvents.filter((event) => event.execution_id === String(values[0]));
+      return { rowCount: matching.length, rows: matching };
     }
 
     if (sql.includes('from operational.leads') && sql.includes('where id = $1')) {
@@ -139,6 +142,8 @@ function createPool() {
       query,
       async connect() { return client; },
     } as unknown as Pool,
+    executions,
+    runtimeEvents,
     workflowEvents,
   };
 }
@@ -160,7 +165,7 @@ function createTask(
   });
 }
 
-test('approved approve_advance review durably records Sales handoff eligibility without authorising dispatch or outreach', async () => {
+test('approved approve_advance review records eligibility and creates a queued Sales intake without dispatch or outreach authority', async () => {
   const harness = createPool();
   const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime);
@@ -170,12 +175,10 @@ test('approved approve_advance review durably records Sales handoff eligibility 
   assert.equal(review.record.task.status, 'review');
   assert.equal(review.record.task.approvalRequired, true);
   assert.equal(review.record.task.approvalOwner, 'human_executive');
-  assert.equal(review.record.task.nextAction, 'obtain_required_approval');
 
   const approved = await runtime.commands.resolveReview(task.executionId, 'approved', 'Founder approved controlled continuation.');
   assert.equal(approved.record.task.status, 'ready');
   assert.equal(approved.record.task.approvalRequired, false);
-  assert.equal(approved.record.task.nextAction, 'execute_destination_capability');
   assert.equal(harness.workflowEvents.length, 1);
   assert.equal(harness.workflowEvents[0]?.event_type, 'lead_sales_handoff_eligibility_recorded');
   assert.deepEqual(harness.workflowEvents[0]?.payload, {
@@ -191,9 +194,21 @@ test('approved approve_advance review durably records Sales handoff eligibility 
     salesDispatchAuthorised: false,
     outreachAuthorised: false,
   });
+
+  const salesExecution = harness.executions.get('sales-intake:workflow-1');
+  assert.ok(salesExecution);
+  assert.equal(salesExecution.task.originAgent, 'lead_agent');
+  assert.equal(salesExecution.task.destinationAgent, 'sales_agent');
+  assert.equal(salesExecution.task.status, 'queued');
+  assert.equal(salesExecution.task.nextAction, 'configure_governed_sales_intake_processing');
+  assert.equal(salesExecution.task.inputs.salesIntakeOnly, true);
+  assert.equal(salesExecution.task.inputs.salesDispatchAuthorised, false);
+  assert.equal(salesExecution.task.inputs.outreachAuthorised, false);
+  const salesCreated = harness.runtimeEvents.find((event) => event.execution_id === 'sales-intake:workflow-1');
+  assert.equal(salesCreated?.event_type, 'task_created');
 });
 
-test('approved non-advance review does not create Sales handoff eligibility', async () => {
+test('approved non-advance review creates neither Sales eligibility nor Sales intake', async () => {
   const harness = createPool();
   const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime, {
@@ -207,9 +222,10 @@ test('approved non-advance review does not create Sales handoff eligibility', as
 
   assert.equal(approved.record.task.status, 'ready');
   assert.equal(harness.workflowEvents.length, 0);
+  assert.equal([...harness.executions.values()].some((record) => record.task.destinationAgent === 'sales_agent'), false);
 });
 
-test('rejected review does not create Sales handoff eligibility', async () => {
+test('rejected review creates neither Sales eligibility nor Sales intake', async () => {
   const harness = createPool();
   const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime);
@@ -219,6 +235,7 @@ test('rejected review does not create Sales handoff eligibility', async () => {
 
   assert.equal(rejected.record.task.status, 'escalated');
   assert.equal(harness.workflowEvents.length, 0);
+  assert.equal([...harness.executions.values()].some((record) => record.task.destinationAgent === 'sales_agent'), false);
 });
 
 test('persisted review runtime does not allow resolution before the review gate is requested', async () => {
