@@ -15,6 +15,7 @@ import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent, setExternalLogSink } from './logger.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
+import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -37,6 +38,7 @@ const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
 });
+const leadQualificationReviewRuntime = createPersistedLeadQualificationRuntimeReview(databasePool);
 const runtimeStore = productionRuntime.store;
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
   onCycleCompleted(decisions) {
@@ -64,6 +66,7 @@ const apiRequestHandler = createRequestHandler(
 const controlPlaneRequestHandler = createControlPlaneRequestHandler({
   config,
   productionCommand: productionRuntime.commands,
+  leadQualificationReviewCommand: leadQualificationReviewRuntime.commands,
   fallback: apiRequestHandler,
 });
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
@@ -139,6 +142,8 @@ async function start(): Promise<void> {
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
       productionRuntimePersistenceConfigured: true,
+      leadQualificationReviewRuntimeConfigured: true,
+      leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),

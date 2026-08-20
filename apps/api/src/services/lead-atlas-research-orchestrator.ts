@@ -6,6 +6,8 @@ import type { LeadPreliminaryQualificationService, PreliminaryLeadQualificationR
 import type { LeadPreliminaryQualificationPersistenceService } from './lead-preliminary-qualification-persistence-service.js';
 import type { LeadQualificationDisposition, LeadQualificationDispositionService } from './lead-qualification-disposition-service.js';
 import type { LeadQualificationDispositionPersistenceService } from './lead-qualification-disposition-persistence-service.js';
+import type { LeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
+import type { LeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
 
 export interface AtlasLeadResearchInput {
   geographicFocus?: string;
@@ -22,6 +24,8 @@ export type QualifiedEnrichedLead = LeadResearchWorkflowOutput['enriched'][numbe
   preliminaryQualificationRecordId: string;
   qualificationDisposition: LeadQualificationDisposition;
   qualificationDispositionRecordId: string;
+  qualificationReviewTaskId: string;
+  qualificationReviewExecutionId: string;
 };
 
 export interface AtlasLeadResearchOutput {
@@ -47,11 +51,21 @@ export function createLeadAtlasResearchOrchestrator(
   qualificationPersistence?: Pick<LeadPreliminaryQualificationPersistenceService, 'persist'>,
   dispositionService?: Pick<LeadQualificationDispositionService, 'evaluate'>,
   dispositionPersistence?: Pick<LeadQualificationDispositionPersistenceService, 'persist'>,
+  runtimeReviewService?: Pick<LeadQualificationRuntimeReviewService, 'createTask'>,
+  runtimeReviewRegistration?: Pick<LeadQualificationRuntimeReviewRegistrationService, 'register'>,
 ) {
-  const qualificationDependencies = [evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence];
+  const qualificationDependencies = [
+    evidenceBuilder,
+    qualificationService,
+    qualificationPersistence,
+    dispositionService,
+    dispositionPersistence,
+    runtimeReviewService,
+    runtimeReviewRegistration,
+  ];
   const configuredQualificationDependencies = qualificationDependencies.filter(Boolean).length;
   if (configuredQualificationDependencies !== 0 && configuredQualificationDependencies !== qualificationDependencies.length) {
-    throw new Error('Lead qualification pipeline requires evidence builder, qualification service, qualification persistence, disposition service, and disposition persistence together.');
+    throw new Error('Lead qualification pipeline requires evidence builder, qualification service, qualification persistence, disposition service, disposition persistence, runtime review service, and runtime review registration together.');
   }
 
   return {
@@ -82,8 +96,8 @@ export function createLeadAtlasResearchOrchestrator(
         proposals.push(...result.proposals);
 
         for (const lead of result.enriched) {
-          if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence) {
-            throw new Error('Atlas Lead research produced an enriched lead without a fully configured qualification disposition persistence pipeline.');
+          if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
+            throw new Error('Atlas Lead research produced an enriched lead without a fully configured governed qualification review pipeline.');
           }
           const assessments = evidenceBuilder.build({
             atlas,
@@ -105,12 +119,26 @@ export function createLeadAtlasResearchOrchestrator(
             disposition: qualificationDisposition,
             actorId: 'lead_agent',
           });
+          const qualificationReviewTask = runtimeReviewService.createTask({
+            taskId: `lead-qualification-review-task:${persistedDisposition.id}`,
+            executionId: `lead-qualification-review:${persistedDisposition.id}`,
+            correlationId,
+            leadId: lead.leadId,
+            qualificationRecordId: persistedQualification.id,
+            dispositionRecordId: persistedDisposition.id,
+            disposition: qualificationDisposition,
+            confidence: 1,
+            createdAt: persistedDisposition.createdAt,
+          });
+          const qualificationReviewRecord = await runtimeReviewRegistration.register(qualificationReviewTask);
           enriched.push({
             ...lead,
             preliminaryQualification,
             preliminaryQualificationRecordId: persistedQualification.id,
             qualificationDisposition,
             qualificationDispositionRecordId: persistedDisposition.id,
+            qualificationReviewTaskId: qualificationReviewRecord.task.taskId,
+            qualificationReviewExecutionId: qualificationReviewRecord.task.executionId,
           });
         }
       }
