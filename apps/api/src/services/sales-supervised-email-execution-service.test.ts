@@ -27,11 +27,24 @@ function fixtures(overrides: Partial<Record<string, WorkflowEventRecord>> = {}) 
   ]);
 }
 
+function attempt(gateId: string, draftId: string, leadId: string, idempotencyKey: string, status: 'reserved' | 'sent' | 'failed') {
+  const timestamp = new Date().toISOString();
+  return {
+    sendGateRecordId: gateId,
+    draftRecordId: draftId,
+    leadId,
+    idempotencyKey,
+    status,
+    reservedAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function harness(events = fixtures(), transportError?: Error) {
   const sent: SalesEmailMessage[] = [];
   const contexts: SalesEmailSendContext[] = [];
   const created: any[] = [];
-  const reservations: string[] = [];
+  const reservations: Array<{ gateId: string; draftId: string; leadId: string; idempotencyKey: string }> = [];
   const markedSent: Array<{ gateId: string; providerMessageId: string }> = [];
   const markedFailed: Array<{ gateId: string; errorMessage: string }> = [];
   const reserved = new Set<string>();
@@ -53,39 +66,21 @@ function harness(events = fixtures(), transportError?: Error) {
       },
     },
     {
-      async reserve(gateId, idempotencyKey) {
+      async reserve(gateId, draftId, leadId, idempotencyKey) {
         if (reserved.has(gateId)) throw new Error(`Sales email send gate ${gateId} already has a durable send attempt.`);
         reserved.add(gateId);
-        reservations.push(idempotencyKey);
-        return {
-          sendGateRecordId: gateId,
-          idempotencyKey,
-          status: 'reserved' as const,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        reservations.push({ gateId, draftId, leadId, idempotencyKey });
+        return attempt(gateId, draftId, leadId, idempotencyKey, 'reserved');
       },
       async markSent(gateId, providerMessageId) {
         markedSent.push({ gateId, providerMessageId });
-        return {
-          sendGateRecordId: gateId,
-          idempotencyKey: `sales-supervised-email-send:${gateId}`,
-          status: 'sent' as const,
-          providerMessageId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        const result = attempt(gateId, 'draft-1', 'lead-1', `sales-supervised-email-send:${gateId}`, 'sent');
+        return { ...result, providerMessageId, completedAt: new Date().toISOString() };
       },
       async markFailed(gateId, errorMessage) {
         markedFailed.push({ gateId, errorMessage });
-        return {
-          sendGateRecordId: gateId,
-          idempotencyKey: `sales-supervised-email-send:${gateId}`,
-          status: 'failed' as const,
-          errorMessage,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        const result = attempt(gateId, 'draft-1', 'lead-1', `sales-supervised-email-send:${gateId}`, 'failed');
+        return { ...result, errorMessage, completedAt: new Date().toISOString() };
       },
     },
   );
@@ -104,7 +99,12 @@ test('executes one supervised email from persisted approved authority and draft 
     correlationId: 'lead-1',
     idempotencyKey: 'sales-supervised-email-send:gate-1',
   });
-  assert.deepEqual(reservations, ['sales-supervised-email-send:gate-1']);
+  assert.deepEqual(reservations, [{
+    gateId: 'gate-1',
+    draftId: 'draft-1',
+    leadId: 'lead-1',
+    idempotencyKey: 'sales-supervised-email-send:gate-1',
+  }]);
   assert.deepEqual(markedSent, [{ gateId: 'gate-1', providerMessageId: 'provider-message-1' }]);
   assert.equal(markedFailed.length, 0);
   assert.equal(result.execution.humanSendApprovalVerified, true);
