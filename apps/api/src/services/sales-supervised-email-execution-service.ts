@@ -7,12 +7,19 @@ export interface SalesEmailMessage {
   body: string;
 }
 
+export interface SalesEmailSendContext {
+  sendGateRecordId: string;
+  executionId: string;
+  correlationId: string;
+  idempotencyKey: string;
+}
+
 export interface SalesEmailTransportResult {
   providerMessageId: string;
 }
 
 export interface SalesEmailTransport {
-  send(message: SalesEmailMessage): Promise<SalesEmailTransportResult>;
+  send(message: SalesEmailMessage, context: SalesEmailSendContext): Promise<SalesEmailTransportResult>;
 }
 
 export interface SalesSupervisedEmailExecution {
@@ -100,9 +107,16 @@ export function createSalesSupervisedEmailExecutionService(
       const idempotencyKey = `sales-supervised-email-send:${gateRecord.id}`;
       await sendAttempts.reserve(gateRecord.id, idempotencyKey);
 
+      const sendContext: SalesEmailSendContext = {
+        sendGateRecordId: gateRecord.id,
+        executionId: `sales-supervised-email-send:${gateRecord.id}`,
+        correlationId: leadId,
+        idempotencyKey,
+      };
+
       let providerMessageId: string;
       try {
-        const transportResult = await transport.send(message);
+        const transportResult = await transport.send(message, sendContext);
         providerMessageId = requiredString(transportResult.providerMessageId, 'providerMessageId');
         await sendAttempts.markSent(gateRecord.id, providerMessageId);
       } catch (error) {
