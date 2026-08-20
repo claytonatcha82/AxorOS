@@ -8,10 +8,12 @@ import type {
   SalesOpportunityAssessment,
   SalesOpportunityContext,
 } from './services/sales-opportunity-assessment-service.js';
+import type { SalesSupervisedEmailExecution } from './services/sales-supervised-email-execution-service.js';
 
 const SALES_INTAKE_ACTIVATE_PATH = '/api/v1/control/sales-intake/activate';
 const SALES_INTAKE_PROCESS_PATH = '/api/v1/control/sales-intake/process';
 const SALES_INTAKE_ASSESS_PATH = '/api/v1/control/sales-intake/assess';
+const SALES_EMAIL_SEND_PATH = '/api/v1/control/sales-email/send';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
 export interface SalesIntakeControlPlaneDependencies {
@@ -21,6 +23,12 @@ export interface SalesIntakeControlPlaneDependencies {
     processIntake(executionId: string): Promise<RuntimeExecutionOutcome>;
     assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{
       assessment: SalesOpportunityAssessment;
+      record: WorkflowEventRecord;
+    }>;
+  };
+  salesEmailCommand?: {
+    execute(sendGateRecordId: string): Promise<{
+      execution: SalesSupervisedEmailExecution;
       record: WorkflowEventRecord;
     }>;
   };
@@ -70,6 +78,14 @@ function validExecutionOnlyBody(body: Record<string, unknown>): body is { execut
     && keys[0] === 'executionId'
     && typeof body.executionId === 'string'
     && Boolean(body.executionId.trim());
+}
+
+function validSendGateOnlyBody(body: Record<string, unknown>): body is { sendGateRecordId: string } {
+  const keys = Object.keys(body);
+  return keys.length === 1
+    && keys[0] === 'sendGateRecordId'
+    && typeof body.sendGateRecordId === 'string'
+    && Boolean(body.sendGateRecordId.trim());
 }
 
 const SALES_CONTEXT_KEYS = new Set([
@@ -132,17 +148,18 @@ function validAssessmentBody(
   return validSalesContext(body.salesContext);
 }
 
-function isSalesIntakePath(path: string | undefined): boolean {
+function isSalesControlPath(path: string | undefined): boolean {
   return path === SALES_INTAKE_ACTIVATE_PATH
     || path === SALES_INTAKE_PROCESS_PATH
-    || path === SALES_INTAKE_ASSESS_PATH;
+    || path === SALES_INTAKE_ASSESS_PATH
+    || path === SALES_EMAIL_SEND_PATH;
 }
 
 export function createSalesIntakeControlPlaneRequestHandler(
   dependencies: SalesIntakeControlPlaneDependencies,
 ): RequestListener {
   return async (request, response) => {
-    if (!isSalesIntakePath(request.url)) {
+    if (!isSalesControlPath(request.url)) {
       dependencies.fallback(request, response);
       return;
     }
@@ -197,6 +214,54 @@ export function createSalesIntakeControlPlaneRequestHandler(
             : 'Request body must be a JSON object.',
         },
       }, corsHeaders);
+      return;
+    }
+
+    if (request.url === SALES_EMAIL_SEND_PATH) {
+      if (!validSendGateOnlyBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_sales_email_send_command',
+            message: 'Request body must contain only a non-empty sendGateRecordId.',
+          },
+        }, corsHeaders);
+        return;
+      }
+
+      if (!dependencies.salesEmailCommand) {
+        sendJson(response, 503, {
+          ok: false,
+          error: {
+            code: 'sales_email_send_not_configured',
+            message: 'Supervised Sales email execution is not configured.',
+          },
+        }, corsHeaders);
+        return;
+      }
+
+      try {
+        const outcome = await dependencies.salesEmailCommand.execute(body.sendGateRecordId);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            sendGateRecordId: outcome.execution.sendGateRecordId,
+            draftRecordId: outcome.execution.draftRecordId,
+            leadId: outcome.execution.leadId,
+            sentRecordId: outcome.record.id,
+            providerMessageId: outcome.execution.providerMessageId,
+            supervised: outcome.execution.supervised,
+            humanSendApprovalVerified: outcome.execution.humanSendApprovalVerified,
+            sendExecuted: outcome.execution.sendExecuted,
+            pricingAuthorised: outcome.execution.pricingAuthorised,
+            commercialCommitmentAuthorised: outcome.execution.commercialCommitmentAuthorised,
+            nextAction: outcome.execution.nextAction,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Supervised Sales email execution failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'sales_email_send_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
