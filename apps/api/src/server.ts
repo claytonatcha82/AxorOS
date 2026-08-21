@@ -12,6 +12,8 @@ import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-atte
 import { createOperationalRepository } from './data/operational-repository.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
+import type { ExternalIntegration } from './integrations/integration-contract.js';
+import type { ModelGenerationInput, ModelGenerationOutput } from './integrations/model-integration.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
@@ -20,6 +22,7 @@ import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
+import { createSalesInboundModelClassificationService } from './services/sales-inbound-model-classification-service.js';
 import { createSalesIntegrationEmailTransport } from './services/sales-integration-email-transport.js';
 import { createSalesOutreachDraftReviewService } from './services/sales-outreach-draft-review-service.js';
 import { createSalesSupervisedEmailExecutionService } from './services/sales-supervised-email-execution-service.js';
@@ -46,6 +49,12 @@ const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService
   salesEmailTransport,
   salesEmailSendAttempts,
 );
+const salesOpenAIIntegration = registeredIntegrationIds.includes('model.openai')
+  ? integrationRegistry.require('model.openai') as ExternalIntegration<ModelGenerationInput, ModelGenerationOutput>
+  : undefined;
+const salesInboundModelClassification = salesOpenAIIntegration
+  ? createSalesInboundModelClassificationService(salesOpenAIIntegration)
+  : undefined;
 const financePaymentRuntime = createFinancePaymentRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
@@ -180,9 +189,11 @@ async function start(): Promise<void> {
       salesSupervisedGmailConfigured: Boolean(
         config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail'),
       ),
+      salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification),
       productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
+      openaiConfigured: registeredIntegrationIds.includes('model.openai'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
     });
   });
