@@ -1,4 +1,7 @@
-import type { SalesInboundReplyEvidencePostgresStore } from '../data/sales-inbound-reply-evidence-postgres-store.js';
+import type {
+  SalesInboundReplyEvidencePostgresStore,
+  SalesInboundReplyEvidenceRecord,
+} from '../data/sales-inbound-reply-evidence-postgres-store.js';
 import type { SalesInboundReplyDetectionService } from './sales-inbound-reply-detection-service.js';
 
 export interface SalesInboundReplyEvidenceResult {
@@ -8,6 +11,7 @@ export interface SalesInboundReplyEvidenceResult {
   evidenceRecorded: boolean;
   inboundEvidenceId?: string;
   providerMessageId?: string;
+  persistedEvidence?: SalesInboundReplyEvidenceRecord;
   automaticResponseAuthorised: false;
   nextAction: 'await_external_reply' | 'classify_persisted_inbound_reply';
 }
@@ -51,6 +55,7 @@ export function createSalesInboundReplyEvidenceService(
         evidenceRecorded: true,
         inboundEvidenceId: evidence.inboundEvidenceId,
         providerMessageId: reply.messageId,
+        persistedEvidence: evidence,
         automaticResponseAuthorised: false,
         nextAction: 'classify_persisted_inbound_reply',
       };
