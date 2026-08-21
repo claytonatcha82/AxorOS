@@ -50,8 +50,8 @@ export interface SalesInboundReplyClassificationRecord {
   outboundRecordId: string;
   leadId: string;
   providerMessageId: string;
+  confidence?: number;
   primaryCategory: SalesInboundReplyCategory;
-  confidence: number;
   evidenceReasons: readonly SalesInboundReplyClassificationEvidenceReason[];
   deterministicSignals: SalesInboundReplyDeterministicSignals;
   commercialTopicDetected: boolean;
@@ -87,8 +87,8 @@ function requireNonEmpty(value: string, field: string): string {
 export function createSalesInboundReplyClassificationRecord(
   input: SalesInboundReplyClassificationInput,
 ): SalesInboundReplyClassificationRecord {
-  if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
-    throw new Error('confidence must be a finite value between 0 and 1.');
+  if (input.confidence !== undefined && !Number.isFinite(input.confidence)) {
+    throw new Error('confidence must be finite when supplied.');
   }
   if (input.evidenceReasons.length === 0) {
     throw new Error('At least one evidence reason is required.');
