@@ -83,6 +83,55 @@ function makeFetch() {
       });
     }
 
+    if (url === 'https://gmail.googleapis.com/gmail/v1/users/me/threads/thread-bounce?format=full') {
+      return new Response(JSON.stringify({
+        id: 'thread-bounce',
+        messages: [
+          {
+            id: 'sent-bounce',
+            threadId: 'thread-bounce',
+            internalDate: '1787250000000',
+            payload: {
+              mimeType: 'text/plain',
+              headers: [
+                { name: 'From', value: 'sales@example.test' },
+                { name: 'To', value: 'missing@example.test' },
+                { name: 'Subject', value: 'Synthetic website discussion' },
+              ],
+              body: { data: encoded('Synthetic approved supervised message.') },
+            },
+          },
+          {
+            id: 'dsn-789',
+            threadId: 'thread-bounce',
+            internalDate: '1787250300000',
+            snippet: 'Delivery failed: address not found.',
+            payload: {
+              mimeType: 'multipart/report',
+              headers: [
+                { name: 'From', value: 'Mail Delivery Subsystem <mailer-daemon@example.test>' },
+                { name: 'To', value: 'sales@example.test' },
+                { name: 'Subject', value: 'Delivery Status Notification (Failure)' },
+              ],
+              parts: [
+                {
+                  mimeType: 'text/plain',
+                  body: { data: encoded('Delivery failed: address not found.') },
+                },
+                {
+                  mimeType: 'message/delivery-status',
+                  body: { data: encoded('Action: failed\nStatus: 5.1.1') },
+                },
+              ],
+            },
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     throw new Error(`Unexpected URL: ${url}`);
   };
   return { fetchImpl, calls };
@@ -198,6 +247,26 @@ test('reads one exact Gmail thread without creating, sending, or modifying mail'
   assert.equal(calls[1]?.init?.method, 'GET');
   assert.equal(calls.some((call) => call.url.includes('/drafts')), false);
   assert.equal(calls.some((call) => call.url.includes('/messages/send')), false);
+});
+
+test('exposes provider delivery-status evidence only when Gmail returns a delivery-status MIME part', async () => {
+  const { fetchImpl } = makeFetch();
+  const integration = createGmailDraftIntegration({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    refreshToken: 'refresh-token',
+    identityAddresses: { sales: 'sales@example.test' },
+    fetchImpl,
+  });
+
+  const thread = await integration.readThread('thread-bounce');
+
+  assert.equal(thread.messages.length, 2);
+  assert.equal(thread.messages[0]?.deliveryStatusNotification, undefined);
+  assert.equal(thread.messages[1]?.messageId, 'dsn-789');
+  assert.equal(thread.messages[1]?.from, 'Mail Delivery Subsystem <mailer-daemon@example.test>');
+  assert.equal(thread.messages[1]?.textBody, 'Delivery failed: address not found.');
+  assert.equal(thread.messages[1]?.deliveryStatusNotification, true);
 });
 
 test('rejects an unconfigured sender identity before calling Gmail', async () => {
