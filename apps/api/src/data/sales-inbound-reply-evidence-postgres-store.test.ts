@@ -4,7 +4,7 @@ import { SalesInboundReplyEvidenceConflictError, SalesInboundReplyEvidencePostgr
 
 function row() {
   return {
-    outbound_record_id: 'sent-record-1', lead_id: 'lead-1', provider_thread_reference: 'thread-1',
+    id: '42', outbound_record_id: 'sent-record-1', lead_id: 'lead-1', provider_thread_reference: 'thread-1',
     provider_message_id: 'reply-1', sender_address: 'owner@example.com', recipient_address: 'sales@axoros.test',
     subject: 'Re: Website opportunity', provider_internal_date: '2000', snippet: 'Thanks', text_body: 'Thanks, tell me more.',
     recorded_at: new Date('2026-08-21T12:00:00.000Z'),
@@ -27,10 +27,12 @@ test('persists inbound Gmail reply evidence with provider message replay protect
   } as any);
 
   const result = await store.record(input);
+  assert.equal(result.inboundEvidenceId, '42');
   assert.equal(result.providerMessageId, 'reply-1');
   assert.equal(result.textBody, 'Thanks, tell me more.');
   assert.equal(result.recordedAt, '2026-08-21T12:00:00.000Z');
   assert.match(calls[0]!.sql, /on conflict do nothing/i);
+  assert.match(calls[0]!.sql, /returning id,/i);
   assert.deepEqual(calls[0]!.params.slice(0, 4), ['sent-record-1', 'lead-1', 'thread-1', 'reply-1']);
 });
 
