@@ -28,7 +28,15 @@ test('persists detected reply evidence and preserves no automatic-response autho
   const recorded: any[] = [];
   const service = createSalesInboundReplyEvidenceService(
     { async detect() { return detectedReply(); } },
-    { async record(input) { recorded.push(input); return { ...input, inboundEvidenceId: '41', recordedAt: '2026-08-21T12:00:00.000Z' }; } },
+    { async record(input) {
+      recorded.push(input);
+      return {
+        ...input,
+        providerDeliveryStatusEvidence: input.providerDeliveryStatusEvidence === true,
+        inboundEvidenceId: '41',
+        recordedAt: '2026-08-21T12:00:00.000Z',
+      };
+    } },
   );
 
   const result = await service.inspect('sent-record-1');
