@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { createSalesInboundReplyClassification } from '../apps/api/dist/services/sales-inbound-reply-classification-contract.js';
+import { createSalesInboundReplyClassificationRecord } from '../apps/api/dist/services/sales-inbound-reply-classification-contract.js';
 import { resolveSalesInboundNextAction } from '../apps/api/dist/services/sales-inbound-next-action-resolver.js';
 import { createSalesInboundResponseDraftService } from '../apps/api/dist/services/sales-inbound-response-draft-service.js';
 import { createSalesOutreachDraftReviewService } from '../apps/api/dist/services/sales-outreach-draft-review-service.js';
@@ -35,7 +35,7 @@ console.log('\nAxorOS Sales Inbound — Controlled End-to-End Test');
 console.log('================================================');
 console.log('Synthetic scenario only. No Gmail/provider send will occur.\n');
 
-const classification = createSalesInboundReplyClassification({
+const classification = createSalesInboundReplyClassificationRecord({
   inboundEvidenceId: 'synthetic-evidence-1',
   outboundRecordId: 'synthetic-outbound-1',
   leadId: 'synthetic-lead-1',
@@ -69,7 +69,10 @@ assert.equal(resolution.nextAction, 'prepare_sales_response');
 assert.equal(resolution.sendAuthorised, false);
 
 const draftService = createSalesInboundResponseDraftService(repository);
-const draftOutcome = await draftService.prepare(classification, resolution, {
+const draftOutcome = await draftService.create({
+  resolution,
+  leadId: classification.leadId,
+  recipientEmail: 'synthetic-prospect@example.invalid',
   subject: 'Re: Website enquiry',
   body: 'Thank you for your reply. We would be happy to continue the conversation about your website requirements.',
 });
