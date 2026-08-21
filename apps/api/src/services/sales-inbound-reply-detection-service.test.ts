@@ -47,11 +47,46 @@ test('detects a newer reply from the persisted outbound recipient on the exact G
   assert.equal(result.nextAction, 'persist_inbound_reply_evidence');
 });
 
+test('accepts a newer Gmail delivery-status notification as provider inbound evidence', async () => {
+  const evidence = thread([
+    { messageId: 'outbound-1', threadReference: 'thread-1', from: 'sales@axoros.test', to: 'owner@example.com', internalDate: '1000' },
+    {
+      messageId: 'dsn-1', threadReference: 'thread-1',
+      from: 'Mail Delivery Subsystem <mailer-daemon@example.test>', to: 'sales@axoros.test',
+      internalDate: '2000', textBody: 'Delivery failed: address not found.',
+      deliveryStatusNotification: true,
+    },
+  ]);
+  const { service } = harness(outboundRecord(), evidence);
+  const result = await service.detect('sent-record-1');
+  assert.equal(result.replyDetected, true);
+  assert.equal(result.reply?.messageId, 'dsn-1');
+  assert.equal(result.reply?.deliveryStatusNotification, true);
+  assert.equal(result.automaticResponseAuthorised, false);
+  assert.equal(result.nextAction, 'persist_inbound_reply_evidence');
+});
+
 test('ignores later messages not sent by the persisted recipient', async () => {
   const evidence = thread([
     { messageId: 'outbound-1', threadReference: 'thread-1', from: 'sales@axoros.test', to: 'owner@example.com', internalDate: '1000' },
     { messageId: 'self-2', threadReference: 'thread-1', from: 'sales@axoros.test', to: 'owner@example.com', internalDate: '2000' },
     { messageId: 'other-1', threadReference: 'thread-1', from: 'someone-else@example.com', to: 'sales@axoros.test', internalDate: '3000' },
+  ]);
+  const { service } = harness(outboundRecord(), evidence);
+  const result = await service.detect('sent-record-1');
+  assert.equal(result.replyDetected, false);
+  assert.equal(result.reply, undefined);
+  assert.equal(result.nextAction, 'await_external_reply');
+});
+
+test('ignores bounce-like wording from an unrelated sender without Gmail delivery-status provenance', async () => {
+  const evidence = thread([
+    { messageId: 'outbound-1', threadReference: 'thread-1', from: 'sales@axoros.test', to: 'owner@example.com', internalDate: '1000' },
+    {
+      messageId: 'fake-bounce-1', threadReference: 'thread-1',
+      from: 'someone-else@example.com', to: 'sales@axoros.test', internalDate: '2000',
+      subject: 'Delivery Status Notification (Failure)', textBody: 'Delivery failed: mailbox unavailable.',
+    },
   ]);
   const { service } = harness(outboundRecord(), evidence);
   const result = await service.detect('sent-record-1');
