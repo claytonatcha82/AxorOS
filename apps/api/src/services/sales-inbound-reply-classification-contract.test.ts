@@ -60,7 +60,6 @@ test('Sales inbound classification rejects records without evidence reasons', ()
     leadId: 'lead-1',
     providerMessageId: 'gmail-message-1',
     primaryCategory: 'ambiguous',
-    confidence: 0.4,
     evidenceReasons: [],
     deterministicSignals: {
       optOutDetected: false,
@@ -77,15 +76,14 @@ test('Sales inbound classification rejects records without evidence reasons', ()
   }), /At least one evidence reason is required/);
 });
 
-test('Sales inbound classification rejects confidence outside zero to one', () => {
-  assert.throws(() => createSalesInboundReplyClassificationRecord({
+test('Sales inbound classification does not invent a confidence scale', () => {
+  const withoutConfidence = createSalesInboundReplyClassificationRecord({
     inboundEvidenceId: 'evidence-1',
     outboundRecordId: 'outbound-1',
     leadId: 'lead-1',
     providerMessageId: 'gmail-message-1',
     primaryCategory: 'ambiguous',
-    confidence: 1.1,
-    evidenceReasons: [{ reason: 'Classification is uncertain.' }],
+    evidenceReasons: [{ reason: 'Classification confidence policy is not defined by Atlas.' }],
     deterministicSignals: {
       optOutDetected: false,
       automatedResponseDetected: false,
@@ -94,9 +92,55 @@ test('Sales inbound classification rejects confidence outside zero to one', () =
     commercialTopicDetected: false,
     sensitiveTopicDetected: false,
     uncertaintyDetected: true,
-    classificationSource: 'model_assisted',
+    classificationSource: 'human',
     nextAction: 'human_review_required',
     humanReviewRequired: true,
     classifiedAt: '2026-08-21T12:00:00.000Z',
-  }), /confidence must be a finite value between 0 and 1/);
+  });
+  assert.equal(withoutConfidence.confidence, undefined);
+
+  const unscaledConfidence = createSalesInboundReplyClassificationRecord({
+    inboundEvidenceId: 'evidence-2',
+    outboundRecordId: 'outbound-2',
+    leadId: 'lead-2',
+    providerMessageId: 'gmail-message-2',
+    primaryCategory: 'ambiguous',
+    confidence: 1.1,
+    evidenceReasons: [{ reason: 'The contract preserves a finite confidence value without defining its scale.' }],
+    deterministicSignals: {
+      optOutDetected: false,
+      automatedResponseDetected: false,
+      deliveryFailureDetected: false,
+    },
+    commercialTopicDetected: false,
+    sensitiveTopicDetected: false,
+    uncertaintyDetected: true,
+    classificationSource: 'human',
+    nextAction: 'human_review_required',
+    humanReviewRequired: true,
+    classifiedAt: '2026-08-21T12:00:00.000Z',
+  });
+  assert.equal(unscaledConfidence.confidence, 1.1);
+
+  assert.throws(() => createSalesInboundReplyClassificationRecord({
+    inboundEvidenceId: 'evidence-3',
+    outboundRecordId: 'outbound-3',
+    leadId: 'lead-3',
+    providerMessageId: 'gmail-message-3',
+    primaryCategory: 'ambiguous',
+    confidence: Number.NaN,
+    evidenceReasons: [{ reason: 'Non-finite values are not valid persisted evidence.' }],
+    deterministicSignals: {
+      optOutDetected: false,
+      automatedResponseDetected: false,
+      deliveryFailureDetected: false,
+    },
+    commercialTopicDetected: false,
+    sensitiveTopicDetected: false,
+    uncertaintyDetected: true,
+    classificationSource: 'human',
+    nextAction: 'human_review_required',
+    humanReviewRequired: true,
+    classifiedAt: '2026-08-21T12:00:00.000Z',
+  }), /confidence must be finite when supplied/);
 });
