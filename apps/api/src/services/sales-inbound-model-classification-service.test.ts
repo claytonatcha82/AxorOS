@@ -9,26 +9,27 @@ import {
 
 function modelReturning(payload: unknown): ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> {
   return {
-    integrationId: 'model.gemini',
+    integrationId: 'model.openai',
     kind: 'model',
-    provider: 'google-gemini',
+    provider: 'openai',
     supportedModes: ['draft'],
     supportedOperations: ['generate_text'],
     async execute(request) {
+      assert.equal(request.integrationId, 'model.openai');
       assert.equal(request.mode, 'draft');
       assert.equal(request.operation, 'generate_text');
       return {
-        integrationId: 'model.gemini',
+        integrationId: 'model.openai',
         operation: 'generate_text',
-        provider: 'google-gemini',
+        provider: 'openai',
         mode: 'draft',
         status: 'drafted',
         output: {
           text: JSON.stringify(payload),
-          model: 'gemini-3.5-flash-lite',
+          model: 'gpt-5.6-terra',
           finishReason: 'stop',
         },
-        evidenceReferences: ['gemini:test'],
+        evidenceReferences: ['openai:test'],
         retryable: false,
       };
     },
@@ -58,7 +59,7 @@ test('model classifier is limited to non-deterministic Atlas categories', () => 
   ]);
 });
 
-test('classifies positive interest without granting response authority', async () => {
+test('classifies positive interest through OpenAI without granting response authority', async () => {
   const service = createSalesInboundModelClassificationService(modelReturning({
     primaryCategory: 'positive_interest',
     evidenceReasons: [{ reason: 'Sender explicitly said they would like to know more.' }],
@@ -70,7 +71,7 @@ test('classifies positive interest without granting response authority', async (
   const record = await service.classify(evidence);
   assert.equal(record.primaryCategory, 'positive_interest');
   assert.equal(record.classificationSource, 'model_assisted');
-  assert.equal(record.modelReference, 'gemini-3.5-flash-lite');
+  assert.equal(record.modelReference, 'gpt-5.6-terra');
   assert.equal(record.nextAction, 'prepare_sales_response');
   assert.equal(record.humanReviewRequired, true);
   assert.equal(record.responseAuthorised, false);
@@ -153,21 +154,21 @@ test('model cannot return deterministic safety categories', async () => {
 test('invalid model JSON fails closed', async () => {
   const model = modelReturning({});
   model.execute = async () => ({
-    integrationId: 'model.gemini',
+    integrationId: 'model.openai',
     operation: 'generate_text',
-    provider: 'google-gemini',
+    provider: 'openai',
     mode: 'draft',
     status: 'drafted',
-    output: { text: 'not-json', model: 'gemini-3.5-flash-lite', finishReason: 'stop' },
-    evidenceReferences: ['gemini:test'],
+    output: { text: 'not-json', model: 'gpt-5.6-terra', finishReason: 'stop' },
+    evidenceReferences: ['openai:test'],
     retryable: false,
   });
   const service = createSalesInboundModelClassificationService(model);
   await assert.rejects(() => service.classify(evidence), /valid JSON/);
 });
 
-test('rejects a model integration outside the governed Gemini boundary', () => {
+test('rejects a model integration outside the governed OpenAI boundary', () => {
   const model = modelReturning({});
-  model.integrationId = 'model.other';
-  assert.throws(() => createSalesInboundModelClassificationService(model), /model\.gemini/);
+  model.integrationId = 'model.gemini';
+  assert.throws(() => createSalesInboundModelClassificationService(model), /model\.openai/);
 });
