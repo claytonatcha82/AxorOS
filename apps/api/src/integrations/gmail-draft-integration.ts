@@ -21,6 +21,7 @@ export interface GmailThreadMessageEvidence {
   internalDate?: string;
   snippet?: string;
   textBody?: string;
+  deliveryStatusNotification?: boolean;
 }
 
 export interface GmailThreadEvidence {
@@ -165,6 +166,12 @@ function textBody(part: GmailMessagePart | undefined): string | undefined {
   return undefined;
 }
 
+function containsMimeType(part: GmailMessagePart | undefined, mimeType: string): boolean {
+  if (!part) return false;
+  if (part.mimeType?.toLowerCase() === mimeType.toLowerCase()) return true;
+  return (part.parts ?? []).some((child) => containsMimeType(child, mimeType));
+}
+
 export function createGmailDraftIntegration(options: GmailDraftIntegrationOptions): GmailEmailIntegration {
   const fetchImpl = options.fetchImpl ?? fetch;
   const allowSupervisedSalesSend = options.allowSupervisedSalesSend === true;
@@ -236,6 +243,7 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
         const to = headerValue(message.payload, 'To');
         const subject = headerValue(message.payload, 'Subject');
         const body = textBody(message.payload);
+        const deliveryStatusNotification = containsMimeType(message.payload, 'message/delivery-status');
         return {
           messageId,
           threadReference: messageThreadReference,
@@ -245,6 +253,7 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
           ...(message.internalDate?.trim() ? { internalDate: message.internalDate.trim() } : {}),
           ...(message.snippet?.trim() ? { snippet: message.snippet.trim() } : {}),
           ...(body ? { textBody: body } : {}),
+          ...(deliveryStatusNotification ? { deliveryStatusNotification: true } : {}),
         };
       });
 
