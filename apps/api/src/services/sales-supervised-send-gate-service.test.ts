@@ -31,6 +31,14 @@ function inboundReviewRecord(overrides: Partial<Record<string, unknown>> = {}): 
   };
 }
 
+function draftRecord(id = 'draft-1', recipientEmail = 'owner@example.com'): WorkflowEventRecord {
+  return {
+    id, clientId: null, projectId: null,
+    eventType: 'sales_internal_outreach_draft_recorded', actorType: 'agent', actorId: 'sales_agent',
+    payload: { leadId: 'lead-1', recipientEmail }, createdAt: now,
+  };
+}
+
 function harness(record = reviewRecord()) {
   const created: Array<Record<string, unknown>> = [];
   const service = createSalesSupervisedSendGateService({
@@ -104,5 +112,35 @@ test('refuses send approval when review carries forged send authority', async ()
 test('refuses inbound send approval when review carries forged consequential authority', async () => {
   const { service, created } = harness(inboundReviewRecord({ discountAuthorised: true }));
   await assert.rejects(() => service.decide('review-1', 'approved'), /no inherited/i);
+  assert.equal(created.length, 0);
+});
+
+test('active outreach suppression blocks human send approval before authority is recorded', async () => {
+  const review = reviewRecord();
+  const draft = draftRecord();
+  const created: Array<Record<string, unknown>> = [];
+  const suppressionChecks: string[] = [];
+  const service = createSalesSupervisedSendGateService({
+    async getWorkflowEventById(id) {
+      if (id === review.id) return review;
+      if (id === draft.id) return draft;
+      return null;
+    },
+    async createWorkflowEvent(input) {
+      created.push(input as unknown as Record<string, unknown>);
+      return { id: 'send-gate-1', clientId: null, projectId: null, eventType: input.eventType, actorType: input.actorType, actorId: input.actorId ?? null, payload: input.payload ?? {}, createdAt: now };
+    },
+  }, {
+    async isActiveForRecipient(recipientAddress) {
+      suppressionChecks.push(recipientAddress);
+      return true;
+    },
+  });
+
+  await assert.rejects(
+    () => service.decide('review-1', 'approved'),
+    /blocked by active outreach suppression for owner@example\.com/i,
+  );
+  assert.deepEqual(suppressionChecks, ['owner@example.com']);
   assert.equal(created.length, 0);
 });
