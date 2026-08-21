@@ -14,10 +14,12 @@ export interface SalesInboundReplyEvidenceInput {
 }
 
 export interface SalesInboundReplyEvidenceRecord extends SalesInboundReplyEvidenceInput {
+  inboundEvidenceId: string;
   recordedAt: string;
 }
 
 type Row = {
+  id: string | number | bigint;
   outbound_record_id: string;
   lead_id: string;
   provider_thread_reference: string;
@@ -37,6 +39,7 @@ function optional(value: string | null, key: string): Record<string, string> {
 
 function map(row: Row): SalesInboundReplyEvidenceRecord {
   return {
+    inboundEvidenceId: String(row.id),
     outboundRecordId: row.outbound_record_id,
     leadId: row.lead_id,
     providerThreadReference: row.provider_thread_reference,
@@ -68,7 +71,7 @@ export class SalesInboundReplyEvidencePostgresStore {
           sender_address, recipient_address, subject, provider_internal_date, snippet, text_body)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        on conflict do nothing
-       returning outbound_record_id, lead_id, provider_thread_reference, provider_message_id,
+       returning id, outbound_record_id, lead_id, provider_thread_reference, provider_message_id,
                  sender_address, recipient_address, subject, provider_internal_date, snippet, text_body, recorded_at`,
       [input.outboundRecordId, input.leadId, input.providerThreadReference, input.providerMessageId,
        input.senderAddress ?? null, input.recipientAddress ?? null, input.subject ?? null,
