@@ -94,8 +94,8 @@ function nextActionFor(category: ModelAllowedCategory): SalesInboundReplyClassif
 export function createSalesInboundModelClassificationService(
   model: ExternalIntegration<ModelGenerationInput, ModelGenerationOutput>,
 ) {
-  if (model.integrationId !== 'model.gemini') {
-    throw new Error('Sales inbound model classification requires the governed model.gemini integration.');
+  if (model.integrationId !== 'model.openai') {
+    throw new Error('Sales inbound model classification requires the governed model.openai integration.');
   }
 
   return {
@@ -109,7 +109,7 @@ export function createSalesInboundModelClassificationService(
       const executionId = `sales-inbound-classification:${providerMessageId}`;
 
       const response = await model.execute({
-        integrationId: 'model.gemini',
+        integrationId: 'model.openai',
         requestedBy: 'sales_agent',
         executionId,
         correlationId: inboundEvidenceId,
