@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSalesInboundReplyEvidenceService } from './sales-inbound-reply-evidence-service.js';
 
-function detectedReply() {
+function detectedReply(deliveryStatusNotification = false) {
   return {
     outboundRecordId: 'sent-record-1',
     leadId: 'lead-1',
@@ -18,17 +18,16 @@ function detectedReply() {
       internalDate: '2000',
       snippet: 'Thanks',
       textBody: 'Thanks, tell me more.',
+      ...(deliveryStatusNotification ? { deliveryStatusNotification: true } : {}),
     },
     automaticResponseAuthorised: false as const,
     nextAction: 'persist_inbound_reply_evidence' as const,
   };
 }
 
-test('persists detected reply evidence and preserves no automatic-response authority', async () => {
-  const recorded: any[] = [];
-  const service = createSalesInboundReplyEvidenceService(
-    { async detect() { return detectedReply(); } },
-    { async record(input) {
+function recordingStore(recorded: any[]) {
+  return {
+    async record(input: any) {
       recorded.push(input);
       return {
         ...input,
@@ -36,7 +35,15 @@ test('persists detected reply evidence and preserves no automatic-response autho
         inboundEvidenceId: '41',
         recordedAt: '2026-08-21T12:00:00.000Z',
       };
-    } },
+    },
+  };
+}
+
+test('persists detected reply evidence and preserves no automatic-response authority', async () => {
+  const recorded: any[] = [];
+  const service = createSalesInboundReplyEvidenceService(
+    { async detect() { return detectedReply(); } },
+    recordingStore(recorded),
   );
 
   const result = await service.inspect('sent-record-1');
@@ -52,13 +59,29 @@ test('persists detected reply evidence and preserves no automatic-response autho
     providerInternalDate: '2000',
     snippet: 'Thanks',
     textBody: 'Thanks, tell me more.',
+    providerDeliveryStatusEvidence: false,
   });
   assert.equal(result.replyDetected, true);
   assert.equal(result.evidenceRecorded, true);
   assert.equal(result.inboundEvidenceId, '41');
   assert.equal(result.providerMessageId, 'reply-1');
+  assert.equal(result.persistedEvidence?.providerDeliveryStatusEvidence, false);
   assert.equal(result.automaticResponseAuthorised, false);
   assert.equal(result.nextAction, 'classify_persisted_inbound_reply');
+});
+
+test('persists Gmail delivery-status provenance as authoritative provider evidence', async () => {
+  const recorded: any[] = [];
+  const service = createSalesInboundReplyEvidenceService(
+    { async detect() { return detectedReply(true); } },
+    recordingStore(recorded),
+  );
+
+  const result = await service.inspect('sent-record-1');
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].providerDeliveryStatusEvidence, true);
+  assert.equal(result.persistedEvidence?.providerDeliveryStatusEvidence, true);
+  assert.equal(result.automaticResponseAuthorised, false);
 });
 
 test('does not persist anything when no external reply is detected', async () => {
