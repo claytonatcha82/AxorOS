@@ -1,16 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { IntegrationRequest } from './integration-contract.js';
+import type { ModelGenerationInput } from './model-integration.js';
 import { createOpenAIModelIntegration } from './openai-model-integration.js';
 
-function request() {
+function request(): IntegrationRequest<ModelGenerationInput> {
   return {
     integrationId: 'model.openai',
     requestedBy: 'sales_agent',
     executionId: 'sales-openai-test-1',
     correlationId: 'lead-1',
     operation: 'generate_text',
-    mode: 'draft' as const,
-    risk: 'medium' as const,
+    mode: 'draft',
+    risk: 'medium',
     input: {
       systemInstruction: 'Stay within Sales governance.',
       context: 'Prospect asked for more information.',
