@@ -1,5 +1,6 @@
 import type { OperationalRepository } from '../data/operational-repository.js';
 import type { SalesEmailSendAttemptPostgresStore } from '../data/sales-email-send-attempt-postgres-store.js';
+import type { SalesOutreachSuppressionPostgresStore } from '../data/sales-outreach-suppression-postgres-store.js';
 
 export interface SalesEmailMessage {
   to: string;
@@ -48,6 +49,7 @@ export function createSalesSupervisedEmailExecutionService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent'>,
   transport: SalesEmailTransport,
   sendAttempts: Pick<SalesEmailSendAttemptPostgresStore, 'reserve' | 'markSent' | 'markFailed'>,
+  suppressions?: Pick<SalesOutreachSuppressionPostgresStore, 'isActiveForRecipient'>,
 ) {
   return {
     async execute(sendGateRecordId: string) {
@@ -105,6 +107,10 @@ export function createSalesSupervisedEmailExecutionService(
         subject: requiredString(draft.subject, 'draft.subject'),
         body: requiredString(draft.body, 'draft.body'),
       };
+
+      if (suppressions && await suppressions.isActiveForRecipient(message.to)) {
+        throw new Error(`Sales email execution blocked by active outreach suppression for ${message.to}.`);
+      }
 
       const idempotencyKey = `sales-supervised-email-send:${gateRecord.id}`;
       await sendAttempts.reserve(gateRecord.id, draftRecord.id, leadId, idempotencyKey);
