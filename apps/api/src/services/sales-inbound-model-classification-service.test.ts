@@ -115,6 +115,30 @@ test('high-risk model result forces sensitive signal and Human Executive routing
   assert.equal(record.responseAuthorised, false);
 });
 
+test('classifier guidance reserves high-risk commercial flag for Finance-owned financial administration', async () => {
+  const model = modelReturning({
+    primaryCategory: 'sensitive_or_high_risk',
+    evidenceReasons: [{ reason: 'Sender claims an invoice was already paid.' }],
+    commercialTopicDetected: true,
+    sensitiveTopicDetected: true,
+    uncertaintyDetected: false,
+  });
+  const originalExecute = model.execute.bind(model);
+  model.execute = async (request) => {
+    const instruction = request.input.systemInstruction ?? '';
+    assert.match(instruction, /Finance-owned financial administration/);
+    assert.match(instruction, /Sales must not confirm payment/);
+    assert.match(instruction, /Exceptional discounts, bespoke terms/);
+    return originalExecute(request);
+  };
+
+  const service = createSalesInboundModelClassificationService(model);
+  const record = await service.classify({ ...evidence, bodyOrSnippet: 'I already paid the invoice.' });
+  assert.equal(record.primaryCategory, 'sensitive_or_high_risk');
+  assert.equal(record.commercialTopicDetected, true);
+  assert.equal(record.responseAuthorised, false);
+});
+
 test('model cannot return deterministic safety categories', async () => {
   const service = createSalesInboundModelClassificationService(modelReturning({
     primaryCategory: 'opt_out',
