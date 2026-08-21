@@ -106,11 +106,16 @@ export function createSalesInboundModelClassificationService(
       const providerMessageId = requireText(evidence.providerMessageId, 'providerMessageId');
       const senderAddress = requireText(evidence.senderAddress, 'senderAddress');
       const bodyOrSnippet = requireText(evidence.bodyOrSnippet, 'bodyOrSnippet');
+      const executionId = `sales-inbound-classification:${providerMessageId}`;
 
       const response = await model.execute({
-        executionId: `sales-inbound-classification:${providerMessageId}`,
+        integrationId: 'model.gemini',
+        requestedBy: 'sales',
+        executionId,
+        correlationId: inboundEvidenceId,
         operation: 'generate_text',
         mode: 'draft',
+        risk: 'medium',
         input: {
           systemInstruction: [
             'You are a bounded Sales inbound intent classifier for AxorOS.',
