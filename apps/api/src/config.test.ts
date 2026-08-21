@@ -70,6 +70,22 @@ test('loadConfig omits empty Gemini configuration', () => {
   assert.equal(config.geminiModel, undefined);
 });
 
+test('loadConfig reads OpenAI credentials and optional model from environment', () => {
+  const config = loadConfig({
+    OPENAI_API_KEY: '  openai-secret-key  ',
+    AXOROS_OPENAI_MODEL: '  gpt-5.6-terra  ',
+  });
+
+  assert.equal(config.openaiApiKey, 'openai-secret-key');
+  assert.equal(config.openaiModel, 'gpt-5.6-terra');
+});
+
+test('loadConfig omits empty OpenAI configuration', () => {
+  const config = loadConfig({ OPENAI_API_KEY: '   ', AXOROS_OPENAI_MODEL: '   ' });
+  assert.equal(config.openaiApiKey, undefined);
+  assert.equal(config.openaiModel, undefined);
+});
+
 test('loadConfig reads complete Gmail draft credentials and identity addresses', () => {
   const config = loadConfig({
     AXOROS_GMAIL_CLIENT_ID: ' client-id ',
