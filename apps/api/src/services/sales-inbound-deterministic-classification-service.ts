@@ -47,7 +47,6 @@ export function classifySalesInboundDeterministically(
       leadId: input.leadId,
       providerMessageId: input.providerMessageId,
       primaryCategory: 'opt_out',
-      confidence: 1,
       evidenceReasons: [
         { reason: `Explicit opt-out phrase detected: ${optOut.matchedPhrase ?? 'matched deterministic rule'}` },
       ],
