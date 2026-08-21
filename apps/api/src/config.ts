@@ -13,6 +13,8 @@ export interface ApiConfig {
   betterStackSourceToken?: string;
   geminiApiKey?: string;
   geminiModel?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
   gmailClientId?: string;
   gmailClientSecret?: string;
   gmailRefreshToken?: string;
@@ -85,6 +87,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const geminiApiKey = env.GEMINI_API_KEY?.trim() || undefined;
   const geminiModel = env.AXOROS_GEMINI_MODEL?.trim() || undefined;
+  const openaiApiKey = env.OPENAI_API_KEY?.trim() || undefined;
+  const openaiModel = env.AXOROS_OPENAI_MODEL?.trim() || undefined;
   const gmailClientId = env.AXOROS_GMAIL_CLIENT_ID?.trim() || undefined;
   const gmailClientSecret = env.AXOROS_GMAIL_CLIENT_SECRET?.trim() || undefined;
   const gmailRefreshToken = env.AXOROS_GMAIL_REFRESH_TOKEN?.trim() || undefined;
@@ -120,6 +124,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (betterStackSourceToken) config.betterStackSourceToken = betterStackSourceToken;
   if (geminiApiKey) config.geminiApiKey = geminiApiKey;
   if (geminiModel) config.geminiModel = geminiModel;
+  if (openaiApiKey) config.openaiApiKey = openaiApiKey;
+  if (openaiModel) config.openaiModel = openaiModel;
   if (gmailClientId) config.gmailClientId = gmailClientId;
   if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
