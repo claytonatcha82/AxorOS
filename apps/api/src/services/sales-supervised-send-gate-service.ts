@@ -1,4 +1,5 @@
 import type { OperationalRepository } from '../data/operational-repository.js';
+import type { SalesOutreachSuppressionPostgresStore } from '../data/sales-outreach-suppression-postgres-store.js';
 
 export type SalesSupervisedSendDecision = 'approved' | 'rejected';
 export type SalesSupervisedSendDraftKind = 'outreach' | 'inbound_response';
@@ -34,6 +35,7 @@ function draftKindForReviewEventType(eventType: string): SalesSupervisedSendDraf
 
 export function createSalesSupervisedSendGateService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent'>,
+  suppressions?: Pick<SalesOutreachSuppressionPostgresStore, 'isActiveForRecipient'>,
 ) {
   return {
     async decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision) {
@@ -76,10 +78,25 @@ export function createSalesSupervisedSendGateService(
         throw new Error('Supervised send approval must start from a review record with no inherited response, outreach, send, pricing, discount, commercial commitment, or contract authority.');
       }
 
+      const draftRecordId = requiredString(payload.draftRecordId, 'draftRecordId');
+      const leadId = requiredString(payload.leadId, 'leadId');
+      if (decision === 'approved' && suppressions) {
+        const draftRecord = await repository.getWorkflowEventById(draftRecordId);
+        if (!draftRecord) throw new Error(`Sales draft record ${draftRecordId} was not found for suppression verification.`);
+        if (!draftRecord.payload || typeof draftRecord.payload !== 'object' || Array.isArray(draftRecord.payload)) {
+          throw new Error('Sales draft payload is invalid for suppression verification.');
+        }
+        const draftPayload = draftRecord.payload as Record<string, unknown>;
+        const recipientEmail = requiredString(draftPayload.recipientEmail, 'draft.recipientEmail');
+        if (await suppressions.isActiveForRecipient(recipientEmail)) {
+          throw new Error(`Sales send approval blocked by active outreach suppression for ${recipientEmail}.`);
+        }
+      }
+
       const gate: SalesSupervisedSendGate = {
         draftReviewRecordId: reviewRecord.id,
-        draftRecordId: requiredString(payload.draftRecordId, 'draftRecordId'),
-        leadId: requiredString(payload.leadId, 'leadId'),
+        draftRecordId,
+        leadId,
         draftKind,
         decision,
         approver: 'human_executive',
