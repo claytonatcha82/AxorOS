@@ -41,6 +41,59 @@ test('uses snippet evidence when text body is unavailable', () => {
   assert.equal(result.classification.primaryCategory, 'opt_out');
 });
 
+test('gives explicit opt-out precedence over automated-response signals', () => {
+  const result = classifySalesInboundDeterministically({
+    ...baseInput,
+    textBody: 'Automatic reply: I am out of office. Please unsubscribe me.',
+  });
+
+  assert.equal(result.classificationApplied, true);
+  if (!result.classificationApplied) assert.fail('Expected deterministic classification.');
+  assert.equal(result.classification.primaryCategory, 'opt_out');
+  assert.equal(result.classification.deterministicSignals.optOutDetected, true);
+  assert.equal(result.classification.deterministicSignals.automatedResponseDetected, false);
+});
+
+test('classifies known automated responses deterministically before model classification', () => {
+  const result = classifySalesInboundDeterministically({
+    ...baseInput,
+    textBody: 'Automatic reply: I am currently out of the office and will return next week.',
+  });
+
+  assert.equal(result.classificationApplied, true);
+  if (!result.classificationApplied) assert.fail('Expected deterministic classification.');
+  assert.equal(result.classification.primaryCategory, 'automated_response');
+  assert.equal(result.classification.classificationSource, 'deterministic');
+  assert.equal(result.classification.deterministicSignals.automatedResponseDetected, true);
+  assert.equal(result.classification.nextAction, 'await_or_schedule_governed_evaluation');
+  assert.equal(result.classification.responseAuthorised, false);
+});
+
+test('classifies delivery failure only when provider or system provenance is explicit', () => {
+  const result = classifySalesInboundDeterministically({
+    ...baseInput,
+    textBody: 'Delivery has failed because the address was not found.',
+    deliveryFailureProvenance: 'provider_or_system',
+  });
+
+  assert.equal(result.classificationApplied, true);
+  if (!result.classificationApplied) assert.fail('Expected deterministic classification.');
+  assert.equal(result.classification.primaryCategory, 'delivery_failure');
+  assert.equal(result.classification.classificationSource, 'deterministic');
+  assert.equal(result.classification.deterministicSignals.deliveryFailureDetected, true);
+  assert.equal(result.classification.nextAction, 'verify_contact_data_or_escalate');
+  assert.equal(result.classification.responseAuthorised, false);
+});
+
+test('does not treat bounce-like ordinary message content as authoritative delivery failure evidence', () => {
+  const result = classifySalesInboundDeterministically({
+    ...baseInput,
+    textBody: 'Our customer said their delivery has failed before, can you help?',
+  });
+
+  assert.deepEqual(result, { classificationApplied: false });
+});
+
 test('does not deterministically classify ordinary rejection as opt-out', () => {
   const result = classifySalesInboundDeterministically({
     ...baseInput,
