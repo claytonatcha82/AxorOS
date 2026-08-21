@@ -44,10 +44,13 @@ const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
 const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operationalRepository);
-const salesSupervisedSendGate = createSalesSupervisedSendGateService(operationalRepository);
+const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
+const salesSupervisedSendGate = createSalesSupervisedSendGateService(
+  operationalRepository,
+  salesOutreachSuppressions,
+);
 const salesEmailTransport = createSalesIntegrationEmailTransport(integrationRegistry);
 const salesEmailSendAttempts = new SalesEmailSendAttemptPostgresStore(databasePool);
-const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
 const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(
   operationalRepository,
   salesEmailTransport,
@@ -199,6 +202,7 @@ async function start(): Promise<void> {
       salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      salesSupervisedSendGateSuppressionConfigured: true,
       salesSupervisedEmailRuntimeConfigured: true,
       salesSupervisedEmailSuppressionConfigured: true,
       salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
