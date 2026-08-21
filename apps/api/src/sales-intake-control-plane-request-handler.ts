@@ -60,7 +60,7 @@ export interface SalesIntakeControlPlaneDependencies {
         sendAuthorised: boolean;
         pricingAuthorised: false;
         commercialCommitmentAuthorised: false;
-        nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review';
+        nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review';
       };
       record: WorkflowEventRecord;
     }>;
