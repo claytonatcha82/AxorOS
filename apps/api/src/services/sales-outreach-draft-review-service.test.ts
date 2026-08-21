@@ -22,6 +22,24 @@ function draftRecord(overrides: Record<string, unknown> = {}): WorkflowEventReco
   };
 }
 
+function inboundDraftRecord(overrides: Record<string, unknown> = {}): WorkflowEventRecord {
+  return {
+    id: 'workflow-inbound-draft-1', clientId: null, projectId: null,
+    eventType: 'sales_inbound_response_draft_recorded', actorType: 'agent', actorId: 'sales_agent',
+    payload: {
+      inboundEvidenceId: 'inbound-evidence-1', providerMessageId: 'provider-message-1', leadId: 'lead-1',
+      recipientEmail: 'lead@example.com', subject: 'Re: Website opportunity', body: 'Thank you for your reply.',
+      primaryCategory: 'positive_interest', governedNextAction: 'prepare_sales_response', owner: 'sales_agent',
+      status: 'internal_review_required', humanReviewRequired: true, preparationOnly: true,
+      responseAuthorised: false, sendAuthorised: false, pricingAuthorised: false, discountAuthorised: false,
+      commercialCommitmentAuthorised: false, contractAuthorised: false,
+      nextAction: 'request_human_inbound_response_draft_review',
+      ...overrides,
+    },
+    createdAt: now,
+  };
+}
+
 function harness(record = draftRecord()) {
   const events: WorkflowEventRecord[] = [];
   const service = createSalesOutreachDraftReviewService({
@@ -43,6 +61,7 @@ test('human executive can approve persisted internal outreach draft without auth
   const { service, events } = harness();
   const result = await service.review('workflow-draft-1', 'approved');
 
+  assert.equal(result.review.draftKind, 'outreach');
   assert.equal(result.review.decision, 'approved');
   assert.equal(result.review.reviewer, 'human_executive');
   assert.equal(result.review.reviewComplete, true);
@@ -65,11 +84,48 @@ test('human executive can reject persisted internal outreach draft and route it 
   assert.equal(result.review.sendAuthorised, false);
 });
 
+test('human executive can approve persisted inbound response draft without inheriting authority', async () => {
+  const { service, events } = harness(inboundDraftRecord());
+  const result = await service.review('workflow-inbound-draft-1', 'approved');
+
+  assert.equal(result.review.draftKind, 'inbound_response');
+  assert.equal(result.review.decision, 'approved');
+  assert.equal(result.review.reviewer, 'human_executive');
+  assert.equal(result.review.responseAuthorised, false);
+  assert.equal(result.review.sendAuthorised, false);
+  assert.equal(result.review.pricingAuthorised, false);
+  assert.equal(result.review.discountAuthorised, false);
+  assert.equal(result.review.commercialCommitmentAuthorised, false);
+  assert.equal(result.review.contractAuthorised, false);
+  assert.equal(result.review.nextAction, 'prepare_supervised_send_gate');
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.eventType, 'sales_inbound_response_draft_review_recorded');
+  assert.equal(events[0]?.actorType, 'founder');
+  assert.equal(events[0]?.actorId, 'human_executive');
+});
+
+test('human executive can reject inbound response draft and route it to inbound revision', async () => {
+  const { service } = harness(inboundDraftRecord());
+  const result = await service.review('workflow-inbound-draft-1', 'rejected');
+  assert.equal(result.review.draftKind, 'inbound_response');
+  assert.equal(result.review.nextAction, 'revise_inbound_response_draft');
+  assert.equal(result.review.sendAuthorised, false);
+});
+
 test('draft review refuses a draft carrying send authority', async () => {
   const { service, events } = harness(draftRecord({ sendAuthorised: true }));
   await assert.rejects(
     service.review('workflow-draft-1', 'approved'),
-    /must not inherit outreach, send, pricing, or commercial commitment authority/i,
+    /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i,
+  );
+  assert.equal(events.length, 0);
+});
+
+test('inbound draft review refuses a draft carrying consequential authority', async () => {
+  const { service, events } = harness(inboundDraftRecord({ contractAuthorised: true }));
+  await assert.rejects(
+    service.review('workflow-inbound-draft-1', 'approved'),
+    /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i,
   );
   assert.equal(events.length, 0);
 });
@@ -79,7 +135,7 @@ test('draft review refuses non-draft workflow records', async () => {
   const { service, events } = harness(record);
   await assert.rejects(
     service.review('workflow-draft-1', 'approved'),
-    /requires a persisted internal Sales outreach draft record/i,
+    /requires a persisted internal outreach or inbound response draft record/i,
   );
   assert.equal(events.length, 0);
 });
