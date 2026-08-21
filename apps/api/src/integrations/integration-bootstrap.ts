@@ -1,7 +1,7 @@
 import type { ApiConfig } from '../config.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
-import { createGmailDraftIntegration } from './gmail-draft-integration.js';
+import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail-draft-integration.js';
 import { createGooglePlacesLeadResearchIntegration } from './google-places-lead-research-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
 import type { IntegrationExecutionPolicy } from './integration-policy.js';
@@ -12,6 +12,7 @@ import { createTavilyPublicWebResearchIntegration } from './tavily-public-web-re
 export interface IntegrationBootstrapResult {
   registry: IntegrationRegistry;
   registeredIntegrationIds: readonly string[];
+  gmailIntegration?: GmailEmailIntegration;
 }
 
 function integrationPolicy(config: ApiConfig): IntegrationExecutionPolicy {
@@ -34,6 +35,7 @@ function integrationPolicy(config: ApiConfig): IntegrationExecutionPolicy {
 export function createConfiguredIntegrationRegistry(config: ApiConfig): IntegrationBootstrapResult {
   const registry = new IntegrationRegistry(integrationPolicy(config));
   const registeredIntegrationIds: string[] = [];
+  let gmailIntegration: GmailEmailIntegration | undefined;
 
   const sandbox = createSandboxModelIntegration();
   registry.register(sandbox);
@@ -68,6 +70,7 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     });
     registry.register(gmail);
     registeredIntegrationIds.push(gmail.integrationId);
+    gmailIntegration = gmail;
   }
 
   if (config.googlePlacesApiKey) {
@@ -82,5 +85,9 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     registeredIntegrationIds.push(tavily.integrationId);
   }
 
-  return { registry, registeredIntegrationIds };
+  return {
+    registry,
+    registeredIntegrationIds,
+    ...(gmailIntegration ? { gmailIntegration } : {}),
+  };
 }
