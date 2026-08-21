@@ -16,6 +16,7 @@ test('configured registry always includes model and payment sandboxes and omits 
   assert.deepEqual(registry.require('payment.sandbox').supportedOperations, ['verify_payment']);
   assert.equal(registry.get('payment.paystack'), undefined);
   assert.equal(registry.get('model.gemini'), undefined);
+  assert.equal(registry.get('model.openai'), undefined);
   assert.equal(registry.get('email.gmail'), undefined);
   assert.equal(registry.get('research.google-places'), undefined);
   assert.equal(registry.get('research.tavily-web'), undefined);
@@ -40,6 +41,31 @@ test('configured registry registers Gemini only when a key is configured', () =>
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.gemini']);
   assert.equal(registry.require('model.gemini').provider, 'google-gemini');
   assert.deepEqual(registry.require('model.gemini').supportedModes, ['draft']);
+});
+
+test('configured registry registers OpenAI only when a key is configured', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    openaiApiKey: 'test-openai-secret',
+    openaiModel: 'gpt-5.6-terra',
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.openai']);
+  const openai = registry.require('model.openai');
+  assert.equal(openai.provider, 'openai');
+  assert.deepEqual(openai.supportedModes, ['draft']);
+});
+
+test('configured registry allows Gemini and OpenAI to coexist without replacing either provider', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    geminiApiKey: 'test-gemini-secret',
+    geminiModel: 'gemini-test-model',
+    openaiApiKey: 'test-openai-secret',
+    openaiModel: 'gpt-5.6-terra',
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.gemini', 'model.openai']);
+  assert.equal(registry.require('model.gemini').provider, 'google-gemini');
+  assert.equal(registry.require('model.openai').provider, 'openai');
 });
 
 test('configured registry registers Gmail as draft-only when complete credentials are configured', () => {
