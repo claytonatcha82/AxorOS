@@ -16,12 +16,13 @@ function workflowRow() {
   };
 }
 
-function evidenceRow(textBody: string) {
+function evidenceRow(textBody: string, providerDeliveryStatusEvidence = false) {
   return {
     id: '41', outbound_record_id: 'sent-record-1', lead_id: 'lead-1',
     provider_thread_reference: 'thread-1', provider_message_id: 'reply-1',
     sender_address: 'owner@example.com', recipient_address: 'sales@axoros.test',
     subject: 'Re: Website opportunity', provider_internal_date: '2000', snippet: textBody, text_body: textBody,
+    provider_delivery_status_evidence: providerDeliveryStatusEvidence,
     recorded_at: new Date('2026-08-21T12:01:00.000Z'),
   };
 }
@@ -54,14 +55,19 @@ function classificationRow(record: ReturnType<typeof createSalesInboundReplyClas
   };
 }
 
-function gmailFor(textBody: string) {
+function gmailFor(textBody: string, deliveryStatusNotification = false) {
   return {
     async readThread(threadReference: string) {
       return {
         threadReference,
         messages: [
           { messageId: 'outbound-1', threadReference, from: 'sales@axoros.test', to: 'owner@example.com', internalDate: '1000' },
-          { messageId: 'reply-1', threadReference, from: 'owner@example.com', to: 'sales@axoros.test', internalDate: '2000', subject: 'Re: Website opportunity', snippet: textBody, textBody },
+          {
+            messageId: 'reply-1', threadReference,
+            from: deliveryStatusNotification ? 'mailer-daemon@example.test' : 'owner@example.com',
+            to: 'sales@axoros.test', internalDate: '2000', subject: 'Re: Website opportunity', snippet: textBody, textBody,
+            ...(deliveryStatusNotification ? { deliveryStatusNotification: true } : {}),
+          },
         ],
       };
     },
@@ -128,6 +134,45 @@ test('persists deterministic opt-out classification without invoking OpenAI', as
   assert.equal(result.classificationRecorded, true);
   assert.equal(result.classification?.primaryCategory, 'opt_out');
   assert.equal(result.classification?.classificationSource, 'deterministic');
+  assert.equal(result.classification?.responseAuthorised, false);
+});
+
+test('persists provider delivery failure deterministically without invoking OpenAI', async () => {
+  const textBody = 'Delivery failed: address not found.';
+  let modelCalls = 0;
+  const classifications: any[] = [];
+  const pool = {
+    async query(sql: string, params?: unknown[]) {
+      if (/from operational\.workflow_events where id = \$1/i.test(sql)) return { rows: [workflowRow()] };
+      if (/insert into operational\.sales_inbound_reply_evidence/i.test(sql)) return { rows: [evidenceRow(textBody, true)] };
+      if (/insert into operational\.sales_inbound_reply_classifications/i.test(sql)) {
+        const record = createSalesInboundReplyClassificationRecord({
+          inboundEvidenceId: String(params?.[0]), outboundRecordId: String(params?.[1]), leadId: String(params?.[2]), providerMessageId: String(params?.[3]),
+          primaryCategory: String(params?.[4]) as 'delivery_failure', evidenceReasons: JSON.parse(String(params?.[6])),
+          deterministicSignals: { optOutDetected: Boolean(params?.[7]), automatedResponseDetected: Boolean(params?.[8]), deliveryFailureDetected: Boolean(params?.[9]) },
+          commercialTopicDetected: Boolean(params?.[10]), sensitiveTopicDetected: Boolean(params?.[11]), uncertaintyDetected: Boolean(params?.[12]),
+          classificationSource: String(params?.[13]) as 'deterministic', nextAction: String(params?.[15]) as 'verify_contact_data_or_escalate',
+          humanReviewRequired: Boolean(params?.[16]), classifiedAt: String(params?.[17]),
+        });
+        classifications.push(record);
+        return { rows: [classificationRow(record)] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  } as unknown as Pool;
+  const runtime = createPersistedSalesInboundReplyRuntime(pool, gmailFor(textBody, true), {
+    async classify() { modelCalls += 1; throw new Error('OpenAI must not be called for provider delivery failure.'); },
+  });
+
+  const result = await runtime.commands.inspectPersistAndClassify('sent-record-1');
+  assert.equal(modelCalls, 0);
+  assert.equal(classifications.length, 1);
+  assert.equal(result.persistedEvidence?.providerDeliveryStatusEvidence, true);
+  assert.equal(result.classificationRecorded, true);
+  assert.equal(result.classification?.primaryCategory, 'delivery_failure');
+  assert.equal(result.classification?.deterministicSignals.deliveryFailureDetected, true);
+  assert.equal(result.classification?.classificationSource, 'deterministic');
+  assert.equal(result.classification?.nextAction, 'verify_contact_data_or_escalate');
   assert.equal(result.classification?.responseAuthorised, false);
 });
 
