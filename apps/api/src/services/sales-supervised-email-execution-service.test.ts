@@ -40,7 +40,7 @@ function attempt(gateId: string, draftId: string, leadId: string, idempotencyKey
   };
 }
 
-function harness(events = fixtures(), transportError?: Error) {
+function harness(events = fixtures(), transportError?: Error, suppressedRecipients: string[] = []) {
   const sent: SalesEmailMessage[] = [];
   const contexts: SalesEmailSendContext[] = [];
   const created: any[] = [];
@@ -48,6 +48,7 @@ function harness(events = fixtures(), transportError?: Error) {
   const markedSent: Array<{ gateId: string; providerMessageId: string }> = [];
   const markedFailed: Array<{ gateId: string; errorMessage: string }> = [];
   const reserved = new Set<string>();
+  const suppressed = new Set(suppressedRecipients.map((address) => address.toLowerCase()));
 
   const service = createSalesSupervisedEmailExecutionService(
     {
@@ -81,6 +82,11 @@ function harness(events = fixtures(), transportError?: Error) {
         markedFailed.push({ gateId, errorMessage });
         const result = attempt(gateId, 'draft-1', 'lead-1', `sales-supervised-email-send:${gateId}`, 'failed');
         return { ...result, errorMessage, completedAt: new Date().toISOString() };
+      },
+    },
+    {
+      async isActiveForRecipient(recipientAddress) {
+        return suppressed.has(recipientAddress.toLowerCase());
       },
     },
   );
@@ -130,6 +136,14 @@ test('marks a reserved attempt failed when transport execution fails', async () 
   assert.equal(sent.length, 1);
   assert.equal(markedSent.length, 0);
   assert.deepEqual(markedFailed, [{ gateId: 'gate-1', errorMessage: 'provider unavailable' }]);
+  assert.equal(created.length, 0);
+});
+
+test('blocks an actively suppressed recipient before reservation or provider execution', async () => {
+  const { service, sent, reservations, created } = harness(fixtures(), undefined, ['OWNER@example.com']);
+  await assert.rejects(() => service.execute('gate-1'), /active outreach suppression/);
+  assert.equal(sent.length, 0);
+  assert.equal(reservations.length, 0);
   assert.equal(created.length, 0);
 });
 
