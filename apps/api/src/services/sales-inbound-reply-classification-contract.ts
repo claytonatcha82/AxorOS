@@ -97,6 +97,7 @@ export function createSalesInboundReplyClassificationRecord(
   const evidenceReasons = input.evidenceReasons.map(({ reason }) => ({
     reason: requireNonEmpty(reason, 'evidence reason'),
   }));
+  const modelReference = input.modelReference?.trim();
 
   return {
     ...input,
@@ -105,7 +106,7 @@ export function createSalesInboundReplyClassificationRecord(
     leadId: requireNonEmpty(input.leadId, 'leadId'),
     providerMessageId: requireNonEmpty(input.providerMessageId, 'providerMessageId'),
     evidenceReasons,
-    modelReference: input.modelReference?.trim() || undefined,
+    ...(modelReference ? { modelReference } : {}),
     classifiedAt: requireNonEmpty(input.classifiedAt, 'classifiedAt'),
     responseAuthorised: false,
     pricingAuthorised: false,
