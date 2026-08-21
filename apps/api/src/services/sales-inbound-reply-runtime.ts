@@ -42,6 +42,9 @@ export function createPersistedSalesInboundReplyRuntime(
       providerMessageId: persistedEvidence.providerMessageId,
       ...(persistedEvidence.textBody ? { textBody: persistedEvidence.textBody } : {}),
       ...(persistedEvidence.snippet ? { snippet: persistedEvidence.snippet } : {}),
+      ...(persistedEvidence.providerDeliveryStatusEvidence
+        ? { deliveryFailureProvenance: 'provider_or_system' as const }
+        : {}),
       classifiedAt: new Date().toISOString(),
     });
 
