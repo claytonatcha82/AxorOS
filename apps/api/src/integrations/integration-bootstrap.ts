@@ -5,6 +5,7 @@ import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail
 import { createGooglePlacesLeadResearchIntegration } from './google-places-lead-research-integration.js';
 import { IntegrationRegistry } from './integration-registry.js';
 import type { IntegrationExecutionPolicy } from './integration-policy.js';
+import { createOpenAIModelIntegration } from './openai-model-integration.js';
 import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
 import { createTavilyPublicWebResearchIntegration } from './tavily-public-web-research-integration.js';
@@ -58,6 +59,15 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     });
     registry.register(gemini);
     registeredIntegrationIds.push(gemini.integrationId);
+  }
+
+  if (config.openaiApiKey) {
+    const openai = createOpenAIModelIntegration({
+      apiKey: config.openaiApiKey,
+      ...(config.openaiModel ? { model: config.openaiModel } : {}),
+    });
+    registry.register(openai);
+    registeredIntegrationIds.push(openai.integrationId);
   }
 
   if (config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken && config.gmailIdentityAddresses) {
