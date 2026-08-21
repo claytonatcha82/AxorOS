@@ -27,14 +27,14 @@ export function createPersistedSalesInboundReplyRuntime(
 
   async function inspectPersistAndClassify(outboundRecordId: string) {
     const evidenceResult = await evidence.inspect(outboundRecordId);
-    if (!evidenceResult.evidenceRecorded || !evidenceResult.evidence) {
+    if (!evidenceResult.evidenceRecorded || !evidenceResult.persistedEvidence) {
       return {
         ...evidenceResult,
         classificationRecorded: false as const,
       };
     }
 
-    const persistedEvidence = evidenceResult.evidence;
+    const persistedEvidence = evidenceResult.persistedEvidence;
     const deterministic = classifySalesInboundDeterministically({
       inboundEvidenceId: persistedEvidence.inboundEvidenceId,
       outboundRecordId: persistedEvidence.outboundRecordId,
