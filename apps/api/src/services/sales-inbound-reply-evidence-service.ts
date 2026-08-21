@@ -6,6 +6,7 @@ export interface SalesInboundReplyEvidenceResult {
   leadId: string;
   replyDetected: boolean;
   evidenceRecorded: boolean;
+  inboundEvidenceId?: string;
   providerMessageId?: string;
   automaticResponseAuthorised: false;
   nextAction: 'await_external_reply' | 'classify_persisted_inbound_reply';
@@ -30,7 +31,7 @@ export function createSalesInboundReplyEvidenceService(
       }
 
       const reply = detection.reply;
-      await evidenceStore.record({
+      const evidence = await evidenceStore.record({
         outboundRecordId: detection.outboundRecordId,
         leadId: detection.leadId,
         providerThreadReference: detection.providerThreadReference,
@@ -48,6 +49,7 @@ export function createSalesInboundReplyEvidenceService(
         leadId: detection.leadId,
         replyDetected: true,
         evidenceRecorded: true,
+        inboundEvidenceId: evidence.inboundEvidenceId,
         providerMessageId: reply.messageId,
         automaticResponseAuthorised: false,
         nextAction: 'classify_persisted_inbound_reply',
