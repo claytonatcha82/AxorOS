@@ -125,7 +125,9 @@ export function createSalesInboundModelClassificationService(
             'Do not invent sender statements, facts, pricing, discounts, capabilities, commitments, payment status, contracts, or authority.',
             'If intent is materially unclear, use ambiguous and set uncertaintyDetected true.',
             'Legal, regulatory, security, privacy, threatening, complaint, or other consequential sensitive content must use sensitive_or_high_risk.',
-            'A payment claim is commercially consequential and must be marked sensitive_or_high_risk; Sales must not confirm payment.',
+            'A client payment claim, invoice-status issue, billing-status issue, reconciliation issue, or request for payment verification is Finance-owned financial administration: classify it sensitive_or_high_risk and set commercialTopicDetected true. Sales must not confirm payment.',
+            'Pricing questions belong to pricing_or_commercial_question. Exceptional discounts, bespoke terms, unusual payment arrangements, negotiation requests, and other exceptional commercial decisions are Human Executive matters; do not use commercialTopicDetected merely because a matter is commercial.',
+            'Within sensitive_or_high_risk, commercialTopicDetected true is reserved for Finance-owned financial administration that should route from Sales to Finance. Otherwise set it false so high-risk matters route to the Human Executive.',
             'Return JSON only with: primaryCategory, evidenceReasons (array of {reason}), commercialTopicDetected, sensitiveTopicDetected, uncertaintyDetected.',
           ].join(' '),
           context: JSON.stringify({
