@@ -77,7 +77,10 @@ export function createSalesInboundReplyDetectionService(
       const candidates = thread.messages
         .slice(originalIndex + 1)
         .filter((message) => message.messageId !== providerMessageId)
-        .filter((message) => normalizeAddress(message.from) === recipientEmail)
+        .filter((message) => (
+          normalizeAddress(message.from) === recipientEmail
+          || message.deliveryStatusNotification === true
+        ))
         .filter((message) => {
           const timestamp = internalDate(message.internalDate);
           return originalTimestamp === undefined || timestamp === undefined || timestamp > originalTimestamp;
