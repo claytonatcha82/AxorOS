@@ -1,24 +1,35 @@
 import type { OperationalRepository } from '../data/operational-repository.js';
 
 export type SalesSupervisedSendDecision = 'approved' | 'rejected';
+export type SalesSupervisedSendDraftKind = 'outreach' | 'inbound_response';
 
 export interface SalesSupervisedSendGate {
   draftReviewRecordId: string;
   draftRecordId: string;
   leadId: string;
+  draftKind: SalesSupervisedSendDraftKind;
   decision: SalesSupervisedSendDecision;
   approver: 'human_executive';
   supervised: true;
+  responseAuthorised: false;
   outreachAuthorised: false;
   sendAuthorised: boolean;
   pricingAuthorised: false;
+  discountAuthorised: false;
   commercialCommitmentAuthorised: false;
-  nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review';
+  contractAuthorised: false;
+  nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review';
 }
 
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} is required.`);
   return value.trim();
+}
+
+function draftKindForReviewEventType(eventType: string): SalesSupervisedSendDraftKind {
+  if (eventType === 'sales_outreach_draft_review_recorded') return 'outreach';
+  if (eventType === 'sales_inbound_response_draft_review_recorded') return 'inbound_response';
+  throw new Error('Supervised send approval requires a persisted outreach or inbound response draft review record.');
 }
 
 export function createSalesSupervisedSendGateService(
@@ -32,50 +43,59 @@ export function createSalesSupervisedSendGateService(
       }
 
       const reviewRecord = await repository.getWorkflowEventById(normalizedReviewRecordId);
-      if (!reviewRecord) throw new Error(`Sales outreach draft review record ${normalizedReviewRecordId} was not found.`);
-      if (reviewRecord.eventType !== 'sales_outreach_draft_review_recorded') {
-        throw new Error('Supervised send approval requires a persisted outreach draft review record.');
-      }
+      if (!reviewRecord) throw new Error(`Sales draft review record ${normalizedReviewRecordId} was not found.`);
+      const draftKind = draftKindForReviewEventType(reviewRecord.eventType);
       if (reviewRecord.actorType !== 'founder' || reviewRecord.actorId !== 'human_executive') {
         throw new Error('Supervised send approval requires human executive draft review provenance.');
       }
       if (!reviewRecord.payload || typeof reviewRecord.payload !== 'object' || Array.isArray(reviewRecord.payload)) {
-        throw new Error('Sales outreach draft review payload is invalid.');
+        throw new Error('Sales draft review payload is invalid.');
       }
 
       const payload = reviewRecord.payload as Record<string, unknown>;
       if (payload.decision !== 'approved' || payload.reviewComplete !== true) {
-        throw new Error('Supervised send approval requires an approved, completed outreach draft review.');
+        throw new Error('Supervised send approval requires an approved, completed draft review.');
       }
       if (payload.reviewer !== 'human_executive') {
         throw new Error('Supervised send approval requires human executive review.');
       }
       if (payload.nextAction !== 'prepare_supervised_send_gate') {
-        throw new Error('Outreach draft review is not ready for supervised send approval.');
+        throw new Error('Sales draft review is not ready for supervised send approval.');
       }
       if (
         payload.outreachAuthorised !== false
         || payload.sendAuthorised !== false
         || payload.pricingAuthorised !== false
         || payload.commercialCommitmentAuthorised !== false
+        || (draftKind === 'inbound_response' && (
+          payload.responseAuthorised !== false
+          || payload.discountAuthorised !== false
+          || payload.contractAuthorised !== false
+        ))
       ) {
-        throw new Error('Supervised send approval must start from a review record with no inherited authority.');
+        throw new Error('Supervised send approval must start from a review record with no inherited response, outreach, send, pricing, discount, commercial commitment, or contract authority.');
       }
 
       const gate: SalesSupervisedSendGate = {
         draftReviewRecordId: reviewRecord.id,
         draftRecordId: requiredString(payload.draftRecordId, 'draftRecordId'),
         leadId: requiredString(payload.leadId, 'leadId'),
+        draftKind,
         decision,
         approver: 'human_executive',
         supervised: true,
+        responseAuthorised: false,
         outreachAuthorised: false,
         sendAuthorised: decision === 'approved',
         pricingAuthorised: false,
+        discountAuthorised: false,
         commercialCommitmentAuthorised: false,
+        contractAuthorised: false,
         nextAction: decision === 'approved'
           ? 'execute_supervised_email_send'
-          : 'return_to_outreach_review',
+          : draftKind === 'outreach'
+            ? 'return_to_outreach_review'
+            : 'return_to_inbound_response_review',
       };
 
       const record = await repository.createWorkflowEvent({
