@@ -110,7 +110,7 @@ export function createSalesInboundModelClassificationService(
 
       const response = await model.execute({
         integrationId: 'model.gemini',
-        requestedBy: 'sales',
+        requestedBy: 'sales_agent',
         executionId,
         correlationId: inboundEvidenceId,
         operation: 'generate_text',
