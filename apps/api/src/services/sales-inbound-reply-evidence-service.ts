@@ -46,6 +46,7 @@ export function createSalesInboundReplyEvidenceService(
         ...(reply.internalDate ? { providerInternalDate: reply.internalDate } : {}),
         ...(reply.snippet ? { snippet: reply.snippet } : {}),
         ...(reply.textBody ? { textBody: reply.textBody } : {}),
+        providerDeliveryStatusEvidence: reply.deliveryStatusNotification === true,
       });
 
       return {
