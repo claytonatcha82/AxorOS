@@ -9,6 +9,7 @@ import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
+import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
@@ -46,10 +47,12 @@ const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operation
 const salesSupervisedSendGate = createSalesSupervisedSendGateService(operationalRepository);
 const salesEmailTransport = createSalesIntegrationEmailTransport(integrationRegistry);
 const salesEmailSendAttempts = new SalesEmailSendAttemptPostgresStore(databasePool);
+const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
 const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(
   operationalRepository,
   salesEmailTransport,
   salesEmailSendAttempts,
+  salesOutreachSuppressions,
 );
 const salesOpenAIIntegration = registeredIntegrationIds.includes('model.openai')
   ? integrationRegistry.require('model.openai') as ExternalIntegration<ModelGenerationInput, ModelGenerationOutput>
@@ -197,6 +200,7 @@ async function start(): Promise<void> {
       salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedEmailRuntimeConfigured: true,
+      salesSupervisedEmailSuppressionConfigured: true,
       salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesSupervisedGmailConfigured: Boolean(
         config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail'),
