@@ -11,10 +11,12 @@ export interface SalesInboundReplyEvidenceInput {
   providerInternalDate?: string;
   snippet?: string;
   textBody?: string;
+  providerDeliveryStatusEvidence?: boolean;
 }
 
 export interface SalesInboundReplyEvidenceRecord extends SalesInboundReplyEvidenceInput {
   inboundEvidenceId: string;
+  providerDeliveryStatusEvidence: boolean;
   recordedAt: string;
 }
 
@@ -30,6 +32,7 @@ type Row = {
   provider_internal_date: string | null;
   snippet: string | null;
   text_body: string | null;
+  provider_delivery_status_evidence: boolean;
   recorded_at: string | Date;
 };
 
@@ -50,6 +53,7 @@ function map(row: Row): SalesInboundReplyEvidenceRecord {
     ...optional(row.provider_internal_date, 'providerInternalDate'),
     ...optional(row.snippet, 'snippet'),
     ...optional(row.text_body, 'textBody'),
+    providerDeliveryStatusEvidence: row.provider_delivery_status_evidence,
     recordedAt: row.recorded_at instanceof Date ? row.recorded_at.toISOString() : new Date(row.recorded_at).toISOString(),
   } as SalesInboundReplyEvidenceRecord;
 }
@@ -68,14 +72,17 @@ export class SalesInboundReplyEvidencePostgresStore {
     const result = await this.pool.query<Row>(
       `insert into operational.sales_inbound_reply_evidence
          (outbound_record_id, lead_id, provider_thread_reference, provider_message_id,
-          sender_address, recipient_address, subject, provider_internal_date, snippet, text_body)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          sender_address, recipient_address, subject, provider_internal_date, snippet, text_body,
+          provider_delivery_status_evidence)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        on conflict do nothing
        returning id, outbound_record_id, lead_id, provider_thread_reference, provider_message_id,
-                 sender_address, recipient_address, subject, provider_internal_date, snippet, text_body, recorded_at`,
+                 sender_address, recipient_address, subject, provider_internal_date, snippet, text_body,
+                 provider_delivery_status_evidence, recorded_at`,
       [input.outboundRecordId, input.leadId, input.providerThreadReference, input.providerMessageId,
        input.senderAddress ?? null, input.recipientAddress ?? null, input.subject ?? null,
-       input.providerInternalDate ?? null, input.snippet ?? null, input.textBody ?? null],
+       input.providerInternalDate ?? null, input.snippet ?? null, input.textBody ?? null,
+       input.providerDeliveryStatusEvidence === true],
     );
     if (!result.rows[0]) throw new SalesInboundReplyEvidenceConflictError(input.providerMessageId);
     return map(result.rows[0]);
