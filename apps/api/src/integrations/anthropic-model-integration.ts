@@ -40,6 +40,10 @@ function mapFinishReason(reason: string | null | undefined): ModelGenerationOutp
   return 'unknown';
 }
 
+function supportsSamplingParameters(model: string): boolean {
+  return !model.toLowerCase().startsWith('claude-sonnet-5');
+}
+
 export function createAnthropicModelIntegration(
   options: AnthropicModelIntegrationOptions,
 ): ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> {
@@ -73,7 +77,9 @@ export function createAnthropicModelIntegration(
         messages: [{ role: 'user', content: prompt }],
       };
       if (request.input.systemInstruction?.trim()) body.system = request.input.systemInstruction.trim();
-      if (request.input.temperature !== undefined) body.temperature = request.input.temperature;
+      if (request.input.temperature !== undefined && supportsSamplingParameters(model)) {
+        body.temperature = request.input.temperature;
+      }
 
       let httpResponse: Response;
       try {
