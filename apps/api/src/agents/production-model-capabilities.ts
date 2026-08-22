@@ -1,3 +1,4 @@
+import type { Pool } from 'pg';
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { registerModelRuntimeCapability } from './model-runtime-registration.js';
 import {
@@ -7,6 +8,7 @@ import {
 } from './production-project-plan-capability.js';
 import { assertTrustedProductionFinanceGate } from './trusted-production-finance-gate.js';
 import { assertTrustedProductionOperationsGate } from './trusted-production-operations-gate.js';
+import { assertTrustedProductionPlanGate } from './trusted-production-plan-gate.js';
 import type { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import type { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
 import type { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
@@ -24,6 +26,7 @@ export function registerProductionModelCapabilities(
   commercialPaymentRequirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
   commercialPaymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
   operationsReadinessStore?: Pick<OperationsProductionReadinessPostgresStore, 'get'>,
+  runtimeEvidencePool?: Pick<Pool, 'query'>,
 ): void {
   const assertProductionStartGate = async (task: Parameters<typeof assertTrustedProductionFinanceGate>[0]) => {
     await assertTrustedProductionFinanceGate(
@@ -59,10 +62,14 @@ export function registerProductionModelCapabilities(
     mode: 'draft',
     promptInputKey: 'implementationBrief',
     contextInputKey: 'technicalContext',
-    beforeExecute: assertProductionStartGate,
+    beforeExecute: async (task) => {
+      await assertProductionStartGate(task);
+      await assertTrustedProductionPlanGate(task, { pool: runtimeEvidencePool });
+    },
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
-      'Provide technical planning, implementation guidance, code drafts, content drafts, test ideas, and delivery analysis only from the supplied requirements and governed context.',
+      'Draft technical implementation only after a trusted completed Production project plan has been verified from persisted runtime evidence.',
+      'Provide implementation guidance, code drafts, content drafts, test ideas, and delivery analysis only from the supplied requirements, approved plan, and governed context.',
       'Do not invent client facts, requirements, assets, credentials, approvals, integrations, domains, hosting details, legal claims, commercial terms, or deployment state.',
       'Do not deploy, publish, merge, push, modify production infrastructure, rotate credentials, purchase services, register domains, or trigger any external side effect.',
       'Do not claim QA passed, security passed, deployment succeeded, a site is live, or a production gate is satisfied unless verified evidence is supplied.',
