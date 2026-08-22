@@ -1,5 +1,10 @@
 import type { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { registerModelRuntimeCapability } from './model-runtime-registration.js';
+import {
+  assertProductionProjectPlanContext,
+  PRODUCTION_PROJECT_PLAN_CAPABILITY,
+  PRODUCTION_PROJECT_PLAN_SYSTEM_INSTRUCTION,
+} from './production-project-plan-capability.js';
 import { assertTrustedProductionFinanceGate } from './trusted-production-finance-gate.js';
 import { assertTrustedProductionOperationsGate } from './trusted-production-operations-gate.js';
 import type { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
@@ -20,6 +25,33 @@ export function registerProductionModelCapabilities(
   commercialPaymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
   operationsReadinessStore?: Pick<OperationsProductionReadinessPostgresStore, 'get'>,
 ): void {
+  const assertProductionStartGate = async (task: Parameters<typeof assertTrustedProductionFinanceGate>[0]) => {
+    await assertTrustedProductionFinanceGate(
+      task,
+      financeClearanceStore,
+      financePaymentStateStore,
+      commercialPaymentRequirementStore,
+      commercialPaymentSatisfactionStore,
+    );
+    await assertTrustedProductionOperationsGate(task, operationsReadinessStore);
+  };
+
+  registerModelRuntimeCapability(handlers, integrations, {
+    agentId: 'production_agent',
+    capabilityId: PRODUCTION_PROJECT_PLAN_CAPABILITY,
+    integrationId: 'model.gemini',
+    mode: 'draft',
+    promptInputKey: 'projectPackage',
+    contextInputKey: 'atlasContext',
+    beforeExecute: async (task) => {
+      await assertProductionStartGate(task);
+      assertProductionProjectPlanContext(task);
+    },
+    systemInstruction: PRODUCTION_PROJECT_PLAN_SYSTEM_INSTRUCTION,
+    maxOutputTokens: 1400,
+    temperature: 0.15,
+  });
+
   registerModelRuntimeCapability(handlers, integrations, {
     agentId: 'production_agent',
     capabilityId: PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY,
@@ -27,16 +59,7 @@ export function registerProductionModelCapabilities(
     mode: 'draft',
     promptInputKey: 'implementationBrief',
     contextInputKey: 'technicalContext',
-    beforeExecute: async (task) => {
-      await assertTrustedProductionFinanceGate(
-        task,
-        financeClearanceStore,
-        financePaymentStateStore,
-        commercialPaymentRequirementStore,
-        commercialPaymentSatisfactionStore,
-      );
-      await assertTrustedProductionOperationsGate(task, operationsReadinessStore);
-    },
+    beforeExecute: assertProductionStartGate,
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
       'Provide technical planning, implementation guidance, code drafts, content drafts, test ideas, and delivery analysis only from the supplied requirements and governed context.',
