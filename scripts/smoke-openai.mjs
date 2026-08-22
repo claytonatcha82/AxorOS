@@ -30,7 +30,6 @@ const response = await registry.execute({
   input: {
     systemInstruction: 'You are participating in a synthetic AxorOS connectivity test. Do not request, infer, or output sensitive data.',
     prompt: 'Reply with exactly: AXOROS_OPENAI_SMOKE_OK',
-    temperature: 0,
     maxOutputTokens: 32,
   },
 });
