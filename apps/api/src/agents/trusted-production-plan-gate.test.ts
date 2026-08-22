@@ -33,21 +33,23 @@ function task(overrides: Partial<AgentRuntimeTask> = {}): AgentRuntimeTask {
   };
 }
 
+const defaultExecutionRow = {
+  destination_agent: 'production_agent',
+  status: 'completed',
+  task: {
+    context: { commercialRecordReference: 'commercial:test:1' },
+  },
+  result: {
+    status: 'completed',
+    evidenceReferences: ['model:gemini:plan:1'],
+  },
+};
+
 function poolHarness(options: {
-  executionRow?: Record<string, unknown>;
+  executionRow?: Record<string, unknown> | null;
   dispatchCount?: number;
 } = {}) {
-  const executionRow = options.executionRow ?? {
-    destination_agent: 'production_agent',
-    status: 'completed',
-    task: {
-      context: { commercialRecordReference: 'commercial:test:1' },
-    },
-    result: {
-      status: 'completed',
-      evidenceReferences: ['model:gemini:plan:1'],
-    },
-  };
+  const executionRow = Object.hasOwn(options, 'executionRow') ? options.executionRow : defaultExecutionRow;
   const dispatchCount = options.dispatchCount ?? 1;
   return {
     async query(sql: string) {
@@ -76,7 +78,7 @@ test('trusted Production plan gate rejects missing plan reference and unconfigur
 
 test('trusted Production plan gate rejects missing, wrong-agent, incomplete, mismatched, or evidence-free plans', async () => {
   await assert.rejects(
-    () => assertTrustedProductionPlanGate(task(), { pool: poolHarness({ executionRow: undefined }) as never }),
+    () => assertTrustedProductionPlanGate(task(), { pool: poolHarness({ executionRow: null }) as never }),
     /plan execution was not found/,
   );
   await assert.rejects(
