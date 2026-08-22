@@ -6,6 +6,7 @@ import { createOperationsProductionPrerequisiteRecorder } from './agents/operati
 import { createOperationsProductionReadinessPostgresService } from './agents/operations-production-readiness-postgres.js';
 import { createPaystackPaymentWebhookIngress } from './agents/paystack-payment-webhook-ingress.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
+import { createProductionModelPolicy } from './agents/production-model-policy.js';
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
@@ -87,9 +88,11 @@ const financePaymentRuntime = createFinancePaymentRuntime({
   ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}),
 });
 const operationsProductionReadiness = createOperationsProductionReadinessPostgresService({ pool: databasePool });
+const productionModelPolicy = createProductionModelPolicy(config.productionModelIntegrationId);
 const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
+  modelPolicy: productionModelPolicy,
 });
 const leadQualificationReviewRuntime = createPersistedLeadQualificationRuntimeReview(databasePool);
 const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(databasePool);
@@ -209,6 +212,7 @@ async function start(): Promise<void> {
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
       productionRuntimePersistenceConfigured: true,
+      productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
       leadQualificationReviewRuntimeConfigured: true,
       leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
       salesIntakeRuntimeConfigured: true,
@@ -231,6 +235,7 @@ async function start(): Promise<void> {
       registeredIntegrations: registeredIntegrationIds,
       geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
       openaiConfigured: registeredIntegrationIds.includes('model.openai'),
+      anthropicConfigured: registeredIntegrationIds.includes('model.anthropic'),
       externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
     });
   });
