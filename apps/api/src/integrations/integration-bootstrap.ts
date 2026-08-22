@@ -1,4 +1,5 @@
 import type { ApiConfig } from '../config.js';
+import { createAnthropicModelIntegration } from './anthropic-model-integration.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail-draft-integration.js';
@@ -68,6 +69,15 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     });
     registry.register(openai);
     registeredIntegrationIds.push(openai.integrationId);
+  }
+
+  if (config.anthropicApiKey && config.anthropicModel) {
+    const anthropic = createAnthropicModelIntegration({
+      apiKey: config.anthropicApiKey,
+      model: config.anthropicModel,
+    });
+    registry.register(anthropic);
+    registeredIntegrationIds.push(anthropic.integrationId);
   }
 
   if (config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken && config.gmailIdentityAddresses) {
