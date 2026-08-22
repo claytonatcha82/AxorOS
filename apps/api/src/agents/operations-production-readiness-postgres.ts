@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
+import { createOperationsProductionPrerequisiteEvidenceResolver } from './operations-production-prerequisite-evidence.js';
 import {
   createOperationsProductionReadinessWorkflow,
   type OperationsProductionReadinessAssessment,
@@ -14,10 +15,15 @@ export function createOperationsProductionReadinessPostgresService(
   dependencies: OperationsProductionReadinessPostgresDependencies,
 ) {
   const readinessStore = new OperationsProductionReadinessPostgresStore(dependencies.pool);
-  const workflow = createOperationsProductionReadinessWorkflow({ readinessStore });
+  const prerequisiteEvidenceResolver = createOperationsProductionPrerequisiteEvidenceResolver(dependencies);
+  const workflow = createOperationsProductionReadinessWorkflow({
+    readinessStore,
+    prerequisiteEvidenceResolver,
+  });
 
   return {
     readinessStore,
+    prerequisiteEvidenceResolver,
     async assess(
       assessment: OperationsProductionReadinessAssessment,
     ): Promise<OperationsProductionReadinessWorkflowResult> {

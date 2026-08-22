@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import pg from 'pg';
 import { createControlPlaneRequestHandler } from '../apps/api/dist/control-plane-request-handler.js';
+import { createOperationsProductionPrerequisiteRecorder } from '../apps/api/dist/agents/operations-production-prerequisite-recorder.js';
 import { createOperationsProductionReadinessPostgresService } from '../apps/api/dist/agents/operations-production-readiness-postgres.js';
 import { createPersistedProductionRuntime } from '../apps/api/dist/agents/production-persisted-runtime.js';
-import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from '../apps/api/dist/agents/production-model-capabilities.js';
 import { satisfyCommercialPaymentRequirement } from '../apps/api/dist/agents/finance-commercial-payment-requirement.js';
 import { FinancePaymentCurrentStatePostgresStore } from '../apps/api/dist/data/finance-payment-current-state-postgres-store.js';
 import { CommercialPaymentRequirementPostgresStore } from '../apps/api/dist/data/commercial-payment-requirement-postgres-store.js';
 import { CommercialPaymentSatisfactionPostgresStore } from '../apps/api/dist/data/commercial-payment-satisfaction-postgres-store.js';
+import { createOperationalRepository } from '../apps/api/dist/data/operational-repository.js';
 import { IntegrationRegistry } from '../apps/api/dist/integrations/integration-registry.js';
 
 const { Pool } = pg;
@@ -49,11 +50,14 @@ integrations.register({
 
 const productionRuntime = createPersistedProductionRuntime({ pool, integrations });
 const operationsService = createOperationsProductionReadinessPostgresService({ pool });
+const operationalRepository = createOperationalRepository(pool);
+const prerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(operationalRepository);
 const paymentStateStore = new FinancePaymentCurrentStatePostgresStore(pool);
 const requirementStore = new CommercialPaymentRequirementPostgresStore(pool);
 const satisfactionStore = new CommercialPaymentSatisfactionPostgresStore(pool);
 
 const commercialRecordReference = `commercial:operations-production-control:${suffix}`;
+const mismatchedCommercialRecord = `commercial:operations-production-control:${suffix}:other`;
 const paymentReference = `payment:operations-production-control:${suffix}`;
 const clearanceId = `finance-clearance:operations-production-control:${suffix}`;
 const requirementReference = `deposit:${commercialRecordReference}`;
@@ -67,6 +71,7 @@ const paidEventReference = `event-paid:${suffix}`;
 const paidEvidenceReference = `payment-provider:${provider}:${paidEventReference}`;
 const executionIds = [authorizedExecutionId, financeOnlyExecutionId, mismatchExecutionId];
 const readinessIds = [readinessId, mismatchedReadinessId];
+const workflowEventIds = [];
 
 function runtimeRecord(executionId, operationsReadinessId, commercialReference = commercialRecordReference) {
   const now = new Date().toISOString();
@@ -108,6 +113,7 @@ const fallback = (_request, response) => {
 const handler = createControlPlaneRequestHandler({
   config: { controlCenterUrl, controlPlaneToken },
   productionCommand: productionRuntime.commands,
+  operationsProductionPrerequisiteCommand: prerequisiteRecorder,
   operationsProductionReadinessCommand: operationsService,
   fallback,
 });
@@ -126,11 +132,29 @@ async function post(baseUrl, path, body) {
   return { response, payload: await response.json() };
 }
 
+async function recordPrerequisites(baseUrl, commercialReference) {
+  for (const prerequisite of ['contractSigned', 'onboardingComplete', 'assetsAvailable', 'planningComplete']) {
+    const recorded = await post(baseUrl, '/api/v1/control/operations/production-prerequisite/record', {
+      commercialRecordReference: commercialReference,
+      prerequisite,
+      evidenceReference: `verifier:${prerequisite}:${commercialReference}`,
+      observedAt: new Date().toISOString(),
+    });
+    assert.equal(recorded.response.status, 200);
+    assert.equal(recorded.payload.ok, true);
+    assert.equal(recorded.payload.data.commercialRecordReference, commercialReference);
+    workflowEventIds.push(String(recorded.payload.data.eventId));
+  }
+}
+
 async function cleanup() {
   await pool.query('delete from runtime.idempotency_records where execution_id = any($1::text[])', [executionIds]);
   await pool.query('delete from runtime.agent_executions where execution_id = any($1::text[])', [executionIds]);
   await pool.query('delete from finance.commercial_payment_satisfactions where requirement_reference = $1', [requirementReference]);
   await pool.query('delete from operations.production_readiness_decisions where readiness_id = any($1::text[])', [readinessIds]);
+  if (workflowEventIds.length > 0) {
+    await pool.query('delete from operational.workflow_events where id::text = any($1::text[])', [workflowEventIds]);
+  }
   await pool.query('delete from finance.clearance_decisions where clearance_id = $1', [clearanceId]);
   await pool.query('delete from finance.payment_current_state where provider = $1 and provider_payment_reference = $2', [provider, paymentReference]);
   await pool.query('delete from finance.commercial_payment_requirements where commercial_record_reference = $1', [commercialRecordReference]);
@@ -190,33 +214,19 @@ try {
   assert.equal(financeOnly.payload.data.status, 'failed');
   assert.equal(modelCalls, callsBeforeFinanceOnly);
 
+  await recordPrerequisites(baseUrl, commercialRecordReference);
   const readiness = await post(baseUrl, '/api/v1/control/operations/production-readiness/assess', {
     readinessId,
     commercialRecordReference,
-    contractSigned: true,
-    onboardingComplete: true,
-    assetsAvailable: true,
-    planningComplete: true,
-    evidenceReferences: [
-      `contract:${commercialRecordReference}`,
-      `onboarding:${commercialRecordReference}`,
-      `assets:${commercialRecordReference}`,
-      `planning:${commercialRecordReference}`,
-    ],
     assessedAt: new Date().toISOString(),
   });
   assert.equal(readiness.response.status, 200);
   assert.equal(readiness.payload.data.state, 'OPERATIONS_READY');
 
-  const mismatchedCommercialRecord = `commercial:operations-production-control:${suffix}:other`;
+  await recordPrerequisites(baseUrl, mismatchedCommercialRecord);
   const mismatchReadiness = await post(baseUrl, '/api/v1/control/operations/production-readiness/assess', {
     readinessId: mismatchedReadinessId,
     commercialRecordReference: mismatchedCommercialRecord,
-    contractSigned: true,
-    onboardingComplete: true,
-    assetsAvailable: true,
-    planningComplete: true,
-    evidenceReferences: [`operations:${mismatchedCommercialRecord}`],
     assessedAt: new Date().toISOString(),
   });
   assert.equal(mismatchReadiness.response.status, 200);
@@ -239,8 +249,10 @@ try {
   assert.ok(persistedReadiness);
   assert.equal(persistedReadiness.state, 'OPERATIONS_READY');
   assert.equal(persistedReadiness.commercialRecordReference, commercialRecordReference);
+  assert.equal(persistedReadiness.evidenceReferences.length, 4);
+  assert.ok(persistedReadiness.evidenceReferences.every((reference) => reference.startsWith('workflow-event:')));
 
-  console.log('PASS  Operations readiness created through authenticated control is required alongside matching Finance satisfaction before authenticated Production execution can reach the model provider.');
+  console.log('PASS  Authenticated Operations prerequisite recording creates persisted evidence; identifier-only readiness then combines with matching Finance satisfaction before authenticated Production execution can reach the model provider.');
 } catch (error) {
   console.error(`FAIL  ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

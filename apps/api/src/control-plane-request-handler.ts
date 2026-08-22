@@ -1,6 +1,10 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
 import type {
+  OperationsProductionPrerequisiteRecordCommand,
+  OperationsProductionPrerequisiteRecorder,
+} from './agents/operations-production-prerequisite-recorder.js';
+import type {
   OperationsProductionReadinessAssessment,
   OperationsProductionReadinessWorkflowResult,
 } from './agents/operations-production-readiness-workflow.js';
@@ -8,6 +12,7 @@ import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
 const PRODUCTION_EXECUTE_PATH = '/api/v1/control/production/execute';
+const OPERATIONS_PRODUCTION_PREREQUISITE_RECORD_PATH = '/api/v1/control/operations/production-prerequisite/record';
 const OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH = '/api/v1/control/operations/production-readiness/assess';
 const LEAD_QUALIFICATION_REVIEW_REQUEST_PATH = '/api/v1/control/lead-qualification-review/request';
 const LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH = '/api/v1/control/lead-qualification-review/resolve';
@@ -18,6 +23,7 @@ export interface ControlPlaneRequestHandlerDependencies {
   productionCommand: {
     execute(executionId: string): Promise<RuntimeExecutionOutcome>;
   };
+  operationsProductionPrerequisiteCommand?: Pick<OperationsProductionPrerequisiteRecorder, 'record'>;
   operationsProductionReadinessCommand?: {
     assess(assessment: OperationsProductionReadinessAssessment): Promise<OperationsProductionReadinessWorkflowResult>;
   };
@@ -70,6 +76,7 @@ async function readCommandBody(request: IncomingMessage): Promise<Record<string,
 
 function isControlPath(path: string | undefined): boolean {
   return path === PRODUCTION_EXECUTE_PATH
+    || path === OPERATIONS_PRODUCTION_PREREQUISITE_RECORD_PATH
     || path === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH
     || path === LEAD_QUALIFICATION_REVIEW_REQUEST_PATH
     || path === LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH;
@@ -83,30 +90,27 @@ function validExecutionOnlyBody(body: Record<string, unknown>): body is { execut
     && Boolean(body.executionId.trim());
 }
 
+function validOperationsProductionPrerequisiteBody(
+  body: Record<string, unknown>,
+): body is Record<string, unknown> & OperationsProductionPrerequisiteRecordCommand {
+  const allowed = new Set(['commercialRecordReference', 'prerequisite', 'evidenceReference', 'observedAt']);
+  const keys = Object.keys(body);
+  if (keys.length !== allowed.size || !keys.every((key) => allowed.has(key))) return false;
+  if (typeof body.commercialRecordReference !== 'string' || !body.commercialRecordReference.trim()) return false;
+  if (!['contractSigned', 'onboardingComplete', 'assetsAvailable', 'planningComplete'].includes(String(body.prerequisite))) return false;
+  if (typeof body.evidenceReference !== 'string' || !body.evidenceReference.trim()) return false;
+  if (typeof body.observedAt !== 'string' || Number.isNaN(Date.parse(body.observedAt))) return false;
+  return true;
+}
+
 function validOperationsProductionReadinessBody(
   body: Record<string, unknown>,
 ): body is Record<string, unknown> & OperationsProductionReadinessAssessment {
-  const allowed = new Set([
-    'readinessId',
-    'commercialRecordReference',
-    'contractSigned',
-    'onboardingComplete',
-    'assetsAvailable',
-    'planningComplete',
-    'evidenceReferences',
-    'assessedAt',
-  ]);
+  const allowed = new Set(['readinessId', 'commercialRecordReference', 'assessedAt']);
   const keys = Object.keys(body);
   if (keys.length !== allowed.size || !keys.every((key) => allowed.has(key))) return false;
   if (typeof body.readinessId !== 'string' || !body.readinessId.trim()) return false;
   if (typeof body.commercialRecordReference !== 'string' || !body.commercialRecordReference.trim()) return false;
-  if (typeof body.contractSigned !== 'boolean') return false;
-  if (typeof body.onboardingComplete !== 'boolean') return false;
-  if (typeof body.assetsAvailable !== 'boolean') return false;
-  if (typeof body.planningComplete !== 'boolean') return false;
-  if (!Array.isArray(body.evidenceReferences)
-    || body.evidenceReferences.length === 0
-    || !body.evidenceReferences.every((reference) => typeof reference === 'string' && Boolean(reference.trim()))) return false;
   if (typeof body.assessedAt !== 'string' || Number.isNaN(Date.parse(body.assessedAt))) return false;
   return true;
 }
@@ -214,6 +218,26 @@ export function createControlPlaneRequestHandler(
       return;
     }
 
+    if (request.url === OPERATIONS_PRODUCTION_PREREQUISITE_RECORD_PATH) {
+      const prerequisiteCommand = dependencies.operationsProductionPrerequisiteCommand;
+      if (!prerequisiteCommand) {
+        sendJson(response, 503, { ok: false, error: { code: 'operations_production_prerequisite_not_configured', message: 'Operations production-prerequisite control is not configured.' } }, corsHeaders);
+        return;
+      }
+      if (!validOperationsProductionPrerequisiteBody(body)) {
+        sendJson(response, 400, { ok: false, error: { code: 'invalid_operations_production_prerequisite_command', message: 'Request body must contain only commercialRecordReference, approved prerequisite, evidenceReference, and observedAt.' } }, corsHeaders);
+        return;
+      }
+      try {
+        const event = await prerequisiteCommand.record(body);
+        sendJson(response, 200, { ok: true, data: { eventId: event.id, eventType: event.eventType, commercialRecordReference: body.commercialRecordReference } }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Operations production-prerequisite recording failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'operations_production_prerequisite_rejected', message } }, corsHeaders);
+      }
+      return;
+    }
+
     if (request.url === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH) {
       const readinessCommand = dependencies.operationsProductionReadinessCommand;
       if (!readinessCommand) {
@@ -231,7 +255,7 @@ export function createControlPlaneRequestHandler(
           ok: false,
           error: {
             code: 'invalid_operations_production_readiness_command',
-            message: 'Request body must contain only the complete governed Operations production-readiness assessment.',
+            message: 'Request body must contain only readinessId, commercialRecordReference, and assessedAt.',
           },
         }, corsHeaders);
         return;
