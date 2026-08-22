@@ -3,6 +3,7 @@ import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgre
 import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
 import { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
 import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
+import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import {
@@ -21,6 +22,7 @@ export interface ProductionRuntimeBootstrapResult {
   financePaymentStateStore: FinancePaymentCurrentStatePostgresStore;
   commercialPaymentRequirementStore: CommercialPaymentRequirementPostgresStore;
   commercialPaymentSatisfactionStore: CommercialPaymentSatisfactionPostgresStore;
+  operationsReadinessStore: OperationsProductionReadinessPostgresStore;
 }
 
 export function createProductionRuntimeBootstrap(
@@ -31,6 +33,7 @@ export function createProductionRuntimeBootstrap(
   const financePaymentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
   const commercialPaymentRequirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
   const commercialPaymentSatisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
+  const operationsReadinessStore = new OperationsProductionReadinessPostgresStore(dependencies.pool);
 
   registerProductionModelCapabilities(
     handlers,
@@ -39,6 +42,7 @@ export function createProductionRuntimeBootstrap(
     financePaymentStateStore,
     commercialPaymentRequirementStore,
     commercialPaymentSatisfactionStore,
+    operationsReadinessStore,
   );
 
   handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
@@ -49,5 +53,6 @@ export function createProductionRuntimeBootstrap(
     financePaymentStateStore,
     commercialPaymentRequirementStore,
     commercialPaymentSatisfactionStore,
+    operationsReadinessStore,
   };
 }
