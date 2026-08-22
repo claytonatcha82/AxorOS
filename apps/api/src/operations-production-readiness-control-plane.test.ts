@@ -8,16 +8,6 @@ const controlCenterUrl = 'http://localhost:5173';
 const assessment = {
   readinessId: 'operations-readiness:control-plane:1',
   commercialRecordReference: 'commercial:control-plane:1',
-  contractSigned: true,
-  onboardingComplete: true,
-  assetsAvailable: true,
-  planningComplete: true,
-  evidenceReferences: [
-    'contract:commercial:control-plane:1',
-    'onboarding:commercial:control-plane:1',
-    'assets:commercial:control-plane:1',
-    'plan:commercial:control-plane:1',
-  ],
   assessedAt: '2026-08-22T10:40:00.000Z',
 };
 
@@ -44,11 +34,16 @@ async function withServer(run: (baseUrl: string, calls: () => number) => Promise
             readinessId: input.readinessId,
             commercialRecordReference: input.commercialRecordReference,
             state: 'OPERATIONS_READY',
-            contractSigned: input.contractSigned,
-            onboardingComplete: input.onboardingComplete,
-            assetsAvailable: input.assetsAvailable,
-            planningComplete: input.planningComplete,
-            evidenceReferences: input.evidenceReferences,
+            contractSigned: true,
+            onboardingComplete: true,
+            assetsAvailable: true,
+            planningComplete: true,
+            evidenceReferences: [
+              'workflow-event:contract',
+              'workflow-event:onboarding',
+              'workflow-event:assets',
+              'workflow-event:planning',
+            ],
             approvedBy: 'operations_agent',
             approvedAt: input.assessedAt,
           },
@@ -68,7 +63,7 @@ async function withServer(run: (baseUrl: string, calls: () => number) => Promise
   }
 }
 
-test('authenticated Operations readiness control persists governed assessment only', async () => {
+test('authenticated Operations readiness control accepts identifier-only assessment request', async () => {
   await withServer(async (baseUrl, calls) => {
     const response = await fetch(`${baseUrl}/api/v1/control/operations/production-readiness/assess`, {
       method: 'POST',
@@ -96,19 +91,29 @@ test('authenticated Operations readiness control persists governed assessment on
   });
 });
 
-test('Operations readiness control rejects caller-supplied authority fields', async () => {
+test('Operations readiness control rejects caller-supplied prerequisite and authority fields', async () => {
   await withServer(async (baseUrl, calls) => {
-    const response = await fetch(`${baseUrl}/api/v1/control/operations/production-readiness/assess`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${controlPlaneToken}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ ...assessment, state: 'OPERATIONS_READY', approvedBy: 'human_executive' }),
-    });
-    const body = await response.json() as { error: { code: string } };
-    assert.equal(response.status, 400);
-    assert.equal(body.error.code, 'invalid_operations_production_readiness_command');
+    for (const injected of [
+      { contractSigned: true },
+      { onboardingComplete: true },
+      { assetsAvailable: true },
+      { planningComplete: true },
+      { evidenceReferences: ['caller:evidence'] },
+      { state: 'OPERATIONS_READY' },
+      { approvedBy: 'human_executive' },
+    ]) {
+      const response = await fetch(`${baseUrl}/api/v1/control/operations/production-readiness/assess`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${controlPlaneToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ ...assessment, ...injected }),
+      });
+      const body = await response.json() as { error: { code: string } };
+      assert.equal(response.status, 400);
+      assert.equal(body.error.code, 'invalid_operations_production_readiness_command');
+    }
     assert.equal(calls(), 0);
   });
 });
