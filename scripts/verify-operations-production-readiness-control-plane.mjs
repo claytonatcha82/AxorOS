@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import pg from 'pg';
 import { createControlPlaneRequestHandler } from '../apps/api/dist/control-plane-request-handler.js';
 import { createOperationsProductionReadinessPostgresService } from '../apps/api/dist/agents/operations-production-readiness-postgres.js';
+import { OPERATIONS_PRODUCTION_PREREQUISITE_EVENT_TYPES } from '../apps/api/dist/agents/operations-production-prerequisite-evidence.js';
 
 const { Pool } = pg;
 const connectionString = process.env.AXOROS_DATABASE_URL;
@@ -20,6 +21,7 @@ const pool = new Pool({
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const controlCenterUrl = 'http://127.0.0.1:5173';
 const readinessIds = [];
+const workflowEventIds = [];
 
 const readinessService = createOperationsProductionReadinessPostgresService({ pool });
 const fallback = (_request, response) => {
@@ -38,26 +40,27 @@ const handler = createControlPlaneRequestHandler({
 });
 const server = createServer(handler);
 
-function assessment(label, overrides = {}) {
+function assessment(label) {
   const readinessId = `operations-readiness:control-plane:${suffix}:${label}`;
   readinessIds.push(readinessId);
-  const commercialRecordReference = `commercial:operations-readiness:${suffix}:${label}`;
   return {
     readinessId,
-    commercialRecordReference,
-    contractSigned: true,
-    onboardingComplete: true,
-    assetsAvailable: true,
-    planningComplete: true,
-    evidenceReferences: [
-      `contract:${commercialRecordReference}`,
-      `onboarding:${commercialRecordReference}`,
-      `assets:${commercialRecordReference}`,
-      `planning:${commercialRecordReference}`,
-    ],
+    commercialRecordReference: `commercial:operations-readiness:${suffix}:${label}`,
     assessedAt: new Date().toISOString(),
-    ...overrides,
   };
+}
+
+async function seedPrerequisites(commercialRecordReference, missingPrerequisite = null) {
+  for (const [key, eventType] of Object.entries(OPERATIONS_PRODUCTION_PREREQUISITE_EVENT_TYPES)) {
+    if (key === missingPrerequisite) continue;
+    const result = await pool.query(
+      `insert into operational.workflow_events (event_type, actor_type, actor_id, payload)
+       values ($1, 'agent', 'operations_agent', $2::jsonb)
+       returning id`,
+      [eventType, JSON.stringify({ commercialRecordReference, verified: true })],
+    );
+    workflowEventIds.push(String(result.rows[0].id));
+  }
 }
 
 async function post(baseUrl, body) {
@@ -81,6 +84,12 @@ async function cleanup() {
       [readinessIds],
     );
   }
+  if (workflowEventIds.length > 0) {
+    await pool.query(
+      'delete from operational.workflow_events where id::text = any($1::text[])',
+      [workflowEventIds],
+    );
+  }
 }
 
 try {
@@ -90,6 +99,7 @@ try {
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   const readyAssessment = assessment('ready');
+  await seedPrerequisites(readyAssessment.commercialRecordReference);
   const ready = await post(baseUrl, readyAssessment);
   assert.equal(ready.response.status, 200);
   assert.equal(ready.payload.ok, true);
@@ -101,8 +111,11 @@ try {
   assert.equal(persistedReady.state, 'OPERATIONS_READY');
   assert.equal(persistedReady.approvedBy, 'operations_agent');
   assert.equal(persistedReady.commercialRecordReference, readyAssessment.commercialRecordReference);
+  assert.equal(persistedReady.evidenceReferences.length, 4);
+  assert.ok(persistedReady.evidenceReferences.every((reference) => reference.startsWith('workflow-event:')));
 
-  const blockedAssessment = assessment('blocked', { assetsAvailable: false });
+  const blockedAssessment = assessment('blocked');
+  await seedPrerequisites(blockedAssessment.commercialRecordReference, 'assetsAvailable');
   const blocked = await post(baseUrl, blockedAssessment);
   assert.equal(blocked.response.status, 200);
   assert.equal(blocked.payload.ok, true);
@@ -114,8 +127,14 @@ try {
   assert.equal(persistedBlocked.assetsAvailable, false);
 
   const injectedAssessment = assessment('injected');
+  await seedPrerequisites(injectedAssessment.commercialRecordReference);
   const injected = await post(baseUrl, {
     ...injectedAssessment,
+    contractSigned: true,
+    onboardingComplete: true,
+    assetsAvailable: true,
+    planningComplete: true,
+    evidenceReferences: ['caller:forged'],
     state: 'OPERATIONS_READY',
     approvedBy: 'caller',
   });
@@ -125,7 +144,7 @@ try {
   const injectedPersisted = await readinessService.readinessStore.get(injectedAssessment.readinessId);
   assert.equal(injectedPersisted, null);
 
-  console.log('PASS  Authenticated Operations control plane derives and persists READY/BLOCKED decisions and rejects caller-supplied authority fields.');
+  console.log('PASS  Authenticated Operations control plane derives READY/BLOCKED only from persisted prerequisite evidence and rejects caller-supplied prerequisite or authority fields.');
 } catch (error) {
   console.error(`FAIL  ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
