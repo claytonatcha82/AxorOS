@@ -1,6 +1,7 @@
 import type { WorkflowEventRecord } from '../data/operational-repository.js';
-import type { OperationsProductionPrerequisiteKey } from './operations-production-prerequisite-evidence.js';
 import { OPERATIONS_PRODUCTION_PREREQUISITE_EVENT_TYPES } from './operations-production-prerequisite-evidence.js';
+
+export type OperationsProductionPrerequisiteKey = keyof typeof OPERATIONS_PRODUCTION_PREREQUISITE_EVENT_TYPES;
 
 export interface OperationsProductionPrerequisiteRecordCommand {
   commercialRecordReference: string;
