@@ -24,12 +24,20 @@ const satisfactionRow = { requirement_reference: 'deposit:bootstrap:1', clearanc
 const readinessRow = { readiness_id: 'operations-readiness:bootstrap:1', commercial_record_reference: 'commercial:bootstrap:1', state: 'OPERATIONS_READY', contract_signed: true, onboarding_complete: true, assets_available: true, planning_complete: true, evidence_references: ['operations:bootstrap:1'], approved_by: 'operations_agent', approved_at: new Date('2026-08-18T17:00:00.000Z') };
 const validContext = { financeClearanceId: clearanceRow.clearance_id, operationsReadinessId: readinessRow.readiness_id, commercialRecordReference: clearanceRow.commercial_record_reference };
 
+type RuntimeFixtureOptions = {
+  clearance?: Record<string, unknown>;
+  payment?: Record<string, unknown>;
+  requirement?: Record<string, unknown>;
+  satisfaction?: Record<string, unknown>;
+  readiness?: Record<string, unknown>;
+};
+
 function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask {
   const now = '2026-08-18T17:00:00.000Z';
   return { taskId: 'task-production-bootstrap', executionId: 'exec-production-bootstrap', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft governed implementation', priority: 'normal', context, knowledgeReferences: [], inputs: { implementationBrief: 'Create the governed implementation draft.' }, expectedOutput: 'Technical implementation draft', dependencies: [], risks: [], confidence: 1, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 1, correlationId: 'corr-production-bootstrap', createdAt: now, updatedAt: now };
 }
 
-function poolReturning(options: { clearance?: Record<string, unknown>; payment?: Record<string, unknown>; requirement?: Record<string, unknown>; satisfaction?: Record<string, unknown>; readiness?: Record<string, unknown> }): Pick<Pool, 'query'> {
+function poolReturning(options: RuntimeFixtureOptions): Pick<Pool, 'query'> {
   return { query: (async (sql: string) => {
     const row = sql.includes('finance.clearance_decisions') ? options.clearance
       : sql.includes('finance.commercial_payment_satisfactions') ? options.satisfaction
@@ -40,9 +48,9 @@ function poolReturning(options: { clearance?: Record<string, unknown>; payment?:
   }) as unknown as Pool['query'] };
 }
 
-const validOptions = () => ({ clearance: clearanceRow, payment: paymentStateRow, requirement: requirementRow, satisfaction: satisfactionRow, readiness: readinessRow });
+const validOptions = (): RuntimeFixtureOptions => ({ clearance: clearanceRow, payment: paymentStateRow, requirement: requirementRow, satisfaction: satisfactionRow, readiness: readinessRow });
 
-function setup(options = validOptions()) { const model = new CountingModelIntegration(); const integrations = new IntegrationRegistry(); integrations.register(model); const runtime = createProductionRuntimeBootstrap({ pool: poolReturning(options), integrations }); return { model, handler: runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY) }; }
+function setup(options: RuntimeFixtureOptions = validOptions()) { const model = new CountingModelIntegration(); const integrations = new IntegrationRegistry(); integrations.register(model); const runtime = createProductionRuntimeBootstrap({ pool: poolReturning(options), integrations }); return { model, handler: runtime.handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY) }; }
 
 test('Production runtime requires PRODUCTION_START Finance satisfaction plus Operations readiness', async () => {
   const { model, handler } = setup(); const result = await handler.execute(productionTask(validContext)); assert.equal(model.calls, 1); assert.equal(result.status, 'completed');
