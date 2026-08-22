@@ -9,6 +9,7 @@ import type { AgentRuntimeEvent, AgentRuntimeExecutionRecord } from './agent-run
 import type { AgentRuntimeStore } from './agent-runtime-store.js';
 import { RuntimeVersionConflictError } from './agent-runtime-store.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
+import { createSyntheticProductionPlanEvidencePool, SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID } from './production-plan-test-fixture.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
 import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import type { ExternalIntegration } from '../integrations/integration-contract.js';
@@ -35,7 +36,7 @@ const readiness = {
 };
 
 function productionTask(): AgentRuntimeTask {
-  return { taskId: 'task-production-gemini-e2e-1', executionId: 'exec-production-gemini-e2e-1', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft a synthetic implementation plan from approved requirements', priority: 'normal', context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, operationsReadinessId: readiness.readinessId, commercialRecordReference: clearance.commercialRecordReference }, knowledgeReferences: ['atlas://production/synthetic-requirements'], inputs: { implementationBrief: 'Draft a concise implementation plan for a five-page React website.', technicalContext: 'Synthetic client only. Sales handoff and commercial gate are confirmed. Required pages: Home, About, Services, Projects, Contact. No deployment authorization is supplied.' }, expectedOutput: 'Technical implementation draft for internal review', dependencies: [], risks: [], confidence: 0.96, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 3, correlationId: 'corr-production-gemini-e2e-1', createdAt: '2026-08-18T08:50:00.000Z', updatedAt: '2026-08-18T08:50:00.000Z' };
+  return { taskId: 'task-production-gemini-e2e-1', executionId: 'exec-production-gemini-e2e-1', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft a synthetic implementation plan from approved requirements', priority: 'normal', context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, operationsReadinessId: readiness.readinessId, commercialRecordReference: clearance.commercialRecordReference, productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID }, knowledgeReferences: ['atlas://production/synthetic-requirements'], inputs: { implementationBrief: 'Draft a concise implementation plan for a five-page React website.', technicalContext: 'Synthetic client only. Sales handoff and commercial gate are confirmed. Required pages: Home, About, Services, Projects, Contact. No deployment authorization is supplied.' }, expectedOutput: 'Technical implementation draft for internal review', dependencies: [], risks: [], confidence: 0.96, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 3, correlationId: 'corr-production-gemini-e2e-1', createdAt: '2026-08-18T08:50:00.000Z', updatedAt: '2026-08-18T08:50:00.000Z' };
 }
 
 class MemoryRuntimeStore implements AgentRuntimeStore {
@@ -65,6 +66,7 @@ test('production runtime executes Production Agent through governed Gemini draft
     { async get() { return requirement; } },
     { async get() { return satisfaction; } },
     { async get(id) { return id === readiness.readinessId ? readiness : null; } },
+    createSyntheticProductionPlanEvidencePool(clearance.commercialRecordReference),
   );
   const task = productionTask(); const store = new MemoryRuntimeStore(task); let eventId = 0; let second = 0;
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers, now: () => `2026-08-18T08:50:0${second++}.000Z`, createEventId: () => `production-gemini-event-${++eventId}` });
