@@ -44,6 +44,7 @@ export function createProductionRuntimeBootstrap(
     commercialPaymentRequirementStore,
     commercialPaymentSatisfactionStore,
     operationsReadinessStore,
+    dependencies.pool,
   );
 
   handlers.require('production_agent', PRODUCTION_PROJECT_PLAN_CAPABILITY);
