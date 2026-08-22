@@ -10,6 +10,7 @@ import { createPersistedProductionRuntime } from './agents/production-persisted-
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
+import { OperationsProductionPrerequisitePostgresStore } from './data/operations-production-prerequisite-postgres-store.js';
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
@@ -45,7 +46,10 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
-const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(operationalRepository);
+const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
+const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(
+  operationsProductionPrerequisiteStore,
+);
 const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operationalRepository);
 const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
 const salesSupervisedSendGate = createSalesSupervisedSendGateService(

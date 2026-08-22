@@ -5,16 +5,21 @@ import { createOperationsProductionPrerequisiteRecorder } from './operations-pro
 function recorderHarness() {
   const inputs: unknown[] = [];
   const recorder = createOperationsProductionPrerequisiteRecorder({
-    async createWorkflowEvent(input) {
+    async record(input) {
       inputs.push(input);
       return {
         id: `workflow-event:${inputs.length}`,
         clientId: null,
         projectId: null,
         eventType: input.eventType,
-        actorType: input.actorType,
-        actorId: input.actorId,
-        payload: input.payload,
+        actorType: 'agent',
+        actorId: 'operations_agent',
+        payload: {
+          commercialRecordReference: input.commercialRecordReference,
+          verified: true,
+          evidenceReference: input.evidenceReference,
+          observedAt: input.observedAt,
+        },
         createdAt: '2026-08-22T11:15:00.000Z',
       };
     },
@@ -22,7 +27,7 @@ function recorderHarness() {
   return { recorder, inputs };
 }
 
-test('Operations prerequisite recorder fixes Operations actor and verified payload', async () => {
+test('Operations prerequisite recorder fixes event type and normalizes authoritative evidence identity', async () => {
   const { recorder, inputs } = recorderHarness();
   const event = await recorder.record({
     commercialRecordReference: ' commercial:test:1 ',
@@ -36,14 +41,9 @@ test('Operations prerequisite recorder fixes Operations actor and verified paylo
   assert.equal(event.actorId, 'operations_agent');
   assert.deepEqual(inputs[0], {
     eventType: 'operations_contract_signed_verified',
-    actorType: 'agent',
-    actorId: 'operations_agent',
-    payload: {
-      commercialRecordReference: 'commercial:test:1',
-      verified: true,
-      evidenceReference: 'contract-provider:test:1',
-      observedAt: '2026-08-22T09:00:00.000Z',
-    },
+    commercialRecordReference: 'commercial:test:1',
+    evidenceReference: 'contract-provider:test:1',
+    observedAt: '2026-08-22T09:00:00.000Z',
   });
 });
 
