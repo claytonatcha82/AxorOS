@@ -29,6 +29,15 @@ interface OpenAIResponsesResponse {
   error?: { code?: string; message?: string } | null;
 }
 
+interface OpenAIErrorResponse {
+  error?: {
+    code?: string | null;
+    message?: string | null;
+    param?: string | null;
+    type?: string | null;
+  } | null;
+}
+
 function responseText(response: OpenAIResponsesResponse): string {
   return response.output
     ?.flatMap((item) => item.content ?? [])
@@ -42,6 +51,11 @@ function finishReason(response: OpenAIResponsesResponse): ModelGenerationOutput[
   if (response.status === 'completed') return 'stop';
   if (response.status === 'incomplete' && response.incomplete_details?.reason === 'max_output_tokens') return 'length';
   return 'unknown';
+}
+
+function safeEvidencePart(value: string | null | undefined): string | undefined {
+  const normalized = value?.trim().replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+  return normalized || undefined;
 }
 
 export function createOpenAIModelIntegration(
@@ -107,6 +121,22 @@ export function createOpenAIModelIntegration(
 
       if (!httpResponse.ok) {
         const retryable = httpResponse.status === 408 || httpResponse.status === 429 || httpResponse.status >= 500;
+        let providerError: OpenAIErrorResponse | undefined;
+        try {
+          providerError = await httpResponse.json() as OpenAIErrorResponse;
+        } catch {
+          providerError = undefined;
+        }
+        const errorCode = safeEvidencePart(providerError?.error?.code ?? providerError?.error?.type);
+        const errorParam = safeEvidencePart(providerError?.error?.param);
+        const errorMessage = safeEvidencePart(providerError?.error?.message);
+        const providerEvidence = [
+          `openai:http:${httpResponse.status}`,
+          errorCode ? `code:${errorCode}` : '',
+          errorParam ? `param:${errorParam}` : '',
+          errorMessage ? `message:${errorMessage}` : '',
+          request.executionId,
+        ].filter(Boolean).join(':');
         return {
           integrationId: 'model.openai',
           operation: request.operation,
@@ -115,7 +145,7 @@ export function createOpenAIModelIntegration(
           status: 'failed',
           output: { text: '', model, finishReason: 'unknown' },
           externalReference: `http:${httpResponse.status}`,
-          evidenceReferences: [`openai:http:${httpResponse.status}:${request.executionId}`],
+          evidenceReferences: [providerEvidence],
           retryable,
         };
       }
