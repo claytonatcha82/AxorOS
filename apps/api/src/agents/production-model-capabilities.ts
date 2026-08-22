@@ -64,7 +64,10 @@ export function registerProductionModelCapabilities(
     contextInputKey: 'technicalContext',
     beforeExecute: async (task) => {
       await assertProductionStartGate(task);
-      await assertTrustedProductionPlanGate(task, { pool: runtimeEvidencePool });
+      await assertTrustedProductionPlanGate(
+        task,
+        runtimeEvidencePool ? { pool: runtimeEvidencePool } : {},
+      );
     },
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
