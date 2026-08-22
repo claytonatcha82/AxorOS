@@ -2,16 +2,14 @@ import type {
   OperationsProductionReadinessDecision,
   OperationsProductionReadinessPostgresStore,
 } from '../data/operations-production-readiness-postgres-store.js';
-import type { OperationsProductionPrerequisiteEvidenceResolver } from './operations-production-prerequisite-evidence.js';
+import type {
+  OperationsProductionPrerequisiteEvidence,
+  OperationsProductionPrerequisiteEvidenceResolver,
+} from './operations-production-prerequisite-evidence.js';
 
 export interface OperationsProductionReadinessAssessment {
   readinessId: string;
   commercialRecordReference: string;
-  contractSigned: boolean;
-  onboardingComplete: boolean;
-  assetsAvailable: boolean;
-  planningComplete: boolean;
-  evidenceReferences: string[];
   assessedAt: string;
 }
 
@@ -39,6 +37,7 @@ function normalizeEvidence(references: string[]): string[] {
 
 export function evaluateOperationsProductionReadiness(
   assessment: OperationsProductionReadinessAssessment,
+  prerequisites: OperationsProductionPrerequisiteEvidence,
 ): OperationsProductionReadinessDecision {
   const readinessId = requiredString(assessment.readinessId, 'Operations readiness ID');
   const commercialRecordReference = requiredString(
@@ -48,21 +47,24 @@ export function evaluateOperationsProductionReadiness(
   if (Number.isNaN(Date.parse(assessment.assessedAt))) {
     throw new Error('Operations readiness assessment timestamp is invalid.');
   }
+  if (prerequisites.commercialRecordReference !== commercialRecordReference) {
+    throw new Error('Operations prerequisite evidence does not belong to the requested commercial record.');
+  }
 
-  const allPrerequisitesComplete = assessment.contractSigned
-    && assessment.onboardingComplete
-    && assessment.assetsAvailable
-    && assessment.planningComplete;
+  const allPrerequisitesComplete = prerequisites.contractSigned
+    && prerequisites.onboardingComplete
+    && prerequisites.assetsAvailable
+    && prerequisites.planningComplete;
 
   return {
     readinessId,
     commercialRecordReference,
     state: allPrerequisitesComplete ? 'OPERATIONS_READY' : 'OPERATIONS_BLOCKED',
-    contractSigned: assessment.contractSigned,
-    onboardingComplete: assessment.onboardingComplete,
-    assetsAvailable: assessment.assetsAvailable,
-    planningComplete: assessment.planningComplete,
-    evidenceReferences: normalizeEvidence(assessment.evidenceReferences),
+    contractSigned: prerequisites.contractSigned,
+    onboardingComplete: prerequisites.onboardingComplete,
+    assetsAvailable: prerequisites.assetsAvailable,
+    planningComplete: prerequisites.planningComplete,
+    evidenceReferences: normalizeEvidence(prerequisites.evidenceReferences),
     approvedBy: 'operations_agent',
     approvedAt: new Date(assessment.assessedAt).toISOString(),
   };
@@ -82,15 +84,10 @@ export function createOperationsProductionReadinessWorkflow(
       const prerequisites = await dependencies.prerequisiteEvidenceResolver.resolve(
         commercialRecordReference,
       );
-      const decision = evaluateOperationsProductionReadiness({
-        ...assessment,
-        commercialRecordReference: prerequisites.commercialRecordReference,
-        contractSigned: prerequisites.contractSigned,
-        onboardingComplete: prerequisites.onboardingComplete,
-        assetsAvailable: prerequisites.assetsAvailable,
-        planningComplete: prerequisites.planningComplete,
-        evidenceReferences: prerequisites.evidenceReferences,
-      });
+      const decision = evaluateOperationsProductionReadiness(
+        { ...assessment, commercialRecordReference },
+        prerequisites,
+      );
       const persistence = await dependencies.readinessStore.save(decision);
       const persisted = await dependencies.readinessStore.get(decision.readinessId);
       if (!persisted) {
