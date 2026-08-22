@@ -51,7 +51,21 @@ integrations.register({
 const productionRuntime = createPersistedProductionRuntime({ pool, integrations });
 const operationsService = createOperationsProductionReadinessPostgresService({ pool });
 const operationalRepository = createOperationalRepository(pool);
-const prerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(operationalRepository);
+const prerequisiteRecorder = createOperationsProductionPrerequisiteRecorder({
+  async record(input) {
+    return operationalRepository.createWorkflowEvent({
+      eventType: input.eventType,
+      actorType: 'agent',
+      actorId: 'operations_agent',
+      payload: {
+        commercialRecordReference: input.commercialRecordReference,
+        evidenceReference: input.evidenceReference,
+        observedAt: input.observedAt,
+        verified: true,
+      },
+    });
+  },
+});
 const paymentStateStore = new FinancePaymentCurrentStatePostgresStore(pool);
 const requirementStore = new CommercialPaymentRequirementPostgresStore(pool);
 const satisfactionStore = new CommercialPaymentSatisfactionPostgresStore(pool);
@@ -66,17 +80,19 @@ const mismatchedReadinessId = `operations-readiness:control:${suffix}:mismatch`;
 const authorizedExecutionId = `exec:operations-production-control:${suffix}:authorized`;
 const financeOnlyExecutionId = `exec:operations-production-control:${suffix}:finance-only`;
 const mismatchExecutionId = `exec:operations-production-control:${suffix}:mismatch`;
+const productionPlanExecutionId = `exec:operations-production-control:${suffix}:plan`;
 const paidAt = new Date().toISOString();
 const paidEventReference = `event-paid:${suffix}`;
 const paidEvidenceReference = `payment-provider:${provider}:${paidEventReference}`;
-const executionIds = [authorizedExecutionId, financeOnlyExecutionId, mismatchExecutionId];
+const executionIds = [authorizedExecutionId, financeOnlyExecutionId, mismatchExecutionId, productionPlanExecutionId];
 const readinessIds = [readinessId, mismatchedReadinessId];
 const workflowEventIds = [];
 
-function runtimeRecord(executionId, operationsReadinessId, commercialReference = commercialRecordReference) {
+function runtimeRecord(executionId, operationsReadinessId, commercialReference = commercialRecordReference, planExecutionId) {
   const now = new Date().toISOString();
   const context = { financeClearanceId: clearanceId, commercialRecordReference: commercialReference };
   if (operationsReadinessId) context.operationsReadinessId = operationsReadinessId;
+  if (planExecutionId) context.productionPlanExecutionId = planExecutionId;
   return {
     task: {
       taskId: `task:${executionId}`,
@@ -89,6 +105,44 @@ function runtimeRecord(executionId, operationsReadinessId, commercialReference =
       knowledgeReferences: [],
       inputs: { implementationBrief: 'Produce a deterministic governed verification draft.' },
       expectedOutput: 'Technical implementation draft',
+      dependencies: [],
+      risks: [],
+      confidence: 1,
+      approvalRequired: false,
+      status: 'ready',
+      nextAction: 'execute_destination_capability',
+      attempt: 1,
+      maxAttempts: 1,
+      correlationId: `corr:${executionId}`,
+      createdAt: now,
+      updatedAt: now,
+    },
+    version: 1,
+    persistedAt: now,
+  };
+}
+
+function productionPlanRecord(executionId, operationsReadinessId) {
+  const now = new Date().toISOString();
+  return {
+    task: {
+      taskId: `task:${executionId}`,
+      executionId,
+      originAgent: 'operations_agent',
+      destinationAgent: 'production_agent',
+      objective: 'Create governed Production project plan for control-plane verification.',
+      priority: 'normal',
+      context: {
+        financeClearanceId: clearanceId,
+        commercialRecordReference,
+        operationsReadinessId,
+      },
+      knowledgeReferences: ['atlas:verification:production-project-plan'],
+      inputs: {
+        projectPackage: 'Approved deterministic verification project package. Create a non-production implementation plan only.',
+        atlasContext: 'Authoritative deterministic Atlas verification context. No external deployment or client side effects are authorized.',
+      },
+      expectedOutput: 'Structured Production project plan',
       dependencies: [],
       risks: [],
       confidence: 1,
@@ -200,8 +254,9 @@ try {
   }, { commercialRecordReference, gate: 'PRODUCTION_START', clearanceId });
 
   await productionRuntime.store.saveExecution(runtimeRecord(financeOnlyExecutionId), 0);
-  await productionRuntime.store.saveExecution(runtimeRecord(authorizedExecutionId, readinessId), 0);
+  await productionRuntime.store.saveExecution(runtimeRecord(authorizedExecutionId, readinessId, commercialRecordReference, productionPlanExecutionId), 0);
   await productionRuntime.store.saveExecution(runtimeRecord(mismatchExecutionId, mismatchedReadinessId), 0);
+  await productionRuntime.store.saveExecution(productionPlanRecord(productionPlanExecutionId, readinessId), 0);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -222,6 +277,15 @@ try {
   });
   assert.equal(readiness.response.status, 200);
   assert.equal(readiness.payload.data.state, 'OPERATIONS_READY');
+
+  const planOutcome = await productionRuntime.orchestrator.execute({
+    executionId: productionPlanExecutionId,
+    capabilityId: 'draft_project_plan',
+  });
+  assert.equal(planOutcome.record.task.executionId, productionPlanExecutionId);
+  assert.equal(planOutcome.record.status, 'completed');
+  assert.equal(planOutcome.record.result?.status, 'completed');
+  assert.ok(Array.isArray(planOutcome.record.result?.evidenceReferences) && planOutcome.record.result.evidenceReferences.length > 0);
 
   await recordPrerequisites(baseUrl, mismatchedCommercialRecord);
   const mismatchReadiness = await post(baseUrl, '/api/v1/control/operations/production-readiness/assess', {
@@ -252,7 +316,7 @@ try {
   assert.equal(persistedReadiness.evidenceReferences.length, 4);
   assert.ok(persistedReadiness.evidenceReferences.every((reference) => reference.startsWith('workflow-event:')));
 
-  console.log('PASS  Authenticated Operations prerequisite recording creates persisted evidence; identifier-only readiness then combines with matching Finance satisfaction before authenticated Production execution can reach the model provider.');
+  console.log('PASS  Authenticated Operations prerequisite recording creates persisted evidence; matching Finance satisfaction and governed persisted Production planning are required before authenticated Production implementation can reach the model provider.');
 } catch (error) {
   console.error(`FAIL  ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
