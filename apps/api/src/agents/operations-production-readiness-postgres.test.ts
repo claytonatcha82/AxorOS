@@ -57,11 +57,6 @@ function memoryPool(options: MemoryPoolOptions = {}): Pick<Pool, 'query'> {
 const completeAssessment = {
   readinessId: 'operations-readiness:service:1',
   commercialRecordReference: 'commercial:service:1',
-  contractSigned: false,
-  onboardingComplete: false,
-  assetsAvailable: false,
-  planningComplete: false,
-  evidenceReferences: ['caller:evidence:ignored'],
   assessedAt: '2026-08-22T10:40:00.000Z',
 };
 
@@ -84,28 +79,17 @@ test('PostgreSQL Operations readiness service persists missing authoritative pre
   const result = await service.assess({
     ...completeAssessment,
     readinessId: 'operations-readiness:service:blocked',
-    assetsAvailable: true,
   });
   assert.equal(result.persistence, 'accepted');
   assert.equal(result.decision.state, 'OPERATIONS_BLOCKED');
   assert.equal(result.decision.assetsAvailable, false);
 });
 
-test('PostgreSQL Operations readiness service permits exact replay and ignores changed caller evidence under the same readiness ID', async () => {
+test('PostgreSQL Operations readiness service permits exact replay for the same identifier-only assessment', async () => {
   const service = createOperationsProductionReadinessPostgresService({ pool: memoryPool() });
   const first = await service.assess(completeAssessment);
   const replay = await service.assess(completeAssessment);
   assert.equal(first.persistence, 'accepted');
   assert.equal(replay.persistence, 'replayed');
-
-  const changedCallerAssertions = await service.assess({
-    ...completeAssessment,
-    contractSigned: true,
-    onboardingComplete: true,
-    assetsAvailable: true,
-    planningComplete: true,
-    evidenceReferences: ['caller:changed:evidence'],
-  });
-  assert.equal(changedCallerAssertions.persistence, 'replayed');
-  assert.deepEqual(changedCallerAssertions.decision, first.decision);
+  assert.deepEqual(replay.decision, first.decision);
 });
