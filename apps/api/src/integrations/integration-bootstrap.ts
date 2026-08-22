@@ -71,10 +71,10 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     registeredIntegrationIds.push(openai.integrationId);
   }
 
-  if (config.anthropicApiKey) {
+  if (config.anthropicApiKey && config.anthropicModel) {
     const anthropic = createAnthropicModelIntegration({
       apiKey: config.anthropicApiKey,
-      ...(config.anthropicModel ? { model: config.anthropicModel } : {}),
+      model: config.anthropicModel,
     });
     registry.register(anthropic);
     registeredIntegrationIds.push(anthropic.integrationId);
