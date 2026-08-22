@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
+import { createSyntheticProductionPlanEvidencePool, SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID } from './production-plan-test-fixture.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
 import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import type { OperationsProductionReadinessDecision } from '../data/operations-production-readiness-postgres-store.js';
@@ -33,7 +34,7 @@ function task(): AgentRuntimeTask {
   return {
     taskId: 'task-production-model-1', executionId: 'exec-production-model-1', originAgent: 'operations_agent', destinationAgent: 'production_agent',
     objective: 'Draft a synthetic technical implementation plan', priority: 'normal',
-    context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, operationsReadinessId: readiness.readinessId, commercialRecordReference: clearance.commercialRecordReference },
+    context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, operationsReadinessId: readiness.readinessId, commercialRecordReference: clearance.commercialRecordReference, productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID },
     knowledgeReferences: ['atlas://production/synthetic-requirements'], inputs: { implementationBrief: 'Draft a component implementation plan for a synthetic brochure website.', technicalContext: 'Synthetic project only.' },
     expectedOutput: 'Technical implementation draft', dependencies: [], risks: [], confidence: 0.95, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 3, correlationId: 'corr-production-model-1', createdAt: clearance.verifiedAt, updatedAt: clearance.verifiedAt,
   };
@@ -52,6 +53,7 @@ test('Production Agent registers a governed Gemini technical-assistance capabili
     { async get(_provider, providerPaymentReference) { return providerPaymentReference === clearance.providerPaymentReference ? paymentState : null; } },
     { async get() { return requirement; } }, { async get() { return satisfaction; } },
     { async get(id) { return id === readiness.readinessId ? readiness : null; } },
+    createSyntheticProductionPlanEvidencePool(clearance.commercialRecordReference),
   );
   const handler = handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY); assert.ok(handler);
   const result = await handler.execute(task());

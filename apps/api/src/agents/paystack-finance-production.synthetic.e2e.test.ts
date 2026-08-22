@@ -9,6 +9,7 @@ import { satisfyCommercialPaymentRequirement } from './finance-commercial-paymen
 import { evaluateFinancePaymentLifecycle } from './finance-payment-lifecycle.js';
 import { createPaystackPaymentWebhookIngress } from './paystack-payment-webhook-ingress.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY, registerProductionModelCapabilities } from './production-model-capabilities.js';
+import { createSyntheticProductionPlanEvidencePool, SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID } from './production-plan-test-fixture.js';
 import type { PersistedFinanceClearanceDecision } from '../data/finance-clearance-postgres-store.js';
 import type { PersistedFinancePaymentCurrentState } from '../data/finance-payment-current-state-postgres-store.js';
 import type { PaymentWebhookEvidence } from '../integrations/payment-webhook-evidence.js';
@@ -33,7 +34,7 @@ function productionTask(clearanceId: string): AgentRuntimeTask {
   return {
     taskId: 'task-stage1-paystack-production', executionId: 'exec-stage1-paystack-production', originAgent: 'operations_agent', destinationAgent: 'production_agent',
     objective: 'Prove synthetic Paystack Finance and Operations authority reaches governed Production.', priority: 'normal',
-    context: { financeClearanceId: clearanceId, operationsReadinessId: operationsReadiness.readinessId, commercialRecordReference, environment: 'test', dataClass: 'synthetic' },
+    context: { financeClearanceId: clearanceId, operationsReadinessId: operationsReadiness.readinessId, commercialRecordReference, productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID, environment: 'test', dataClass: 'synthetic' },
     knowledgeReferences: ['atlas://finance/payment-gates'], inputs: { implementationBrief: 'Produce a deterministic synthetic technical draft only.' },
     expectedOutput: 'Technical implementation draft', dependencies: [], risks: [], confidence: 1, approvalRequired: false, status: 'ready',
     nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 1, correlationId: 'corr-stage1-paystack-production', createdAt: paidAt, updatedAt: paidAt,
@@ -128,6 +129,7 @@ test('signed Paystack webhook independently verifies payment, clears Finance, sa
   registerProductionModelCapabilities(
     handlers, integrations, clearanceStore, currentStateStore, requirementStore, satisfactionStore,
     { async get(id) { return id === operationsReadiness.readinessId ? operationsReadiness : null; } },
+    createSyntheticProductionPlanEvidencePool(commercialRecordReference),
   );
   const productionHandler = handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY); assert.ok(productionHandler);
 
