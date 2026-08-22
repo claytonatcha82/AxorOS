@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
 import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js';
+import { createOperationsProductionReadinessPostgresService } from './agents/operations-production-readiness-postgres.js';
 import { createPaystackPaymentWebhookIngress } from './agents/paystack-payment-webhook-ingress.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
@@ -79,6 +80,7 @@ const financePaymentRuntime = createFinancePaymentRuntime({
   ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}),
   ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}),
 });
+const operationsProductionReadiness = createOperationsProductionReadinessPostgresService({ pool: databasePool });
 const productionRuntime = createPersistedProductionRuntime({
   pool: databasePool,
   integrations: integrationRegistry,
@@ -112,6 +114,7 @@ const apiRequestHandler = createRequestHandler(
 const controlPlaneRequestHandler = createControlPlaneRequestHandler({
   config,
   productionCommand: productionRuntime.commands,
+  operationsProductionReadinessCommand: operationsProductionReadiness,
   leadQualificationReviewCommand: leadQualificationReviewRuntime.commands,
   fallback: apiRequestHandler,
 });
@@ -192,6 +195,8 @@ async function start(): Promise<void> {
       paystackWebhookConfigured: Boolean(paystackWebhookIngress),
       activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox',
       activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
+      operationsProductionReadinessRuntimeConfigured: true,
+      operationsProductionReadinessControlPlaneConfigured: Boolean(config.controlPlaneToken),
       productionRuntimeConfigured: Boolean(
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
