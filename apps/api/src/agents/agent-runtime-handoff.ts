@@ -4,6 +4,7 @@ import type { FinanceClearanceDecisionReader } from './finance-clearance-gate.js
 import { assertPersistedFinanceCleared } from './finance-clearance-gate.js';
 import type { AgentRuntimeRegistry } from './agent-runtime-registry.js';
 import { validateRuntimeDestination } from './agent-runtime-routing.js';
+import { assertPersistedOperationsReady, type OperationsProductionReadinessReader } from './trusted-production-operations-gate.js';
 
 export interface HandoffDispatchResult {
   accepted: boolean;
@@ -14,12 +15,13 @@ export interface HandoffDispatchResult {
 export interface ProductionFinanceAuthorisation {
   clearanceId: string;
   commercialRecordReference: string;
+  operationsReadinessId?: string;
 }
 
 function blockedProductionHandoff(task: AgentRuntimeTask, reason: string): HandoffDispatchResult {
   return {
     accepted: false,
-    task: { ...task, status: 'blocked', nextAction: 'resolve_finance_clearance' },
+    task: { ...task, status: 'blocked', nextAction: 'resolve_production_start_authority' },
     reason,
   };
 }
@@ -28,7 +30,7 @@ function dispatchAuthorisedAgentHandoff(
   task: AgentRuntimeTask,
   capabilityId: string,
   registry: AgentRuntimeRegistry,
-  productionFinanceAuthorised: boolean,
+  productionAuthorised: boolean,
 ): HandoffDispatchResult {
   const validationErrors = validateAgentRuntimeTask(task);
   if (validationErrors.length) {
@@ -39,8 +41,8 @@ function dispatchAuthorisedAgentHandoff(
     return { accepted: false, task, reason: `task must be ready before dispatch; received ${task.status}.` };
   }
 
-  if (task.destinationAgent === 'production_agent' && !productionFinanceAuthorised) {
-    return blockedProductionHandoff(task, 'Production dispatch requires authoritative persisted Finance clearance.');
+  if (task.destinationAgent === 'production_agent' && !productionAuthorised) {
+    return blockedProductionHandoff(task, 'Production dispatch requires authoritative persisted Finance and Operations readiness evidence.');
   }
 
   const route = validateRuntimeDestination(task, capabilityId, registry);
@@ -69,9 +71,10 @@ export async function dispatchProductionHandoff(
   registry: AgentRuntimeRegistry,
   financeReader: FinanceClearanceDecisionReader,
   authorisation: ProductionFinanceAuthorisation,
+  operationsReadinessReader?: OperationsProductionReadinessReader,
 ): Promise<HandoffDispatchResult> {
   if (task.destinationAgent !== 'production_agent') {
-    return blockedProductionHandoff(task, 'Finance-authorised Production dispatch can only target production_agent.');
+    return blockedProductionHandoff(task, 'Governed Production dispatch can only target production_agent.');
   }
 
   let decision;
@@ -84,6 +87,17 @@ export async function dispatchProductionHandoff(
 
   if (decision.commercialRecordReference !== authorisation.commercialRecordReference) {
     return blockedProductionHandoff(task, 'Production start blocked: Finance clearance does not match the governed commercial record.');
+  }
+
+  try {
+    await assertPersistedOperationsReady(
+      operationsReadinessReader,
+      authorisation.operationsReadinessId ?? '',
+      authorisation.commercialRecordReference,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Production start blocked: Operations readiness verification failed.';
+    return blockedProductionHandoff(task, reason);
   }
 
   return dispatchAuthorisedAgentHandoff(task, capabilityId, registry, true);

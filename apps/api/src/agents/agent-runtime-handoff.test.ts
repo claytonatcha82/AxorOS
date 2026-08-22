@@ -31,6 +31,30 @@ const clearedReader = {
   },
 };
 
+const operationsReadyReader = {
+  async get(readinessId: string) {
+    if (readinessId !== 'operations-readiness-1') return null;
+    return {
+      readinessId,
+      commercialRecordReference: 'commercial:test:1',
+      state: 'OPERATIONS_READY' as const,
+      contractSigned: true,
+      onboardingComplete: true,
+      assetsAvailable: true,
+      planningComplete: true,
+      evidenceReferences: ['operations:test:ready-1'],
+      approvedBy: 'operations_agent',
+      approvedAt: '2026-08-18T08:50:00.000Z',
+    };
+  },
+};
+
+const authorisation = {
+  clearanceId: 'clearance-1',
+  operationsReadinessId: 'operations-readiness-1',
+  commercialRecordReference: 'commercial:test:1',
+};
+
 function productionTask(overrides: Partial<AgentRuntimeTask> = {}): AgentRuntimeTask {
   return task({
     taskId: 'production-1',
@@ -62,21 +86,22 @@ test('invalid routing blocks the task rather than silently dispatching', () => {
   assert.equal(result.task.nextAction, 'resolve_routing_or_authority');
 });
 
-test('generic handoff cannot bypass Finance clearance for Production', () => {
+test('generic handoff cannot bypass Production start authority', () => {
   const result = dispatchAgentHandoff(productionTask(), 'build_website', registry());
   assert.equal(result.accepted, false);
   assert.equal(result.task.status, 'blocked');
-  assert.equal(result.task.nextAction, 'resolve_finance_clearance');
-  assert.match(result.reason, /persisted Finance clearance/);
+  assert.equal(result.task.nextAction, 'resolve_production_start_authority');
+  assert.match(result.reason, /Finance and Operations readiness evidence/);
 });
 
-test('Production handoff accepts authoritative persisted Finance clearance for the same commercial record', async () => {
+test('Production handoff accepts authoritative persisted Finance clearance and Operations readiness for the same commercial record', async () => {
   const result = await dispatchProductionHandoff(
     productionTask(),
     'build_website',
     registry(),
     clearedReader,
-    { clearanceId: 'clearance-1', commercialRecordReference: 'commercial:test:1' },
+    authorisation,
+    operationsReadyReader,
   );
   assert.equal(result.accepted, true);
   assert.equal(result.task.status, 'in_progress');
@@ -88,10 +113,11 @@ test('Production handoff blocks when persisted Finance clearance is missing', as
     'build_website',
     registry(),
     clearedReader,
-    { clearanceId: 'missing-clearance', commercialRecordReference: 'commercial:test:1' },
+    { ...authorisation, clearanceId: 'missing-clearance' },
+    operationsReadyReader,
   );
   assert.equal(result.accepted, false);
-  assert.equal(result.task.nextAction, 'resolve_finance_clearance');
+  assert.equal(result.task.nextAction, 'resolve_production_start_authority');
   assert.match(result.reason, /no persisted Finance clearance/);
 });
 
@@ -112,10 +138,11 @@ test('Production handoff blocks when persisted Finance clearance is pending', as
     'build_website',
     registry(),
     pendingReader,
-    { clearanceId: 'clearance-pending', commercialRecordReference: 'commercial:test:1' },
+    { ...authorisation, clearanceId: 'clearance-pending' },
+    operationsReadyReader,
   );
   assert.equal(result.accepted, false);
-  assert.equal(result.task.nextAction, 'resolve_finance_clearance');
+  assert.equal(result.task.nextAction, 'resolve_production_start_authority');
   assert.match(result.reason, /Payment awaiting verification/);
 });
 
@@ -125,9 +152,24 @@ test('Production handoff blocks clearance from a different commercial record', a
     'build_website',
     registry(),
     clearedReader,
-    { clearanceId: 'clearance-1', commercialRecordReference: 'commercial:test:other' },
+    { ...authorisation, commercialRecordReference: 'commercial:test:other' },
+    operationsReadyReader,
   );
   assert.equal(result.accepted, false);
-  assert.equal(result.task.nextAction, 'resolve_finance_clearance');
+  assert.equal(result.task.nextAction, 'resolve_production_start_authority');
   assert.match(result.reason, /does not match the governed commercial record/);
+});
+
+test('Production handoff blocks Finance-only authority without Operations readiness', async () => {
+  const result = await dispatchProductionHandoff(
+    productionTask(),
+    'build_website',
+    registry(),
+    clearedReader,
+    { clearanceId: 'clearance-1', commercialRecordReference: 'commercial:test:1' },
+    operationsReadyReader,
+  );
+  assert.equal(result.accepted, false);
+  assert.equal(result.task.nextAction, 'resolve_production_start_authority');
+  assert.match(result.reason, /trusted operationsReadinessId is required/);
 });

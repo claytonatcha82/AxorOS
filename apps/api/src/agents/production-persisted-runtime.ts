@@ -30,5 +30,6 @@ export function createPersistedProductionRuntime(
     commands,
     handlers: production.handlers,
     financeClearanceStore: production.financeClearanceStore,
+    operationsReadinessStore: production.operationsReadinessStore,
   };
 }

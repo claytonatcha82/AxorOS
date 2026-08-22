@@ -1,9 +1,14 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
+import type {
+  OperationsProductionReadinessAssessment,
+  OperationsProductionReadinessWorkflowResult,
+} from './agents/operations-production-readiness-workflow.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
 const PRODUCTION_EXECUTE_PATH = '/api/v1/control/production/execute';
+const OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH = '/api/v1/control/operations/production-readiness/assess';
 const LEAD_QUALIFICATION_REVIEW_REQUEST_PATH = '/api/v1/control/lead-qualification-review/request';
 const LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH = '/api/v1/control/lead-qualification-review/resolve';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
@@ -12,6 +17,9 @@ export interface ControlPlaneRequestHandlerDependencies {
   config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
   productionCommand: {
     execute(executionId: string): Promise<RuntimeExecutionOutcome>;
+  };
+  operationsProductionReadinessCommand?: {
+    assess(assessment: OperationsProductionReadinessAssessment): Promise<OperationsProductionReadinessWorkflowResult>;
   };
   leadQualificationReviewCommand?: {
     requestReview(executionId: string): Promise<RuntimeExecutionOutcome>;
@@ -62,6 +70,7 @@ async function readCommandBody(request: IncomingMessage): Promise<Record<string,
 
 function isControlPath(path: string | undefined): boolean {
   return path === PRODUCTION_EXECUTE_PATH
+    || path === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH
     || path === LEAD_QUALIFICATION_REVIEW_REQUEST_PATH
     || path === LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH;
 }
@@ -72,6 +81,34 @@ function validExecutionOnlyBody(body: Record<string, unknown>): body is { execut
     && keys[0] === 'executionId'
     && typeof body.executionId === 'string'
     && Boolean(body.executionId.trim());
+}
+
+function validOperationsProductionReadinessBody(
+  body: Record<string, unknown>,
+): body is Record<string, unknown> & OperationsProductionReadinessAssessment {
+  const allowed = new Set([
+    'readinessId',
+    'commercialRecordReference',
+    'contractSigned',
+    'onboardingComplete',
+    'assetsAvailable',
+    'planningComplete',
+    'evidenceReferences',
+    'assessedAt',
+  ]);
+  const keys = Object.keys(body);
+  if (keys.length !== allowed.size || !keys.every((key) => allowed.has(key))) return false;
+  if (typeof body.readinessId !== 'string' || !body.readinessId.trim()) return false;
+  if (typeof body.commercialRecordReference !== 'string' || !body.commercialRecordReference.trim()) return false;
+  if (typeof body.contractSigned !== 'boolean') return false;
+  if (typeof body.onboardingComplete !== 'boolean') return false;
+  if (typeof body.assetsAvailable !== 'boolean') return false;
+  if (typeof body.planningComplete !== 'boolean') return false;
+  if (!Array.isArray(body.evidenceReferences)
+    || body.evidenceReferences.length === 0
+    || !body.evidenceReferences.every((reference) => typeof reference === 'string' && Boolean(reference.trim()))) return false;
+  if (typeof body.assessedAt !== 'string' || Number.isNaN(Date.parse(body.assessedAt))) return false;
+  return true;
 }
 
 function validLeadReviewResolutionBody(
@@ -173,6 +210,50 @@ export function createControlPlaneRequestHandler(
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Production command failed.';
         sendJson(response, 400, { ok: false, error: { code: 'production_command_rejected', message } }, corsHeaders);
+      }
+      return;
+    }
+
+    if (request.url === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH) {
+      const readinessCommand = dependencies.operationsProductionReadinessCommand;
+      if (!readinessCommand) {
+        sendJson(response, 503, {
+          ok: false,
+          error: {
+            code: 'operations_production_readiness_not_configured',
+            message: 'Operations production-readiness control is not configured.',
+          },
+        }, corsHeaders);
+        return;
+      }
+      if (!validOperationsProductionReadinessBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_operations_production_readiness_command',
+            message: 'Request body must contain only the complete governed Operations production-readiness assessment.',
+          },
+        }, corsHeaders);
+        return;
+      }
+
+      try {
+        const result = await readinessCommand.assess(body);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            readinessId: result.decision.readinessId,
+            commercialRecordReference: result.decision.commercialRecordReference,
+            state: result.decision.state,
+            persistence: result.persistence,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Operations production-readiness assessment failed.';
+        sendJson(response, 400, {
+          ok: false,
+          error: { code: 'operations_production_readiness_rejected', message },
+        }, corsHeaders);
       }
       return;
     }

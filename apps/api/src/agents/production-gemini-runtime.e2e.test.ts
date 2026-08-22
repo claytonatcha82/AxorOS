@@ -28,9 +28,14 @@ const paymentState: PersistedFinancePaymentCurrentState = {
 };
 const requirement = { commercialRecordReference: clearance.commercialRecordReference, gate: 'PRODUCTION_START' as const, requirementReference: 'requirement:synthetic:production-gemini-e2e-1', requirementType: 'DEPOSIT' as const, requiredAmountMinor: clearance.amountMinor, currency: clearance.currency, status: 'ACTIVE' as const };
 const satisfaction = { requirementReference: requirement.requirementReference, clearanceId: clearance.clearanceId, commercialRecordReference: clearance.commercialRecordReference, gate: 'PRODUCTION_START' as const, satisfiedAt: clearance.verifiedAt };
+const readiness = {
+  readinessId: 'operations-readiness:synthetic:production-gemini-e2e-1', commercialRecordReference: clearance.commercialRecordReference, state: 'OPERATIONS_READY' as const,
+  contractSigned: true, onboardingComplete: true, assetsAvailable: true, planningComplete: true,
+  evidenceReferences: ['operations:synthetic:production-gemini-e2e-1'], approvedBy: 'operations_agent', approvedAt: clearance.verifiedAt,
+};
 
 function productionTask(): AgentRuntimeTask {
-  return { taskId: 'task-production-gemini-e2e-1', executionId: 'exec-production-gemini-e2e-1', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft a synthetic implementation plan from approved requirements', priority: 'normal', context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, commercialRecordReference: clearance.commercialRecordReference }, knowledgeReferences: ['atlas://production/synthetic-requirements'], inputs: { implementationBrief: 'Draft a concise implementation plan for a five-page React website.', technicalContext: 'Synthetic client only. Sales handoff and commercial gate are confirmed. Required pages: Home, About, Services, Projects, Contact. No deployment authorization is supplied.' }, expectedOutput: 'Technical implementation draft for internal review', dependencies: [], risks: [], confidence: 0.96, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 3, correlationId: 'corr-production-gemini-e2e-1', createdAt: '2026-08-18T08:50:00.000Z', updatedAt: '2026-08-18T08:50:00.000Z' };
+  return { taskId: 'task-production-gemini-e2e-1', executionId: 'exec-production-gemini-e2e-1', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft a synthetic implementation plan from approved requirements', priority: 'normal', context: { environment: 'test', dataClass: 'synthetic', financeClearanceId: clearance.clearanceId, operationsReadinessId: readiness.readinessId, commercialRecordReference: clearance.commercialRecordReference }, knowledgeReferences: ['atlas://production/synthetic-requirements'], inputs: { implementationBrief: 'Draft a concise implementation plan for a five-page React website.', technicalContext: 'Synthetic client only. Sales handoff and commercial gate are confirmed. Required pages: Home, About, Services, Projects, Contact. No deployment authorization is supplied.' }, expectedOutput: 'Technical implementation draft for internal review', dependencies: [], risks: [], confidence: 0.96, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 3, correlationId: 'corr-production-gemini-e2e-1', createdAt: '2026-08-18T08:50:00.000Z', updatedAt: '2026-08-18T08:50:00.000Z' };
 }
 
 class MemoryRuntimeStore implements AgentRuntimeStore {
@@ -59,6 +64,7 @@ test('production runtime executes Production Agent through governed Gemini draft
     { async get(_provider, providerPaymentReference) { return providerPaymentReference === clearance.providerPaymentReference ? paymentState : null; } },
     { async get() { return requirement; } },
     { async get() { return satisfaction; } },
+    { async get(id) { return id === readiness.readinessId ? readiness : null; } },
   );
   const task = productionTask(); const store = new MemoryRuntimeStore(task); let eventId = 0; let second = 0;
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers, now: () => `2026-08-18T08:50:0${second++}.000Z`, createEventId: () => `production-gemini-event-${++eventId}` });

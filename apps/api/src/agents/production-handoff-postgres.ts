@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
+import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import {
   dispatchProductionHandoff,
@@ -17,6 +18,7 @@ export function createPostgresProductionHandoffDispatcher(
   dependencies: PostgresProductionHandoffDependencies,
 ) {
   const financeClearanceStore = new FinanceClearancePostgresStore(dependencies.pool);
+  const operationsReadinessStore = new OperationsProductionReadinessPostgresStore(dependencies.pool);
 
   return {
     async dispatch(
@@ -30,6 +32,7 @@ export function createPostgresProductionHandoffDispatcher(
         dependencies.registry,
         financeClearanceStore,
         authorisation,
+        operationsReadinessStore,
       );
     },
   };
