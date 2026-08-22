@@ -6,6 +6,7 @@ import {
   PRODUCTION_PROJECT_PLAN_CAPABILITY,
   PRODUCTION_PROJECT_PLAN_SYSTEM_INSTRUCTION,
 } from './production-project-plan-capability.js';
+import { DEFAULT_PRODUCTION_MODEL_POLICY, type ProductionModelPolicy } from './production-model-policy.js';
 import { assertTrustedProductionFinanceGate } from './trusted-production-finance-gate.js';
 import { assertTrustedProductionOperationsGate } from './trusted-production-operations-gate.js';
 import { assertTrustedProductionPlanGate } from './trusted-production-plan-gate.js';
@@ -27,22 +28,17 @@ export function registerProductionModelCapabilities(
   commercialPaymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
   operationsReadinessStore?: Pick<OperationsProductionReadinessPostgresStore, 'get'>,
   runtimeEvidencePool?: Pick<Pool, 'query'>,
+  modelPolicy: ProductionModelPolicy = DEFAULT_PRODUCTION_MODEL_POLICY,
 ): void {
   const assertProductionStartGate = async (task: Parameters<typeof assertTrustedProductionFinanceGate>[0]) => {
-    await assertTrustedProductionFinanceGate(
-      task,
-      financeClearanceStore,
-      financePaymentStateStore,
-      commercialPaymentRequirementStore,
-      commercialPaymentSatisfactionStore,
-    );
+    await assertTrustedProductionFinanceGate(task, financeClearanceStore, financePaymentStateStore, commercialPaymentRequirementStore, commercialPaymentSatisfactionStore);
     await assertTrustedProductionOperationsGate(task, operationsReadinessStore);
   };
 
   registerModelRuntimeCapability(handlers, integrations, {
     agentId: 'production_agent',
     capabilityId: PRODUCTION_PROJECT_PLAN_CAPABILITY,
-    integrationId: 'model.gemini',
+    integrationId: modelPolicy.projectPlanningIntegrationId,
     mode: 'draft',
     promptInputKey: 'projectPackage',
     contextInputKey: 'atlasContext',
@@ -58,16 +54,13 @@ export function registerProductionModelCapabilities(
   registerModelRuntimeCapability(handlers, integrations, {
     agentId: 'production_agent',
     capabilityId: PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY,
-    integrationId: 'model.gemini',
+    integrationId: modelPolicy.technicalImplementationIntegrationId,
     mode: 'draft',
     promptInputKey: 'implementationBrief',
     contextInputKey: 'technicalContext',
     beforeExecute: async (task) => {
       await assertProductionStartGate(task);
-      await assertTrustedProductionPlanGate(
-        task,
-        runtimeEvidencePool ? { pool: runtimeEvidencePool } : {},
-      );
+      await assertTrustedProductionPlanGate(task, runtimeEvidencePool ? { pool: runtimeEvidencePool } : {});
     },
     systemInstruction: [
       'You are the AxorOS Production Agent operating in governed draft mode.',
