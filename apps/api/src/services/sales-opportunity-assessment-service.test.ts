@@ -1,0 +1,156 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { AgentRuntimeExecutionRecord } from '../agents/agent-runtime-state.js';
+import type { LeadRecord } from '../data/operational-repository.js';
+import { createSalesOpportunityAssessmentService, type SalesOpportunityContext } from './sales-opportunity-assessment-service.js';
+
+const now = '2026-08-20T17:50:00.000Z';
+
+function intakeExecution(overrides: Partial<AgentRuntimeExecutionRecord['task']> = {}): AgentRuntimeExecutionRecord {
+  return {
+    task: {
+      taskId: 'sales-intake-task:eligibility-1',
+      executionId: 'sales-intake:eligibility-1',
+      originAgent: 'lead_agent',
+      destinationAgent: 'sales_agent',
+      objective: 'Intake a human-approved qualified opportunity for internal Sales review without contacting the prospect.',
+      priority: 'normal',
+      context: { leadId: 'lead-1', eligibilityRecordId: 'eligibility-1' },
+      knowledgeReferences: ['Volume 1 - Agency/06 Sales System/Sales Agent.md'],
+      inputs: {
+        salesIntakeOnly: true,
+        salesDispatchAuthorised: false,
+        outreachAuthorised: false,
+      },
+      expectedOutput: 'A governed internal Sales intake assessment with no prospect contact or outreach.',
+      dependencies: [],
+      risks: [],
+      confidence: 1,
+      approvalRequired: false,
+      status: 'completed',
+      nextAction: 'define_governed_sales_opportunity_assessment',
+      attempt: 1,
+      maxAttempts: 1,
+      correlationId: 'corr-1',
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    },
+    result: {
+      executionId: 'sales-intake:eligibility-1',
+      taskId: 'sales-intake-task:eligibility-1',
+      agentId: 'sales_agent',
+      status: 'completed',
+      output: { intakeAccepted: true, outreachAuthorised: false },
+      evidenceReferences: [],
+      knowledgeReferences: ['Volume 1 - Agency/06 Sales System/Sales Agent.md'],
+      confidence: 1,
+    },
+    version: 3,
+    persistedAt: now,
+  };
+}
+
+function lead(overrides: Partial<LeadRecord> = {}): LeadRecord {
+  return {
+    id: 'lead-1',
+    clientId: null,
+    companyName: 'Example Engineering',
+    contactName: null,
+    contactEmail: null,
+    source: 'public_web',
+    opportunitySummary: null,
+    leadScore: null,
+    status: 'new',
+    evidence: {},
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+const completeContext: SalesOpportunityContext = {
+  decisionMaker: 'A Person',
+  industry: 'Engineering',
+  country: 'South Africa',
+  businessSummary: 'Engineering services business.',
+  websiteAudit: 'Public website evidence reviewed.',
+  painPoints: ['Mobile usability opportunity'],
+  recommendedServices: ['Website improvement assessment'],
+  priority: 'normal',
+  confidence: 0.8,
+  previousContact: 'No previous contact recorded.',
+};
+
+test('reports missing Sales context without inventing values or authority', () => {
+  const service = createSalesOpportunityAssessmentService();
+  const result = service.assess({ intakeExecution: intakeExecution(), lead: lead() });
+
+  assert.equal(result.assessmentStatus, 'context_incomplete');
+  assert.equal(result.nextAction, 'retrieve_missing_sales_context');
+  assert.equal(result.existingLeadScore, null);
+  assert.equal(result.outreachAuthorised, false);
+  assert.equal(result.pricingAuthorised, false);
+  assert.equal(result.commercialCommitmentAuthorised, false);
+  assert.ok(result.missingInformation.includes('decision_maker'));
+  assert.ok(result.missingInformation.includes('industry'));
+  assert.ok(result.missingInformation.includes('contact_email'));
+});
+
+test('marks context complete only when the Atlas-defined Sales package is supplied', () => {
+  const service = createSalesOpportunityAssessmentService();
+  const result = service.assess({
+    intakeExecution: intakeExecution(),
+    lead: lead({
+      contactName: 'A Person',
+      contactEmail: 'person@example.com',
+      opportunitySummary: 'Evidence-backed website opportunity.',
+      leadScore: 42,
+    }),
+    salesContext: completeContext,
+  });
+
+  assert.equal(result.assessmentStatus, 'context_complete');
+  assert.deepEqual(result.missingInformation, []);
+  assert.equal(result.nextAction, 'prepare_governed_sales_context');
+  assert.equal(result.existingLeadScore, 42);
+  assert.equal(result.salesContext.confidence, 0.8);
+  assert.equal(result.outreachAuthorised, false);
+});
+
+test('rejects a Sales intake execution for a different lead', () => {
+  const service = createSalesOpportunityAssessmentService();
+  assert.throws(
+    () => service.assess({ intakeExecution: intakeExecution(), lead: lead({ id: 'lead-2' }) }),
+    /lead mismatch/i,
+  );
+});
+
+test('rejects invalid supplied confidence instead of normalising or inventing it', () => {
+  const service = createSalesOpportunityAssessmentService();
+  assert.throws(
+    () => service.assess({
+      intakeExecution: intakeExecution(),
+      lead: lead(),
+      salesContext: { ...completeContext, confidence: 1.5 },
+    }),
+    /confidence must be between 0 and 1/i,
+  );
+});
+
+test('rejects any intake that carries Sales dispatch or outreach authority', () => {
+  const service = createSalesOpportunityAssessmentService();
+  assert.throws(
+    () => service.assess({
+      intakeExecution: intakeExecution({
+        inputs: {
+          salesIntakeOnly: true,
+          salesDispatchAuthorised: false,
+          outreachAuthorised: true,
+        },
+      }),
+      lead: lead(),
+    }),
+    /must not inherit dispatch or outreach authority/i,
+  );
+});

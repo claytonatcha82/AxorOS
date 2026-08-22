@@ -1,9 +1,16 @@
 import type { IntegrationMode, IntegrationRequest, IntegrationRisk } from './integration-contract.js';
 
+export interface ScopedLiveIntegrationRule {
+  integrationId: string;
+  operation: string;
+  riskCeiling: IntegrationRisk;
+}
+
 export interface IntegrationExecutionPolicy {
   defaultMode: Exclude<IntegrationMode, 'live'>;
   allowLive: boolean;
   liveRiskCeiling: IntegrationRisk;
+  scopedLiveRules?: readonly ScopedLiveIntegrationRule[];
 }
 
 const riskRank: Record<IntegrationRisk, number> = {
@@ -19,13 +26,28 @@ export const SAFE_INTEGRATION_POLICY: IntegrationExecutionPolicy = {
   liveRiskCeiling: 'low',
 };
 
+function findScopedLiveRule(
+  request: IntegrationRequest,
+  policy: IntegrationExecutionPolicy,
+): ScopedLiveIntegrationRule | undefined {
+  return policy.scopedLiveRules?.find((rule) => (
+    rule.integrationId === request.integrationId && rule.operation === request.operation
+  ));
+}
+
 export function enforceIntegrationPolicy(
   request: IntegrationRequest,
   policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY,
 ): void {
   if (request.mode !== 'live') return;
-  if (!policy.allowLive) throw new Error('live integration execution is disabled by policy.');
-  if (riskRank[request.risk] > riskRank[policy.liveRiskCeiling]) {
-    throw new Error(`live integration risk ${request.risk} exceeds policy ceiling ${policy.liveRiskCeiling}.`);
+
+  const scopedRule = findScopedLiveRule(request, policy);
+  if (!policy.allowLive && !scopedRule) {
+    throw new Error('live integration execution is disabled by policy.');
+  }
+
+  const riskCeiling = scopedRule?.riskCeiling ?? policy.liveRiskCeiling;
+  if (riskRank[request.risk] > riskRank[riskCeiling]) {
+    throw new Error(`live integration risk ${request.risk} exceeds policy ceiling ${riskCeiling}.`);
   }
 }

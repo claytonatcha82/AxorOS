@@ -2,8 +2,13 @@ import type { Pool } from 'pg';
 import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js';
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
+import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
+import { createLeadSalesHandoffEligibilityPersistenceService } from './lead-sales-handoff-eligibility-persistence-service.js';
+import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-eligibility-service.js';
+import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
+import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
 
 const LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY = 'lead_qualification_human_review_gate';
 
@@ -25,13 +30,17 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const handlers = new AgentRuntimeHandlerRegistry();
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
   const taskService = createLeadQualificationRuntimeReviewService();
-  const registration = createLeadQualificationRuntimeReviewRegistrationService({
-    store: {
-      getExecution: store.getExecution,
-      hasIdempotencyKey: store.hasIdempotencyKey,
-      commitRuntimeMutation,
-    },
-  });
+  const registrationStore = {
+    getExecution: store.getExecution,
+    hasIdempotencyKey: store.hasIdempotencyKey,
+    commitRuntimeMutation,
+  };
+  const registration = createLeadQualificationRuntimeReviewRegistrationService({ store: registrationStore });
+  const handoffEligibility = createLeadSalesHandoffEligibilityService(store);
+  const operationalRepository = createOperationalRepository(pool);
+  const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(operationalRepository);
+  const salesIntakeTaskService = createLeadSalesIntakeTaskService();
+  const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
 
   const commands = {
     async requestReview(executionId: string) {
@@ -68,12 +77,28 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
         throw new Error('Lead qualification review resolution requires human executive approval authority.');
       }
 
-      return orchestrator.resolveApproval({
+      const outcome = await orchestrator.resolveApproval({
         executionId: normalizedExecutionId,
         actor: 'human_executive',
         decision,
         ...(reason?.trim() ? { reason: reason.trim() } : {}),
       });
+
+      if (decision === 'approved' && record.task.inputs.recommendedAction === 'approve_advance') {
+        const eligibility = await handoffEligibility.evaluate(normalizedExecutionId);
+        const persistedEligibility = await handoffEligibilityPersistence.persist({ eligibility });
+        const salesIntakeTask = salesIntakeTaskService.createTask({
+          taskId: `sales-intake-task:${persistedEligibility.id}`,
+          executionId: `sales-intake:${persistedEligibility.id}`,
+          correlationId: record.task.correlationId,
+          eligibilityRecordId: persistedEligibility.id,
+          eligibility,
+          createdAt: persistedEligibility.createdAt,
+        });
+        await salesIntakeRegistration.register(salesIntakeTask);
+      }
+
+      return outcome;
     },
   };
 
@@ -81,6 +106,10 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
     store,
     taskService,
     registration,
+    handoffEligibility,
+    handoffEligibilityPersistence,
+    salesIntakeTaskService,
+    salesIntakeRegistration,
     commands,
   };
 }

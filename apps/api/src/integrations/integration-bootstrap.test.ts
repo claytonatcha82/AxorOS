@@ -16,6 +16,7 @@ test('configured registry always includes model and payment sandboxes and omits 
   assert.deepEqual(registry.require('payment.sandbox').supportedOperations, ['verify_payment']);
   assert.equal(registry.get('payment.paystack'), undefined);
   assert.equal(registry.get('model.gemini'), undefined);
+  assert.equal(registry.get('model.openai'), undefined);
   assert.equal(registry.get('email.gmail'), undefined);
   assert.equal(registry.get('research.google-places'), undefined);
   assert.equal(registry.get('research.tavily-web'), undefined);
@@ -42,6 +43,31 @@ test('configured registry registers Gemini only when a key is configured', () =>
   assert.deepEqual(registry.require('model.gemini').supportedModes, ['draft']);
 });
 
+test('configured registry registers OpenAI only when a key is configured', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    openaiApiKey: 'test-openai-secret',
+    openaiModel: 'gpt-5.6-terra',
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.openai']);
+  const openai = registry.require('model.openai');
+  assert.equal(openai.provider, 'openai');
+  assert.deepEqual(openai.supportedModes, ['draft']);
+});
+
+test('configured registry allows Gemini and OpenAI to coexist without replacing either provider', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    geminiApiKey: 'test-gemini-secret',
+    geminiModel: 'gemini-test-model',
+    openaiApiKey: 'test-openai-secret',
+    openaiModel: 'gpt-5.6-terra',
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'model.gemini', 'model.openai']);
+  assert.equal(registry.require('model.gemini').provider, 'google-gemini');
+  assert.equal(registry.require('model.openai').provider, 'openai');
+});
+
 test('configured registry registers Gmail as draft-only when complete credentials are configured', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({ gmailClientId: 'client-id', gmailClientSecret: 'client-secret', gmailRefreshToken: 'refresh-token', gmailIdentityAddresses: { sales: 'sales@example.test' } }));
   assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'email.gmail']);
@@ -49,6 +75,84 @@ test('configured registry registers Gmail as draft-only when complete credential
   assert.equal(gmail.provider, 'google-gmail');
   assert.deepEqual(gmail.supportedModes, ['draft']);
   assert.deepEqual(gmail.supportedOperations, ['create_draft']);
+});
+
+test('configured registry exposes supervised Sales Gmail send only when the explicit flag is enabled', () => {
+  const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+    gmailSupervisedSalesSendEnabled: true,
+  }));
+
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'email.gmail']);
+  const gmail = registry.require('email.gmail');
+  assert.deepEqual(gmail.supportedModes, ['draft', 'live']);
+  assert.deepEqual(gmail.supportedOperations, ['create_draft', 'send_email']);
+});
+
+test('configured registry keeps supervised Gmail live execution blocked when explicit flag is absent', async () => {
+  const { registry } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+  }));
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'email.gmail',
+      operation: 'send_email',
+      requestedBy: 'sales_agent',
+      executionId: 'exec-disabled',
+      correlationId: 'corr-disabled',
+      mode: 'live',
+      risk: 'medium',
+      idempotencyKey: 'sales-supervised-email-send:gate-disabled',
+      input: {},
+    }),
+    /live integration execution is disabled by policy/,
+  );
+});
+
+test('configured registry scopes supervised Gmail live policy to send_email at medium risk', async () => {
+  const { registry } = createConfiguredIntegrationRegistry(baseConfig({
+    gmailClientId: 'client-id',
+    gmailClientSecret: 'client-secret',
+    gmailRefreshToken: 'refresh-token',
+    gmailIdentityAddresses: { sales: 'sales@example.test' },
+    gmailSupervisedSalesSendEnabled: true,
+  }));
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'email.gmail',
+      operation: 'send_email',
+      requestedBy: 'sales_agent',
+      executionId: 'exec-high-risk',
+      correlationId: 'corr-high-risk',
+      mode: 'live',
+      risk: 'high',
+      idempotencyKey: 'sales-supervised-email-send:gate-high-risk',
+      input: {},
+    }),
+    /exceeds policy ceiling medium/,
+  );
+
+  await assert.rejects(
+    () => registry.execute({
+      integrationId: 'research.google-places',
+      operation: 'search_businesses',
+      requestedBy: 'lead_agent',
+      executionId: 'exec-research',
+      correlationId: 'corr-research',
+      mode: 'live',
+      risk: 'low',
+      input: {},
+    }),
+    /live integration execution is disabled by policy/,
+  );
 });
 
 test('configured registry registers Google Places as live read-only research when a key is configured', () => {
