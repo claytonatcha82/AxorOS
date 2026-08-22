@@ -283,7 +283,7 @@ try {
     capabilityId: 'draft_project_plan',
   });
   assert.equal(planOutcome.record.task.executionId, productionPlanExecutionId);
-  assert.equal(planOutcome.record.status, 'completed');
+  assert.equal(planOutcome.record.task.status, 'completed');
   assert.equal(planOutcome.record.result?.status, 'completed');
   assert.ok(Array.isArray(planOutcome.record.result?.evidenceReferences) && planOutcome.record.result.evidenceReferences.length > 0);
 
