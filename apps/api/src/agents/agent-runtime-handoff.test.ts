@@ -33,7 +33,7 @@ const clearedReader = {
 
 const operationsReadyReader = {
   async get(readinessId: string) {
-    if (readinessId !== 'readiness-1') return null;
+    if (readinessId !== 'operations-readiness-1') return null;
     return {
       readinessId,
       commercialRecordReference: 'commercial:test:1',
@@ -42,16 +42,16 @@ const operationsReadyReader = {
       onboardingComplete: true,
       assetsAvailable: true,
       planningComplete: true,
-      evidenceReferences: ['operations:test:readiness-1'],
+      evidenceReferences: ['operations:test:ready-1'],
       approvedBy: 'operations_agent',
-      approvedAt: '2026-08-18T12:00:00.000Z',
+      approvedAt: '2026-08-18T08:50:00.000Z',
     };
   },
 };
 
 const authorisation = {
   clearanceId: 'clearance-1',
-  operationsReadinessId: 'readiness-1',
+  operationsReadinessId: 'operations-readiness-1',
   commercialRecordReference: 'commercial:test:1',
 };
 
@@ -94,7 +94,7 @@ test('generic handoff cannot bypass Production start authority', () => {
   assert.match(result.reason, /Finance and Operations readiness evidence/);
 });
 
-test('Production handoff accepts matching persisted Finance and Operations authority', async () => {
+test('Production handoff accepts authoritative persisted Finance clearance and Operations readiness for the same commercial record', async () => {
   const result = await dispatchProductionHandoff(
     productionTask(),
     'build_website',
@@ -138,7 +138,7 @@ test('Production handoff blocks when persisted Finance clearance is pending', as
     'build_website',
     registry(),
     pendingReader,
-    authorisation,
+    { ...authorisation, clearanceId: 'clearance-pending' },
     operationsReadyReader,
   );
   assert.equal(result.accepted, false);
@@ -171,5 +171,5 @@ test('Production handoff blocks Finance-only authority without Operations readin
   );
   assert.equal(result.accepted, false);
   assert.equal(result.task.nextAction, 'resolve_production_start_authority');
-  assert.match(result.reason, /Operations readiness ID is required/);
+  assert.match(result.reason, /trusted operationsReadinessId is required/);
 });
