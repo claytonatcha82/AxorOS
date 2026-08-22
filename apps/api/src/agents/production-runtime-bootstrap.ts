@@ -6,6 +6,7 @@ import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-p
 import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
+import { PRODUCTION_PROJECT_PLAN_CAPABILITY } from './production-project-plan-capability.js';
 import {
   PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY,
   registerProductionModelCapabilities,
@@ -45,6 +46,7 @@ export function createProductionRuntimeBootstrap(
     operationsReadinessStore,
   );
 
+  handlers.require('production_agent', PRODUCTION_PROJECT_PLAN_CAPABILITY);
   handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
 
   return {
