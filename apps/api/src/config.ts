@@ -1,6 +1,7 @@
 import { validateControlPlaneToken } from './control-plane-auth.js';
 
 export type AxorOSEnvironment = 'development' | 'staging' | 'production' | 'test';
+export type ProductionModelIntegrationId = 'model.gemini' | 'model.openai' | 'model.anthropic';
 
 export interface ApiConfig {
   environment: AxorOSEnvironment;
@@ -15,6 +16,9 @@ export interface ApiConfig {
   geminiModel?: string;
   openaiApiKey?: string;
   openaiModel?: string;
+  anthropicApiKey?: string;
+  anthropicModel?: string;
+  productionModelIntegrationId?: ProductionModelIntegrationId;
   gmailClientId?: string;
   gmailClientSecret?: string;
   gmailRefreshToken?: string;
@@ -28,6 +32,7 @@ export interface ApiConfig {
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>(['development', 'staging', 'production', 'test']);
+const allowedProductionModelIntegrations = new Set<ProductionModelIntegrationId>(['model.gemini', 'model.openai', 'model.anthropic']);
 
 function optionalHttpsUrl(value: string | undefined, field: string): string | undefined {
   const trimmed = value?.trim();
@@ -89,6 +94,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const geminiModel = env.AXOROS_GEMINI_MODEL?.trim() || undefined;
   const openaiApiKey = env.OPENAI_API_KEY?.trim() || undefined;
   const openaiModel = env.AXOROS_OPENAI_MODEL?.trim() || undefined;
+  const anthropicApiKey = env.ANTHROPIC_API_KEY?.trim() || undefined;
+  const anthropicModel = env.AXOROS_ANTHROPIC_MODEL?.trim() || undefined;
+  const requestedProductionModelIntegration = env.AXOROS_PRODUCTION_MODEL_INTEGRATION?.trim();
+  if (requestedProductionModelIntegration && !allowedProductionModelIntegrations.has(requestedProductionModelIntegration as ProductionModelIntegrationId)) {
+    throw new Error('AXOROS_PRODUCTION_MODEL_INTEGRATION must be model.gemini, model.openai, or model.anthropic.');
+  }
+  if (requestedProductionModelIntegration === 'model.gemini' && !geminiApiKey) throw new Error('Production model.gemini requires GEMINI_API_KEY.');
+  if (requestedProductionModelIntegration === 'model.openai' && !openaiApiKey) throw new Error('Production model.openai requires OPENAI_API_KEY.');
+  if (requestedProductionModelIntegration === 'model.anthropic' && !anthropicApiKey) throw new Error('Production model.anthropic requires ANTHROPIC_API_KEY.');
+
   const gmailClientId = env.AXOROS_GMAIL_CLIENT_ID?.trim() || undefined;
   const gmailClientSecret = env.AXOROS_GMAIL_CLIENT_SECRET?.trim() || undefined;
   const gmailRefreshToken = env.AXOROS_GMAIL_REFRESH_TOKEN?.trim() || undefined;
@@ -102,12 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error('AXOROS_GMAIL_SUPERVISED_SALES_SEND must be enabled or disabled.');
   }
   if (requestedSupervisedSalesSend === 'enabled') {
-    if (configuredGmailParts !== gmailParts.length) {
-      throw new Error('Supervised Sales Gmail sending requires complete Gmail configuration.');
-    }
-    if (!gmailIdentityAddresses?.sales?.trim()) {
-      throw new Error('Supervised Sales Gmail sending requires a configured sales email identity.');
-    }
+    if (configuredGmailParts !== gmailParts.length) throw new Error('Supervised Sales Gmail sending requires complete Gmail configuration.');
+    if (!gmailIdentityAddresses?.sales?.trim()) throw new Error('Supervised Sales Gmail sending requires a configured sales email identity.');
   }
 
   const googlePlacesApiKey = env.AXOROS_GOOGLE_PLACES_API_KEY?.trim() || undefined;
@@ -126,6 +137,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (geminiModel) config.geminiModel = geminiModel;
   if (openaiApiKey) config.openaiApiKey = openaiApiKey;
   if (openaiModel) config.openaiModel = openaiModel;
+  if (anthropicApiKey) config.anthropicApiKey = anthropicApiKey;
+  if (anthropicModel) config.anthropicModel = anthropicModel;
+  if (requestedProductionModelIntegration) config.productionModelIntegrationId = requestedProductionModelIntegration as ProductionModelIntegrationId;
   if (gmailClientId) config.gmailClientId = gmailClientId;
   if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret;
   if (gmailRefreshToken) config.gmailRefreshToken = gmailRefreshToken;
