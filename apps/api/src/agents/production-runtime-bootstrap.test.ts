@@ -6,6 +6,7 @@ import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './production-model-capabilities.js';
+import { SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID } from './production-plan-test-fixture.js';
 import { createProductionRuntimeBootstrap } from './production-runtime-bootstrap.js';
 
 class CountingModelIntegration implements ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> {
@@ -22,7 +23,7 @@ const paymentStateRow = { provider: 'bootstrap', provider_payment_reference: 'pa
 const requirementRow = { commercial_record_reference: 'commercial:bootstrap:1', gate: 'PRODUCTION_START', requirement_reference: 'deposit:bootstrap:1', requirement_type: 'DEPOSIT', required_amount_minor: '10000', currency: 'ZAR', status: 'ACTIVE' };
 const satisfactionRow = { requirement_reference: 'deposit:bootstrap:1', clearance_id: 'clearance:bootstrap:1', commercial_record_reference: 'commercial:bootstrap:1', gate: 'PRODUCTION_START', satisfied_at: new Date('2026-08-18T17:00:00.000Z') };
 const readinessRow = { readiness_id: 'operations-readiness:bootstrap:1', commercial_record_reference: 'commercial:bootstrap:1', state: 'OPERATIONS_READY', contract_signed: true, onboarding_complete: true, assets_available: true, planning_complete: true, evidence_references: ['operations:bootstrap:1'], approved_by: 'operations_agent', approved_at: new Date('2026-08-18T17:00:00.000Z') };
-const validContext = { financeClearanceId: clearanceRow.clearance_id, operationsReadinessId: readinessRow.readiness_id, commercialRecordReference: clearanceRow.commercial_record_reference };
+const validContext = { financeClearanceId: clearanceRow.clearance_id, operationsReadinessId: readinessRow.readiness_id, commercialRecordReference: clearanceRow.commercial_record_reference, productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID };
 
 type RuntimeFixtureOptions = {
   clearance?: Record<string, unknown>;
@@ -39,6 +40,10 @@ function productionTask(context: AgentRuntimeTask['context']): AgentRuntimeTask 
 
 function poolReturning(options: RuntimeFixtureOptions): Pick<Pool, 'query'> {
   return { query: (async (sql: string) => {
+    if (sql.includes('from runtime.agent_executions')) {
+      return { rowCount: 1, rows: [{ destination_agent: 'production_agent', status: 'completed', task: { context: { commercialRecordReference: clearanceRow.commercial_record_reference } }, result: { status: 'completed', evidenceReferences: ['model:bootstrap:plan:1'] } }] };
+    }
+    if (sql.includes('from runtime.agent_events')) return { rowCount: 1, rows: [{ '?column?': 1 }] };
     const row = sql.includes('finance.clearance_decisions') ? options.clearance
       : sql.includes('finance.commercial_payment_satisfactions') ? options.satisfaction
         : sql.includes('finance.commercial_payment_requirements') ? options.requirement
@@ -73,7 +78,7 @@ test('Production runtime blocks when current payment authority was revoked', asy
 
 test('Production runtime blocks Finance-only authority without Operations readiness context', async () => {
   const { model, handler } = setup();
-  await assert.rejects(() => handler.execute(productionTask({ financeClearanceId: clearanceRow.clearance_id, commercialRecordReference: clearanceRow.commercial_record_reference })), /operationsReadinessId/); assert.equal(model.calls, 0);
+  await assert.rejects(() => handler.execute(productionTask({ financeClearanceId: clearanceRow.clearance_id, commercialRecordReference: clearanceRow.commercial_record_reference, productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID })), /operationsReadinessId/); assert.equal(model.calls, 0);
 });
 
 test('Production runtime blocks missing persisted Operations readiness', async () => {
