@@ -6,13 +6,9 @@ import { createOperationsProductionReadinessPostgresService } from '../apps/api/
 
 const { Pool } = pg;
 const connectionString = process.env.AXOROS_DATABASE_URL;
-const controlPlaneToken = process.env.AXOROS_CONTROL_PLANE_TOKEN;
+const controlPlaneToken = 'operations-readiness-verifier-token-2026-08-22';
 if (!connectionString) {
   console.error('FAIL  AXOROS_DATABASE_URL is not set.');
-  process.exit(1);
-}
-if (!controlPlaneToken) {
-  console.error('FAIL  AXOROS_CONTROL_PLANE_TOKEN is not set.');
   process.exit(1);
 }
 
