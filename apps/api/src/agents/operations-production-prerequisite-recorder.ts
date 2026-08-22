@@ -11,11 +11,11 @@ export interface OperationsProductionPrerequisiteRecordCommand {
 }
 
 export interface OperationsProductionPrerequisiteRecorderDependencies {
-  createWorkflowEvent(input: {
+  record(input: {
     eventType: string;
-    actorType: 'agent';
-    actorId: string;
-    payload: unknown;
+    commercialRecordReference: string;
+    evidenceReference: string;
+    observedAt: string;
   }): Promise<WorkflowEventRecord>;
 }
 
@@ -42,16 +42,11 @@ export function createOperationsProductionPrerequisiteRecorder(
         throw new Error('Operations prerequisite observation timestamp is invalid.');
       }
 
-      return dependencies.createWorkflowEvent({
+      return dependencies.record({
         eventType: OPERATIONS_PRODUCTION_PREREQUISITE_EVENT_TYPES[command.prerequisite],
-        actorType: 'agent',
-        actorId: 'operations_agent',
-        payload: {
-          commercialRecordReference,
-          verified: true,
-          evidenceReference,
-          observedAt: new Date(command.observedAt).toISOString(),
-        },
+        commercialRecordReference,
+        evidenceReference,
+        observedAt: new Date(command.observedAt).toISOString(),
       });
     },
   };
