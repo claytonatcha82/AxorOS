@@ -2,6 +2,7 @@ import type {
   OperationsProductionReadinessDecision,
   OperationsProductionReadinessPostgresStore,
 } from '../data/operations-production-readiness-postgres-store.js';
+import type { OperationsProductionPrerequisiteEvidenceResolver } from './operations-production-prerequisite-evidence.js';
 
 export interface OperationsProductionReadinessAssessment {
   readinessId: string;
@@ -21,6 +22,7 @@ export interface OperationsProductionReadinessWorkflowResult {
 
 export interface OperationsProductionReadinessWorkflowDependencies {
   readinessStore: Pick<OperationsProductionReadinessPostgresStore, 'save' | 'get'>;
+  prerequisiteEvidenceResolver: Pick<OperationsProductionPrerequisiteEvidenceResolver, 'resolve'>;
 }
 
 function requiredString(value: string, label: string): string {
@@ -73,7 +75,22 @@ export function createOperationsProductionReadinessWorkflow(
     async assess(
       assessment: OperationsProductionReadinessAssessment,
     ): Promise<OperationsProductionReadinessWorkflowResult> {
-      const decision = evaluateOperationsProductionReadiness(assessment);
+      const commercialRecordReference = requiredString(
+        assessment.commercialRecordReference,
+        'Operations readiness commercial record',
+      );
+      const prerequisites = await dependencies.prerequisiteEvidenceResolver.resolve(
+        commercialRecordReference,
+      );
+      const decision = evaluateOperationsProductionReadiness({
+        ...assessment,
+        commercialRecordReference: prerequisites.commercialRecordReference,
+        contractSigned: prerequisites.contractSigned,
+        onboardingComplete: prerequisites.onboardingComplete,
+        assetsAvailable: prerequisites.assetsAvailable,
+        planningComplete: prerequisites.planningComplete,
+        evidenceReferences: prerequisites.evidenceReferences,
+      });
       const persistence = await dependencies.readinessStore.save(decision);
       const persisted = await dependencies.readinessStore.get(decision.readinessId);
       if (!persisted) {
