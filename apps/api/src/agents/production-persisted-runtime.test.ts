@@ -6,6 +6,7 @@ import type { ExternalIntegration, IntegrationRequest, IntegrationResponse } fro
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from '../integrations/model-integration.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './production-model-capabilities.js';
+import { SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID } from './production-plan-test-fixture.js';
 import { createPersistedProductionRuntime } from './production-persisted-runtime.js';
 
 class CountingModelIntegration implements ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> {
@@ -19,7 +20,7 @@ class CountingModelIntegration implements ExternalIntegration<ModelGenerationInp
 
 function record(includeOperations = true): AgentRuntimeExecutionRecord {
   const now = '2026-08-18T17:10:00.000Z';
-  const context: Record<string, unknown> = { financeClearanceId: 'clearance:persisted:1', commercialRecordReference: 'commercial:persisted:1' };
+  const context: Record<string, unknown> = { financeClearanceId: 'clearance:persisted:1', commercialRecordReference: 'commercial:persisted:1', productionPlanExecutionId: SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID };
   if (includeOperations) context.operationsReadinessId = 'operations-readiness:persisted:1';
   return { task: { taskId: 'task-production-persisted', executionId: 'exec-production-persisted', originAgent: 'operations_agent', destinationAgent: 'production_agent', objective: 'Draft governed implementation', priority: 'normal', context, knowledgeReferences: [], inputs: { implementationBrief: 'Create the governed implementation draft.' }, expectedOutput: 'Technical implementation draft', dependencies: [], risks: [], confidence: 1, approvalRequired: false, status: 'ready', nextAction: 'execute_destination_capability', attempt: 1, maxAttempts: 1, correlationId: 'corr-production-persisted', createdAt: now, updatedAt: now }, version: 1, persistedAt: now };
 }
@@ -27,7 +28,13 @@ function record(includeOperations = true): AgentRuntimeExecutionRecord {
 function createPool(initial: AgentRuntimeExecutionRecord, financeCleared: boolean, operationsReady = true): Pool {
   let current = initial; const idempotency = new Set<string>();
   const query = async (sql: string, values: readonly unknown[] = []) => {
-    if (sql.includes('from runtime.agent_executions') && sql.includes('where execution_id = $1')) return { rowCount: 1, rows: [{ task: current.task, result: current.result ?? null, version: current.version, last_event_id: current.lastEventId ?? null, persisted_at: current.persistedAt }] };
+    if (sql.includes('from runtime.agent_executions') && sql.includes('where execution_id = $1')) {
+      if (String(values[0]) === SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID) {
+        return { rowCount: 1, rows: [{ destination_agent: 'production_agent', status: 'completed', task: { context: { commercialRecordReference: 'commercial:persisted:1' } }, result: { status: 'completed', evidenceReferences: ['model:persisted:plan:1'] } }] };
+      }
+      return { rowCount: 1, rows: [{ task: current.task, result: current.result ?? null, version: current.version, last_event_id: current.lastEventId ?? null, persisted_at: current.persistedAt }] };
+    }
+    if (sql.includes('from runtime.agent_events') && String(values[0]) === SYNTHETIC_PRODUCTION_PLAN_EXECUTION_ID) return { rowCount: 1, rows: [{ '?column?': 1 }] };
     if (sql.includes('from runtime.idempotency_records')) { const key = String(values[0]); return { rowCount: idempotency.has(key) ? 1 : 0, rows: idempotency.has(key) ? [{ '?column?': 1 }] : [] }; }
     if (sql.includes('from finance.clearance_decisions')) return { rowCount: financeCleared ? 1 : 0, rows: financeCleared ? [{ clearance_id: 'clearance:persisted:1', commercial_record_reference: 'commercial:persisted:1', provider_payment_reference: 'pay:persisted:1', state: 'FINANCE_CLEARED', reason: 'Provider evidence matched.', evidence_references: ['payment-provider:sandbox:event:1'], amount_minor: '10000', currency: 'ZAR', verified_at: new Date('2026-08-18T17:10:00.000Z') }] : [] };
     if (sql.includes('from finance.commercial_payment_requirements')) return { rowCount: financeCleared ? 1 : 0, rows: financeCleared ? [{ commercial_record_reference: 'commercial:persisted:1', gate: 'PRODUCTION_START', requirement_reference: 'deposit:persisted:1', requirement_type: 'DEPOSIT', required_amount_minor: '10000', currency: 'ZAR', status: 'ACTIVE' }] : [] };
