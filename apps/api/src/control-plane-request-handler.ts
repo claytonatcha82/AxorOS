@@ -86,27 +86,11 @@ function validExecutionOnlyBody(body: Record<string, unknown>): body is { execut
 function validOperationsProductionReadinessBody(
   body: Record<string, unknown>,
 ): body is Record<string, unknown> & OperationsProductionReadinessAssessment {
-  const allowed = new Set([
-    'readinessId',
-    'commercialRecordReference',
-    'contractSigned',
-    'onboardingComplete',
-    'assetsAvailable',
-    'planningComplete',
-    'evidenceReferences',
-    'assessedAt',
-  ]);
+  const allowed = new Set(['readinessId', 'commercialRecordReference', 'assessedAt']);
   const keys = Object.keys(body);
   if (keys.length !== allowed.size || !keys.every((key) => allowed.has(key))) return false;
   if (typeof body.readinessId !== 'string' || !body.readinessId.trim()) return false;
   if (typeof body.commercialRecordReference !== 'string' || !body.commercialRecordReference.trim()) return false;
-  if (typeof body.contractSigned !== 'boolean') return false;
-  if (typeof body.onboardingComplete !== 'boolean') return false;
-  if (typeof body.assetsAvailable !== 'boolean') return false;
-  if (typeof body.planningComplete !== 'boolean') return false;
-  if (!Array.isArray(body.evidenceReferences)
-    || body.evidenceReferences.length === 0
-    || !body.evidenceReferences.every((reference) => typeof reference === 'string' && Boolean(reference.trim()))) return false;
   if (typeof body.assessedAt !== 'string' || Number.isNaN(Date.parse(body.assessedAt))) return false;
   return true;
 }
@@ -231,7 +215,7 @@ export function createControlPlaneRequestHandler(
           ok: false,
           error: {
             code: 'invalid_operations_production_readiness_command',
-            message: 'Request body must contain only the complete governed Operations production-readiness assessment.',
+            message: 'Request body must contain only readinessId, commercialRecordReference, and assessedAt.',
           },
         }, corsHeaders);
         return;
