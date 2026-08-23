@@ -3,6 +3,7 @@ import { CommercialPaymentRequirementPostgresStore } from '../data/commercial-pa
 import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
 import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
+import { FinancePaymentRequestPostgresStore } from '../data/finance-payment-request-postgres-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { PaymentWebhookPostgresStore } from '../data/payment-webhook-postgres-store.js';
 import type { IntegrationMode } from '../integrations/integration-contract.js';
@@ -12,6 +13,7 @@ import { createFinanceGovernedAdvisoryService } from './finance-governed-advisor
 import { createFinanceGovernedBindingService } from './finance-governed-binding-service.js';
 import { createFinanceGovernedOperationalCoordinator } from './finance-governed-operational-coordinator.js';
 import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
+import { createFinanceGovernedPaymentRequestService } from './finance-governed-payment-request-service.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
 import { createFinancePaymentEventWorkflow } from './finance-payment-event-workflow.js';
 
@@ -30,6 +32,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   const currentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
   const requirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
   const satisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
+  const paymentRequestStore = new FinancePaymentRequestPostgresStore(dependencies.pool);
   const operationalRepository = createOperationalRepository(dependencies.pool);
   const workflow = createFinancePaymentClearanceWorkflow({
     integrations: dependencies.integrations,
@@ -67,6 +70,13 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     paymentIntegrationId,
     mode,
   });
+  const governedPaymentRequestService = createFinanceGovernedPaymentRequestService({
+    requirementStore,
+    paymentRequestStore,
+    integrations: dependencies.integrations,
+    integrationId: 'payment.paystack.request',
+    mode: mode === 'live' ? 'live' : 'sandbox',
+  });
 
   return {
     clearanceStore,
@@ -74,6 +84,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     currentStateStore,
     requirementStore,
     satisfactionStore,
+    paymentRequestStore,
     workflow,
     eventWorkflow,
     commercialPaymentBindingWorkflow,
@@ -81,5 +92,6 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     governedOperationalRuntime,
     governedAdvisoryService,
     governedBindingService,
+    governedPaymentRequestService,
   };
 }
