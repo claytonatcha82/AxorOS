@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createFinancePaymentEventLedgerWorkflow } from './finance-payment-event-ledger-workflow.js';
 import type { PaymentWebhookEnvelope } from '../integrations/payment-webhook-evidence.js';
 import type { RecordFinanceLedgerAuthorityInput } from './finance-ledger-recorder.js';
+import type { FinancePaymentEventWorkflowResult } from './finance-payment-event-workflow.js';
 
 function envelope(eventType: PaymentWebhookEnvelope['eventType']): PaymentWebhookEnvelope {
   return {
@@ -18,7 +19,7 @@ function envelope(eventType: PaymentWebhookEnvelope['eventType']): PaymentWebhoo
   };
 }
 
-function resultFor(event: PaymentWebhookEnvelope) {
+function resultFor(event: PaymentWebhookEnvelope): FinancePaymentEventWorkflowResult {
   return {
     evidence: {
       idempotencyKey: `payment-webhook:${event.provider}:${event.providerEventReference}`,
@@ -27,13 +28,13 @@ function resultFor(event: PaymentWebhookEnvelope) {
       providerPaymentReference: event.providerPaymentReference,
       eventType: event.eventType,
       commercialRecordReference: event.commercialRecordReference,
-      amountMinor: event.amountMinor,
-      currency: event.currency,
+      ...(event.amountMinor !== undefined ? { amountMinor: event.amountMinor } : {}),
+      ...(event.currency !== undefined ? { currency: event.currency } : {}),
       occurredAt: event.occurredAt,
       evidenceReference: `payment-provider:${event.provider}:${event.providerEventReference}`,
     },
-    webhookPersistence: 'accepted' as const,
-    currentStatePersistence: 'accepted' as const,
+    webhookPersistence: 'accepted',
+    currentStatePersistence: 'accepted',
   };
 }
 
