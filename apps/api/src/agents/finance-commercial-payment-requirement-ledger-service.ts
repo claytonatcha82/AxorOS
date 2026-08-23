@@ -1,4 +1,5 @@
 import type {
+  CommercialPaymentGate,
   CommercialPaymentRequirementPostgresStore,
   PersistedCommercialPaymentRequirement,
 } from '../data/commercial-payment-requirement-postgres-store.js';
@@ -15,6 +16,13 @@ export function createFinanceCommercialPaymentRequirementLedgerService(
   dependencies: FinanceCommercialPaymentRequirementLedgerServiceDependencies,
 ) {
   return {
+    get(
+      commercialRecordReference: string,
+      gate: CommercialPaymentGate,
+    ): Promise<PersistedCommercialPaymentRequirement | null> {
+      return dependencies.requirementStore.get(commercialRecordReference, gate);
+    },
+
     async save(requirement: PersistedCommercialPaymentRequirement): Promise<'accepted' | 'duplicate'> {
       const persistence = await dependencies.requirementStore.save(requirement);
       const persisted = await dependencies.requirementStore.get(
