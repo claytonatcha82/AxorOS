@@ -11,6 +11,7 @@ import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { createFinanceCommercialPaymentBindingWorkflow } from './finance-commercial-payment-binding-workflow.js';
 import { createFinanceGovernedAdvisoryService } from './finance-governed-advisory-service.js';
+import { createFinanceGovernedBindingLedgerService } from './finance-governed-binding-ledger-service.js';
 import { createFinanceGovernedBindingService } from './finance-governed-binding-service.js';
 import { createFinanceGovernedOperationalCoordinator } from './finance-governed-operational-coordinator.js';
 import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
@@ -74,11 +75,18 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   const governedAdvisoryService = createFinanceGovernedAdvisoryService({
     integrations: dependencies.integrations,
   });
-  const governedBindingService = createFinanceGovernedBindingService({
+  const rawGovernedBindingService = createFinanceGovernedBindingService({
     coordinator: governedOperationalCoordinator,
     bindingWorkflow: commercialPaymentBindingWorkflow,
     paymentIntegrationId,
     mode,
+  });
+  const governedBindingService = createFinanceGovernedBindingLedgerService({
+    bindingService: rawGovernedBindingService,
+    requirementStore,
+    clearanceStore,
+    satisfactionStore,
+    ledgerRecorder,
   });
   const governedPaymentRequestService = createFinanceGovernedPaymentRequestService({
     requirementStore,
@@ -110,6 +118,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     governedOperationalRuntime,
     governedAdvisoryService,
     governedBindingService,
+    rawGovernedBindingService,
     governedPaymentRequestService: governedPaymentRequestLedgerWorkflow,
     governedPaymentRequestLedgerWorkflow,
   };
