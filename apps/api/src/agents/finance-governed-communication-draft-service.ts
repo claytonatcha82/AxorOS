@@ -98,6 +98,8 @@ export function createFinanceGovernedCommunicationDraftService(
         provider: response.provider,
         integrationId: response.integrationId,
         modelEvidenceReferences: response.evidenceReferences,
+        evidenceReferences: [...policy.evidenceReferences, ...response.evidenceReferences],
+        knowledgeReferences: [] as string[],
         humanApprovalRequired: true as const,
         sendAuthorised: false as const,
       };
