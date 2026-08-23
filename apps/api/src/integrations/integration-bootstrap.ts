@@ -8,6 +8,7 @@ import { IntegrationRegistry } from './integration-registry.js';
 import type { IntegrationExecutionPolicy } from './integration-policy.js';
 import { createOpenAIModelIntegration } from './openai-model-integration.js';
 import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
+import { createPaystackPaymentRequestIntegration } from './paystack-payment-request-integration.js';
 import { createSandboxModelIntegration } from './sandbox-model-integration.js';
 import { createTavilyPublicWebResearchIntegration } from './tavily-public-web-research-integration.js';
 
@@ -51,6 +52,10 @@ export function createConfiguredIntegrationRegistry(config: ApiConfig): Integrat
     const paystack = createPaystackPaymentIntegration({ secretKey: config.paystackSecretKey });
     registry.register(paystack);
     registeredIntegrationIds.push(paystack.integrationId);
+
+    const paystackPaymentRequest = createPaystackPaymentRequestIntegration({ secretKey: config.paystackSecretKey });
+    registry.register(paystackPaymentRequest);
+    registeredIntegrationIds.push(paystackPaymentRequest.integrationId);
   }
 
   if (config.geminiApiKey) {

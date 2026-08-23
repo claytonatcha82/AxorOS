@@ -15,6 +15,7 @@ test('configured registry always includes model and payment sandboxes and omits 
   assert.deepEqual(registry.require('payment.sandbox').supportedModes, ['sandbox']);
   assert.deepEqual(registry.require('payment.sandbox').supportedOperations, ['verify_payment']);
   assert.equal(registry.get('payment.paystack'), undefined);
+  assert.equal(registry.get('payment.paystack.request'), undefined);
   assert.equal(registry.get('model.gemini'), undefined);
   assert.equal(registry.get('model.openai'), undefined);
   assert.equal(registry.get('email.gmail'), undefined);
@@ -22,18 +23,23 @@ test('configured registry always includes model and payment sandboxes and omits 
   assert.equal(registry.get('research.tavily-web'), undefined);
 });
 
-test('configured registry registers Paystack test verification only in sandbox mode', () => {
+test('configured registry registers Paystack test verification and governed payment request only in sandbox mode', () => {
   const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(baseConfig({ paystackSecretKey: 'sk_test_example-secret' }));
-  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'payment.paystack']);
+  assert.deepEqual(registeredIntegrationIds, ['model.sandbox', 'payment.sandbox', 'payment.paystack', 'payment.paystack.request']);
   const paystack = registry.require('payment.paystack');
   assert.equal(paystack.provider, 'paystack');
   assert.deepEqual(paystack.supportedModes, ['sandbox']);
   assert.deepEqual(paystack.supportedOperations, ['verify_payment']);
+  const paystackRequest = registry.require('payment.paystack.request');
+  assert.equal(paystackRequest.provider, 'paystack');
+  assert.deepEqual(paystackRequest.supportedModes, ['sandbox']);
+  assert.deepEqual(paystackRequest.supportedOperations, ['initialize_payment_request']);
 });
 
-test('configured registry registers Paystack live verification only in live mode', () => {
+test('configured registry registers Paystack live verification and governed payment request only in live mode', () => {
   const { registry } = createConfiguredIntegrationRegistry(baseConfig({ paystackSecretKey: 'sk_live_example-secret' }));
   assert.deepEqual(registry.require('payment.paystack').supportedModes, ['live']);
+  assert.deepEqual(registry.require('payment.paystack.request').supportedModes, ['live']);
 });
 
 test('configured registry registers Gemini only when a key is configured', () => {
