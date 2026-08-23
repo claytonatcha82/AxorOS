@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
+import { createFinanceGovernedControlCommand } from './agents/finance-governed-control-command.js';
 import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js';
 import { createOperationsProductionPrerequisiteRecorder } from './agents/operations-production-prerequisite-recorder.js';
 import { createOperationsProductionReadinessPostgresService } from './agents/operations-production-readiness-postgres.js';
@@ -16,6 +17,7 @@ import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-atte
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
 import { checkDatabase, createDatabasePool } from './database.js';
+import { createFinanceControlPlaneRequestHandler } from './finance-control-plane-request-handler.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import type { ExternalIntegration } from './integrations/integration-contract.js';
 import type { GmailEmailIntegration } from './integrations/gmail-draft-integration.js';
@@ -87,6 +89,11 @@ const financePaymentRuntime = createFinancePaymentRuntime({
   ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}),
   ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}),
 });
+const financeGovernedControlCommand = createFinanceGovernedControlCommand({
+  operationalRuntime: financePaymentRuntime.governedOperationalRuntime,
+  bindingService: financePaymentRuntime.governedBindingService,
+  paymentWebhookEvidenceStore: financePaymentRuntime.webhookStore,
+});
 const operationsProductionReadiness = createOperationsProductionReadinessPostgresService({ pool: databasePool });
 const productionModelPolicy = createProductionModelPolicy(config.productionModelIntegrationId);
 const productionRuntime = createPersistedProductionRuntime({
@@ -128,13 +135,18 @@ const controlPlaneRequestHandler = createControlPlaneRequestHandler({
   leadQualificationReviewCommand: leadQualificationReviewRuntime.commands,
   fallback: apiRequestHandler,
 });
+const financeControlPlaneRequestHandler = createFinanceControlPlaneRequestHandler({
+  config,
+  financeCommand: financeGovernedControlCommand,
+  fallback: controlPlaneRequestHandler,
+});
 const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
   config,
   salesIntakeCommand: salesIntakeRuntime.commands,
   salesOutreachDraftReviewCommand: salesOutreachDraftReview,
   salesSupervisedSendGateCommand: salesSupervisedSendGate,
   salesEmailCommand: salesSupervisedEmailExecution,
-  fallback: controlPlaneRequestHandler,
+  fallback: financeControlPlaneRequestHandler,
 });
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
@@ -200,6 +212,8 @@ async function start(): Promise<void> {
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
+      financeGovernedRuntimeConfigured: true,
+      financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
       paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
       paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
       paystackWebhookConfigured: Boolean(paystackWebhookIngress),

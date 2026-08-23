@@ -14,6 +14,28 @@ const required = (name) => {
   return value;
 };
 
+function assertsUnverifiedPaymentSafely(text) {
+  const normalized = text.toLowerCase();
+  if (!normalized.includes('awaiting verification')) {
+    throw new Error('Finance Gemini output did not preserve the required awaiting-verification status.');
+  }
+
+  // Reject unequivocal success assertions while allowing safe conditional language such as
+  // "until payment is confirmed" or "once payment is confirmed". The previous broad regex
+  // incorrectly treated those conditional phrases as claims that payment had already succeeded.
+  const prohibitedAssertions = [
+    /\bpayment has been (?:received|confirmed|settled)\b/i,
+    /\bpayment was (?:received|confirmed|settled|successful)\b/i,
+    /(?:^|[.!?]\s+)(?:your\s+)?payment is (?:received|confirmed|settled|successful)\b/i,
+    /\bwe (?:have )?(?:received|confirmed) (?:your )?payment\b/i,
+    /\bwe (?:can )?confirm (?:that )?(?:your )?payment (?:is|has been) (?:received|confirmed|settled|successful)\b/i,
+  ];
+
+  if (prohibitedAssertions.some((pattern) => pattern.test(text))) {
+    throw new Error('Finance Gemini output asserted an unverified successful payment state.');
+  }
+}
+
 const connectionString = required('AXOROS_DATABASE_URL');
 const geminiApiKey = required('GEMINI_API_KEY');
 const gmailClientId = required('AXOROS_GMAIL_CLIENT_ID');
@@ -68,11 +90,7 @@ try {
     throw new Error(`Finance Gemini stage failed: ${modelOutcome.record.result?.errorMessage ?? modelOutcome.record.task.status}`);
   }
 
-  const normalized = generatedText.toLowerCase();
-  if (!normalized.includes('awaiting verification')) throw new Error('Finance Gemini output did not preserve the required awaiting-verification status.');
-  if (/payment (?:has been |was |is )?(?:received|confirmed|settled|successful)/i.test(generatedText)) {
-    throw new Error('Finance Gemini output asserted an unverified successful payment state.');
-  }
+  assertsUnverifiedPaymentSafely(generatedText);
 
   const emailNow = new Date().toISOString();
   const rawEmailTask = {

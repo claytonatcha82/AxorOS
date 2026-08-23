@@ -29,6 +29,7 @@
     "finance:payment:requirements:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-commercial-payment-requirement-migration.mjs",
     "finance:payment:satisfactions:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-commercial-payment-satisfaction-migration.mjs",
     "finance:payment:satisfactions:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-commercial-payment-satisfactions.mjs",
+    "finance:governed:control:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-finance-governed-control-plane.mjs",
     "lead:qualification:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-lead-preliminary-qualification-migration.mjs",
     "lead:qualification:verify:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-lead-preliminary-qualification-persistence.mjs",
     "finance:paystack:stage1:verify": "npm run verify:paystack:stage1 --workspace @axoros/api",
