@@ -8,14 +8,9 @@ import { createFinanceControlPlaneRequestHandler } from '../apps/api/dist/financ
 
 const { Pool } = pg;
 const connectionString = process.env.AXOROS_DATABASE_URL;
-const controlPlaneToken = process.env.AXOROS_CONTROL_PLANE_TOKEN;
 const controlCenterUrl = process.env.AXOROS_CONTROL_CENTER_URL ?? 'http://localhost:5173';
 if (!connectionString) {
   console.error('FAIL  AXOROS_DATABASE_URL is not set.');
-  process.exit(1);
-}
-if (!controlPlaneToken) {
-  console.error('FAIL  AXOROS_CONTROL_PLANE_TOKEN is not set.');
   process.exit(1);
 }
 
@@ -27,6 +22,7 @@ const pool = new Pool({
 const requirementStore = new CommercialPaymentRequirementPostgresStore(pool);
 const paymentRequestStore = new FinancePaymentRequestPostgresStore(pool);
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const controlPlaneToken = `finance-payment-request-control-token:${suffix}`;
 const commercialRecordReference = `commercial:payment-request-control:${suffix}`;
 const requirementReference = `requirement:payment-request-control:${suffix}`;
 let providerCalls = 0;
