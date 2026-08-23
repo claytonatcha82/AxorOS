@@ -1,17 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AgentRuntimeTask } from './agent-runtime-contract.js';
+import type { FinanceGovernedOperationalDecision } from './finance-governed-operational-coordinator.js';
 import { createFinanceGovernedCheckoutEmailPreparationService } from './finance-governed-checkout-email-preparation-service.js';
 
-const decision = {
+const decision: FinanceGovernedOperationalDecision = {
   commercialRecordReference: 'commercial:checkout-email:1',
-  gate: 'PRODUCTION_START' as const,
-  state: 'AWAITING_VERIFIED_PAYMENT' as const,
+  gate: 'PRODUCTION_START',
+  state: 'AWAITING_VERIFIED_PAYMENT',
   reason: 'Payment is awaiting verification.',
-  paymentStatus: 'pending',
-  authorityState: 'not_cleared',
   requirementReference: 'requirement:checkout-email:1',
-  evidenceReferences: ['workflow-event:finance:1'],
   advisoryModelAllowed: true,
 };
 
@@ -65,7 +63,7 @@ test('Finance checkout email preparation derives payment request recipient from 
           requirement: {
             commercialRecordReference: decision.commercialRecordReference,
             gate: decision.gate,
-            requirementReference: decision.requirementReference,
+            requirementReference: decision.requirementReference!,
             requirementType: 'DEPOSIT',
             requiredAmountMinor: 12500,
             currency: 'ZAR',
