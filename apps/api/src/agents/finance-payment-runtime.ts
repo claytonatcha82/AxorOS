@@ -3,11 +3,13 @@ import { CommercialPaymentRequirementPostgresStore } from '../data/commercial-pa
 import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
 import { FinanceClearancePostgresStore } from '../data/finance-clearance-postgres-store.js';
 import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment-current-state-postgres-store.js';
+import { createOperationalRepository } from '../data/operational-repository.js';
 import { PaymentWebhookPostgresStore } from '../data/payment-webhook-postgres-store.js';
 import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { createFinanceCommercialPaymentBindingWorkflow } from './finance-commercial-payment-binding-workflow.js';
 import { createFinanceGovernedOperationalCoordinator } from './finance-governed-operational-coordinator.js';
+import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
 import { createFinancePaymentEventWorkflow } from './finance-payment-event-workflow.js';
 
@@ -24,6 +26,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   const currentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
   const requirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
   const satisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
+  const operationalRepository = createOperationalRepository(dependencies.pool);
   const workflow = createFinancePaymentClearanceWorkflow({
     integrations: dependencies.integrations,
     clearanceStore,
@@ -42,10 +45,14 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     paymentWebhookEvidenceStore: webhookStore,
     clearanceWorkflow: workflow,
   });
-  const operationalCoordinator = createFinanceGovernedOperationalCoordinator({
+  const governedOperationalCoordinator = createFinanceGovernedOperationalCoordinator({
     requirementStore,
     satisfactionStore,
     currentStateStore,
+  });
+  const governedOperationalRuntime = createFinanceGovernedOperationalRuntime({
+    coordinator: governedOperationalCoordinator,
+    eventStore: operationalRepository,
   });
 
   return {
@@ -57,6 +64,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     workflow,
     eventWorkflow,
     commercialPaymentBindingWorkflow,
-    operationalCoordinator,
+    governedOperationalCoordinator,
+    governedOperationalRuntime,
   };
 }
