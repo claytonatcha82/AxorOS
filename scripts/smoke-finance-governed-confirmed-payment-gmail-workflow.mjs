@@ -7,7 +7,6 @@ import { createFinanceGovernedEmailPreparationService } from '../apps/api/dist/a
 import { createFinancePaymentRuntime } from '../apps/api/dist/agents/finance-payment-runtime.js';
 import { createAgentRuntimePostgresStore } from '../apps/api/dist/data/agent-runtime-postgres-store.js';
 import { createConfiguredIntegrationRegistry } from '../apps/api/dist/integrations/integration-bootstrap.js';
-import { DeterministicPaymentIntegration } from '../apps/api/dist/integrations/deterministic-payment-integration.js';
 
 const { Pool } = pg;
 const required = (name) => {
@@ -39,10 +38,9 @@ const { registry, registeredIntegrationIds } = createConfiguredIntegrationRegist
   gmailRefreshToken,
   gmailIdentityAddresses: identityAddresses,
 });
-if (!registeredIntegrationIds.includes('model.gemini') || !registeredIntegrationIds.includes('email.gmail')) {
-  throw new Error('Gemini and Gmail integrations must both be registered.');
+if (!registeredIntegrationIds.includes('model.gemini') || !registeredIntegrationIds.includes('email.gmail') || !registeredIntegrationIds.includes('payment.sandbox')) {
+  throw new Error('Gemini, Gmail, and sandbox payment integrations must be registered.');
 }
-registry.register(new DeterministicPaymentIntegration());
 
 const pool = new Pool({ connectionString, max: 2, application_name: 'axoros-finance-governed-confirmed-payment-gmail-smoke' });
 const runtime = createFinancePaymentRuntime({ pool, integrations: registry, paymentIntegrationId: 'payment.sandbox', mode: 'sandbox' });
