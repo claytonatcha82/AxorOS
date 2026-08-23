@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
+import type { ModelGenerationInput } from '../integrations/model-integration.js';
 import { createFinanceGovernedAdvisoryService } from './finance-governed-advisory-service.js';
 
 function decision(overrides = {}) {
@@ -20,7 +21,7 @@ function decision(overrides = {}) {
 
 test('Finance governed advisory sends only deterministic assessment context to Gemini and returns decision unchanged', async () => {
   const registry = new IntegrationRegistry();
-  let capturedInput;
+  let capturedInput: ModelGenerationInput | undefined;
   registry.register({
     integrationId: 'model.gemini',
     kind: 'model',
@@ -28,7 +29,7 @@ test('Finance governed advisory sends only deterministic assessment context to G
     supportedModes: ['draft'],
     supportedOperations: ['generate_text'],
     async execute(request) {
-      capturedInput = request.input;
+      capturedInput = request.input as ModelGenerationInput;
       return {
         integrationId: 'model.gemini',
         operation: request.operation,
@@ -48,6 +49,9 @@ test('Finance governed advisory sends only deterministic assessment context to G
 
   assert.equal(result.decision, authoritativeDecision);
   assert.equal(result.advisoryText.includes('Advisory only'), true);
+  assert.ok(capturedInput);
+  assert.ok(capturedInput.context);
+  assert.ok(capturedInput.systemInstruction);
   assert.equal(capturedInput.context.includes('READY_TO_BIND_REQUIREMENT'), true);
   assert.equal(capturedInput.context.includes('AUTHORITATIVE DETERMINISTIC FINANCE ASSESSMENT'), true);
   assert.equal(capturedInput.systemInstruction.includes('authoritative and immutable'), true);
