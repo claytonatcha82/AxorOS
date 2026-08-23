@@ -4,6 +4,10 @@ import type {
   CommercialPaymentRequirementPostgresStore,
   PersistedCommercialPaymentRequirement,
 } from '../data/commercial-payment-requirement-postgres-store.js';
+import type {
+  FinancePaymentRequestPostgresStore,
+  PersistedFinancePaymentRequest,
+} from '../data/finance-payment-request-postgres-store.js';
 import type { IntegrationMode, IntegrationRequest, IntegrationResponse } from '../integrations/integration-contract.js';
 import {
   hasUsablePaymentRequest,
@@ -19,6 +23,7 @@ export interface FinancePaymentRequestIntegrationExecutor {
 
 export interface FinanceGovernedPaymentRequestServiceOptions {
   requirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>;
+  paymentRequestStore: Pick<FinancePaymentRequestPostgresStore, 'get' | 'save'>;
   integrations: FinancePaymentRequestIntegrationExecutor;
   integrationId?: string;
   mode?: Extract<IntegrationMode, 'sandbox' | 'live'>;
@@ -36,8 +41,9 @@ export interface FinanceGovernedPaymentRequestResult {
   requirement: PersistedCommercialPaymentRequirement;
   providerPaymentReference: string;
   authorizationUrl: string;
-  accessCode: string;
+  accessCode?: string;
   evidenceReferences: string[];
+  replayed: boolean;
 }
 
 function required(value: string, label: string): string {
@@ -53,6 +59,20 @@ function providerPaymentReference(requirement: PersistedCommercialPaymentRequire
     .slice(0, 24)
     .toUpperCase();
   return `AXOROS-${digest}`;
+}
+
+function assertPersistedRequestMatches(
+  persisted: PersistedFinancePaymentRequest,
+  requirement: PersistedCommercialPaymentRequirement,
+  expectedProviderPaymentReference: string,
+): void {
+  if (persisted.commercialRecordReference !== requirement.commercialRecordReference
+    || persisted.requirementReference !== requirement.requirementReference
+    || persisted.providerPaymentReference !== expectedProviderPaymentReference
+    || persisted.amountMinor !== requirement.requiredAmountMinor
+    || persisted.currency !== requirement.currency) {
+    throw new Error(`Persisted Finance payment request does not match requirement ${requirement.requirementReference}.`);
+  }
 }
 
 export function createFinanceGovernedPaymentRequestService(
@@ -83,6 +103,18 @@ export function createFinanceGovernedPaymentRequestService(
       }
 
       const generatedProviderPaymentReference = providerPaymentReference(requirement);
+      const existing = await options.paymentRequestStore.get(requirement.requirementReference);
+      if (existing) {
+        assertPersistedRequestMatches(existing, requirement, generatedProviderPaymentReference);
+        return {
+          requirement,
+          providerPaymentReference: existing.providerPaymentReference,
+          authorizationUrl: existing.authorizationUrl,
+          evidenceReferences: existing.evidenceReferences,
+          replayed: true,
+        };
+      }
+
       const request: IntegrationRequest<PaymentRequestInitializationInput> = {
         integrationId,
         operation: 'initialize_payment_request',
@@ -116,12 +148,26 @@ export function createFinanceGovernedPaymentRequestService(
         throw new Error('Payment-request provider response reference does not match the Finance-generated reference.');
       }
 
+      const persisted: PersistedFinancePaymentRequest = {
+        requirementReference: requirement.requirementReference,
+        commercialRecordReference: requirement.commercialRecordReference,
+        provider: response.provider,
+        providerPaymentReference: generatedProviderPaymentReference,
+        authorizationUrl: response.output.authorizationUrl!,
+        amountMinor: requirement.requiredAmountMinor,
+        currency: requirement.currency,
+        evidenceReferences: response.evidenceReferences,
+        createdAt: new Date().toISOString(),
+      };
+      await options.paymentRequestStore.save(persisted);
+
       return {
         requirement,
         providerPaymentReference: generatedProviderPaymentReference,
         authorizationUrl: response.output.authorizationUrl!,
         accessCode: response.output.accessCode!,
         evidenceReferences: response.evidenceReferences,
+        replayed: false,
       };
     },
   };
