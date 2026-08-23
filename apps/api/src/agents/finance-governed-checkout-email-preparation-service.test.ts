@@ -12,6 +12,7 @@ const decision = {
   authorityState: 'not_cleared',
   requirementReference: 'requirement:checkout-email:1',
   evidenceReferences: ['workflow-event:finance:1'],
+  advisoryModelAllowed: true,
 };
 
 function preparedTask(): AgentRuntimeTask {
