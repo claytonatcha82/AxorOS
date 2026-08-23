@@ -17,6 +17,7 @@ import { createFinanceGovernedOperationalRuntime } from './finance-governed-oper
 import { createFinanceGovernedPaymentRequestService } from './finance-governed-payment-request-service.js';
 import { createFinanceLedgerRecorder } from './finance-ledger-recorder.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
+import { createFinancePaymentEventLedgerWorkflow } from './finance-payment-event-ledger-workflow.js';
 import { createFinancePaymentEventWorkflow } from './finance-payment-event-workflow.js';
 import { createFinancePaymentRequestLedgerWorkflow } from './finance-payment-request-ledger-workflow.js';
 
@@ -44,12 +45,16 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     clearanceStore,
     paymentWebhookEvidenceStore: webhookStore,
   });
-  const eventWorkflow = createFinancePaymentEventWorkflow({
+  const rawEventWorkflow = createFinancePaymentEventWorkflow({
     webhookStore,
     currentStateStore,
     clearanceWorkflow: workflow,
     paymentIntegrationId,
     mode,
+  });
+  const eventWorkflow = createFinancePaymentEventLedgerWorkflow({
+    eventWorkflow: rawEventWorkflow,
+    ledgerRecorder,
   });
   const commercialPaymentBindingWorkflow = createFinanceCommercialPaymentBindingWorkflow({
     requirementStore,
@@ -99,6 +104,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     paymentRequestStore,
     workflow,
     eventWorkflow,
+    rawEventWorkflow,
     commercialPaymentBindingWorkflow,
     governedOperationalCoordinator,
     governedOperationalRuntime,
