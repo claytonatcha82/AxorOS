@@ -4,16 +4,22 @@ import type {
   CommercialPaymentRequirementPostgresStore,
   PersistedCommercialPaymentRequirement,
 } from '../data/commercial-payment-requirement-postgres-store.js';
-import type { IntegrationMode } from '../integrations/integration-contract.js';
-import type { IntegrationRegistry } from '../integrations/integration-registry.js';
+import type { IntegrationMode, IntegrationRequest, IntegrationResponse } from '../integrations/integration-contract.js';
 import {
   hasUsablePaymentRequest,
+  type PaymentRequestInitializationInput,
   type PaymentRequestInitializationOutput,
 } from '../integrations/payment-request-integration.js';
 
+export interface FinancePaymentRequestIntegrationExecutor {
+  execute(
+    request: IntegrationRequest<PaymentRequestInitializationInput>,
+  ): Promise<IntegrationResponse<PaymentRequestInitializationOutput>>;
+}
+
 export interface FinanceGovernedPaymentRequestServiceOptions {
   requirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>;
-  integrations: Pick<IntegrationRegistry, 'execute'>;
+  integrations: FinancePaymentRequestIntegrationExecutor;
   integrationId?: string;
   mode?: Extract<IntegrationMode, 'sandbox' | 'live'>;
 }
@@ -77,17 +83,7 @@ export function createFinanceGovernedPaymentRequestService(
       }
 
       const generatedProviderPaymentReference = providerPaymentReference(requirement);
-      const response = await options.integrations.execute<
-        {
-          commercialRecordReference: string;
-          requirementReference: string;
-          providerPaymentReference: string;
-          recipientEmail: string;
-          amountMinor: number;
-          currency: string;
-        },
-        PaymentRequestInitializationOutput
-      >({
+      const request: IntegrationRequest<PaymentRequestInitializationInput> = {
         integrationId,
         operation: 'initialize_payment_request',
         requestedBy: 'finance_agent',
@@ -104,7 +100,8 @@ export function createFinanceGovernedPaymentRequestService(
           amountMinor: requirement.requiredAmountMinor,
           currency: requirement.currency,
         },
-      });
+      };
+      const response = await options.integrations.execute(request);
 
       if (!hasUsablePaymentRequest(response)) {
         throw new Error('Payment provider did not return usable governed payment-request authority.');
