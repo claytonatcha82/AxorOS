@@ -24,25 +24,21 @@ function decision(
 function registry(calls: ModelGenerationInput[]): IntegrationRegistry {
   const integrations = new IntegrationRegistry();
   const model: ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> = {
-    id: 'model.gemini',
+    integrationId: 'model.gemini',
     provider: 'google-gemini',
     kind: 'model',
     supportedModes: ['draft'],
+    supportedOperations: ['generate_text'],
     async execute(request) {
       calls.push(request.input);
       return {
         integrationId: 'model.gemini',
         provider: 'google-gemini',
-        kind: 'model',
         operation: request.operation,
         mode: request.mode,
         status: 'drafted',
         retryable: false,
-        output: {
-          text: 'Governed Finance client draft.',
-          model: 'gemini-test',
-          finishReason: 'stop',
-        },
+        output: { text: 'Governed Finance client draft.', model: 'gemini-test', finishReason: 'stop' },
         evidenceReferences: ['model:gemini:test'],
       };
     },
