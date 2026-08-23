@@ -6,9 +6,14 @@ import type {
   FinanceGovernedControlAssessmentInput,
   FinanceGovernedControlBindInput,
 } from './agents/finance-governed-control-command.js';
+import type {
+  FinanceGovernedPaymentRequestInput,
+  FinanceGovernedPaymentRequestResult,
+} from './agents/finance-governed-payment-request-service.js';
 
 const FINANCE_ASSESS_PATH = '/api/v1/control/finance/payment/assess';
 const FINANCE_BIND_PATH = '/api/v1/control/finance/payment/bind';
+const FINANCE_PAYMENT_REQUEST_PATH = '/api/v1/control/finance/payment/request';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 const GATES: CommercialPaymentGate[] = ['PRODUCTION_START', 'MILESTONE_RELEASE', 'FINAL_HANDOVER'];
 
@@ -27,6 +32,9 @@ export interface FinanceControlPlaneDependencies {
       after: { state: string };
       afterAuditEventReference: string;
     }>;
+  };
+  paymentRequestCommand?: {
+    initialize(input: FinanceGovernedPaymentRequestInput): Promise<FinanceGovernedPaymentRequestResult>;
   };
   fallback: RequestListener;
 }
@@ -95,8 +103,22 @@ function validBindBody(body: Record<string, unknown>): body is Record<string, un
     && nonEmptyText(body.trustedPaymentWebhookIdempotencyKey);
 }
 
+function validPaymentRequestBody(
+  body: Record<string, unknown>,
+): body is Record<string, unknown> & FinanceGovernedPaymentRequestInput {
+  const allowed = new Set(['commercialRecordReference', 'gate', 'recipientEmail', 'executionId', 'correlationId']);
+  const keys = Object.keys(body);
+  return keys.length === allowed.size
+    && keys.every((key) => allowed.has(key))
+    && nonEmptyText(body.commercialRecordReference)
+    && validGate(body.gate)
+    && nonEmptyText(body.recipientEmail)
+    && nonEmptyText(body.executionId)
+    && nonEmptyText(body.correlationId);
+}
+
 function isFinancePath(path: string | undefined): boolean {
-  return path === FINANCE_ASSESS_PATH || path === FINANCE_BIND_PATH;
+  return path === FINANCE_ASSESS_PATH || path === FINANCE_BIND_PATH || path === FINANCE_PAYMENT_REQUEST_PATH;
 }
 
 export function createFinanceControlPlaneRequestHandler(dependencies: FinanceControlPlaneDependencies): RequestListener {
@@ -144,6 +166,43 @@ export function createFinanceControlPlaneRequestHandler(dependencies: FinanceCon
     try { body = await readBody(request); } catch (error) {
       const code = error instanceof Error ? error.message : 'invalid_json_body';
       sendJson(response, code === 'request_body_too_large' ? 413 : 400, { ok: false, error: { code, message: code === 'request_body_too_large' ? 'Request body exceeds the allowed size.' : 'Request body must be a JSON object.' } }, corsHeaders);
+      return;
+    }
+
+    if (request.url === FINANCE_PAYMENT_REQUEST_PATH) {
+      const paymentRequestCommand = dependencies.paymentRequestCommand;
+      if (!paymentRequestCommand) {
+        sendJson(response, 503, { ok: false, error: { code: 'finance_payment_request_not_configured', message: 'Finance payment-request control is not configured.' } }, corsHeaders);
+        return;
+      }
+      if (!validPaymentRequestBody(body)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: {
+            code: 'invalid_finance_payment_request_command',
+            message: 'Request body must contain only commercialRecordReference, approved gate, recipientEmail, executionId, and correlationId. Amount, currency, requirement, provider reference, and checkout authority are derived internally.',
+          },
+        }, corsHeaders);
+        return;
+      }
+      try {
+        const result = await paymentRequestCommand.initialize(body);
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            commercialRecordReference: result.requirement.commercialRecordReference,
+            gate: result.requirement.gate,
+            requirementReference: result.requirement.requirementReference,
+            providerPaymentReference: result.providerPaymentReference,
+            authorizationUrl: result.authorizationUrl,
+            evidenceReferences: result.evidenceReferences,
+            replayed: result.replayed,
+          },
+        }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Finance payment request failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'finance_payment_request_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
