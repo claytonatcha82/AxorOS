@@ -36,7 +36,7 @@ function registry(calls: ModelGenerationInput[]): IntegrationRegistry {
         kind: 'model',
         operation: request.operation,
         mode: request.mode,
-        status: 'completed',
+        status: 'drafted',
         retryable: false,
         output: { text: 'Governed Finance client draft.', model: 'gemini-test' },
         evidenceReferences: ['model:gemini:test'],
