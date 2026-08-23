@@ -8,6 +8,7 @@ import { PaymentWebhookPostgresStore } from '../data/payment-webhook-postgres-st
 import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { createFinanceCommercialPaymentBindingWorkflow } from './finance-commercial-payment-binding-workflow.js';
+import { createFinanceGovernedAdvisoryService } from './finance-governed-advisory-service.js';
 import { createFinanceGovernedOperationalCoordinator } from './finance-governed-operational-coordinator.js';
 import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
@@ -54,6 +55,9 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     coordinator: governedOperationalCoordinator,
     eventStore: operationalRepository,
   });
+  const governedAdvisoryService = createFinanceGovernedAdvisoryService({
+    integrations: dependencies.integrations,
+  });
 
   return {
     clearanceStore,
@@ -66,5 +70,6 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     commercialPaymentBindingWorkflow,
     governedOperationalCoordinator,
     governedOperationalRuntime,
+    governedAdvisoryService,
   };
 }
