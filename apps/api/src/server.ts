@@ -138,6 +138,7 @@ const controlPlaneRequestHandler = createControlPlaneRequestHandler({
 const financeControlPlaneRequestHandler = createFinanceControlPlaneRequestHandler({
   config,
   financeCommand: financeGovernedControlCommand,
+  paymentRequestCommand: financePaymentRuntime.governedPaymentRequestService,
   fallback: controlPlaneRequestHandler,
 });
 const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
@@ -214,6 +215,10 @@ async function start(): Promise<void> {
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
       financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      financePaymentRequestRuntimeConfigured: registeredIntegrationIds.includes('payment.paystack.request'),
+      financePaymentRequestControlPlaneConfigured: Boolean(
+        config.controlPlaneToken && registeredIntegrationIds.includes('payment.paystack.request'),
+      ),
       paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
       paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
       paystackWebhookConfigured: Boolean(paystackWebhookIngress),
