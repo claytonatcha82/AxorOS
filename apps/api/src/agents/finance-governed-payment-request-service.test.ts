@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createFinanceGovernedPaymentRequestService } from './finance-governed-payment-request-service.js';
 import type { PersistedCommercialPaymentRequirement } from '../data/commercial-payment-requirement-postgres-store.js';
+import type { PersistedFinancePaymentRequest } from '../data/finance-payment-request-postgres-store.js';
 
 const activeRequirement: PersistedCommercialPaymentRequirement = {
   commercialRecordReference: 'commercial:test:1',
@@ -13,16 +14,35 @@ const activeRequirement: PersistedCommercialPaymentRequirement = {
   status: 'ACTIVE',
 };
 
+function memoryPaymentRequestStore() {
+  const records = new Map<string, PersistedFinancePaymentRequest>();
+  return {
+    async get(requirementReference: string) {
+      return records.get(requirementReference) ?? null;
+    },
+    async save(record: PersistedFinancePaymentRequest) {
+      const existing = records.get(record.requirementReference);
+      if (existing) return 'duplicate' as const;
+      records.set(record.requirementReference, record);
+      return 'accepted' as const;
+    },
+  };
+}
+
 function service(requirement: PersistedCommercialPaymentRequirement | null) {
   let capturedRequest: Record<string, unknown> | undefined;
+  let providerCalls = 0;
+  const paymentRequestStore = memoryPaymentRequestStore();
   const instance = createFinanceGovernedPaymentRequestService({
     requirementStore: {
       async get() {
         return requirement;
       },
     },
+    paymentRequestStore,
     integrations: {
       async execute(request) {
+        providerCalls += 1;
         capturedRequest = request as unknown as Record<string, unknown>;
         const input = request.input as {
           commercialRecordReference: string;
@@ -49,11 +69,11 @@ function service(requirement: PersistedCommercialPaymentRequirement | null) {
       },
     },
   });
-  return { instance, captured: () => capturedRequest };
+  return { instance, captured: () => capturedRequest, providerCalls: () => providerCalls, paymentRequestStore };
 }
 
-test('Finance payment request derives amount, currency, requirement, and provider reference from persisted authority', async () => {
-  const { instance, captured } = service(activeRequirement);
+test('Finance payment request derives authority from persisted requirement and persists provider checkout authority', async () => {
+  const { instance, captured, paymentRequestStore } = service(activeRequirement);
   const result = await instance.initialize({
     commercialRecordReference: activeRequirement.commercialRecordReference,
     gate: activeRequirement.gate,
@@ -76,6 +96,31 @@ test('Finance payment request derives amount, currency, requirement, and provide
   assert.equal(String(input.providerPaymentReference).startsWith('AXOROS-'), true);
   assert.equal(result.providerPaymentReference, input.providerPaymentReference);
   assert.equal(result.requirement, activeRequirement);
+  assert.equal(result.replayed, false);
+
+  const persisted = await paymentRequestStore.get(activeRequirement.requirementReference);
+  assert.ok(persisted);
+  assert.equal(persisted.amountMinor, activeRequirement.requiredAmountMinor);
+  assert.equal(persisted.currency, activeRequirement.currency);
+  assert.equal(persisted.authorizationUrl, result.authorizationUrl);
+});
+
+test('Finance payment request replays persisted checkout authority without calling provider twice', async () => {
+  const { instance, providerCalls } = service(activeRequirement);
+  const input = {
+    commercialRecordReference: activeRequirement.commercialRecordReference,
+    gate: activeRequirement.gate,
+    recipientEmail: 'client@example.com',
+    executionId: 'exec:test:replay',
+    correlationId: 'corr:test:replay',
+  } as const;
+  const first = await instance.initialize(input);
+  const second = await instance.initialize(input);
+  assert.equal(first.replayed, false);
+  assert.equal(second.replayed, true);
+  assert.equal(second.providerPaymentReference, first.providerPaymentReference);
+  assert.equal(second.authorizationUrl, first.authorizationUrl);
+  assert.equal(providerCalls(), 1);
 });
 
 test('Finance payment request fails closed when no persisted requirement exists', async () => {
@@ -109,6 +154,7 @@ test('Finance payment request fails closed for non-active persisted requirement'
 test('Finance payment request rejects provider response bound to a different commercial record', async () => {
   const instance = createFinanceGovernedPaymentRequestService({
     requirementStore: { async get() { return activeRequirement; } },
+    paymentRequestStore: memoryPaymentRequestStore(),
     integrations: {
       async execute(request) {
         const input = request.input as { requirementReference: string; providerPaymentReference: string };
