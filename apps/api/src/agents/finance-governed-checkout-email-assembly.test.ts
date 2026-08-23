@@ -81,8 +81,10 @@ test('Finance checkout assembly rejects mismatched commercial authority', () => 
 });
 
 test('Finance checkout assembly rejects bypass of Human Executive approval', () => {
+  const bypassTask = task({ approvalRequired: false });
+  delete bypassTask.approvalOwner;
   assert.throws(
-    () => assembleFinanceGovernedCheckoutEmail({ task: task({ approvalRequired: false, approvalOwner: undefined }), paymentRequest }),
+    () => assembleFinanceGovernedCheckoutEmail({ task: bypassTask, paymentRequest }),
     /requires Human Executive approval/,
   );
 });
