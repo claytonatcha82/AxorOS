@@ -10,6 +10,7 @@ import { PaymentWebhookPostgresStore } from '../data/payment-webhook-postgres-st
 import type { IntegrationMode } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { createFinanceCommercialPaymentBindingWorkflow } from './finance-commercial-payment-binding-workflow.js';
+import { createFinanceCommercialPaymentRequirementLedgerService } from './finance-commercial-payment-requirement-ledger-service.js';
 import { createFinanceGovernedAdvisoryService } from './finance-governed-advisory-service.js';
 import { createFinanceGovernedBindingLedgerService } from './finance-governed-binding-ledger-service.js';
 import { createFinanceGovernedBindingService } from './finance-governed-binding-service.js';
@@ -37,7 +38,11 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   const ledgerRecorder = createFinanceLedgerRecorder(ledgerStore);
   const webhookStore = new PaymentWebhookPostgresStore(dependencies.pool);
   const currentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
-  const requirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
+  const rawRequirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
+  const requirementStore = createFinanceCommercialPaymentRequirementLedgerService({
+    requirementStore: rawRequirementStore,
+    ledgerRecorder,
+  });
   const satisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
   const paymentRequestStore = new FinancePaymentRequestPostgresStore(dependencies.pool);
   const operationalRepository = createOperationalRepository(dependencies.pool);
@@ -108,6 +113,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     webhookStore,
     currentStateStore,
     requirementStore,
+    rawRequirementStore,
     satisfactionStore,
     paymentRequestStore,
     workflow,
