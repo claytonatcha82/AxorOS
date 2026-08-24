@@ -207,5 +207,19 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
       );
       return result.rows.map((row) => mapExecution(row as Record<string, unknown>));
     },
+
+    async listPendingHumanApprovals(limit) {
+      const result = await pool.query(
+        `select task, result, version, last_event_id, persisted_at
+         from runtime.agent_executions
+         where status = 'review'
+           and task->>'approvalRequired' = 'true'
+           and task->>'approvalOwner' = 'human_executive'
+         order by persisted_at asc
+         limit $1`,
+        [limit],
+      );
+      return result.rows.map((row) => mapExecution(row as Record<string, unknown>));
+    },
   };
 }
