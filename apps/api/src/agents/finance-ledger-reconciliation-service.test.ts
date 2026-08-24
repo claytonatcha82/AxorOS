@@ -3,6 +3,18 @@ import test from 'node:test';
 import type { FinanceLedgerEntry } from './finance-ledger-entry.js';
 import { createFinanceLedgerReconciliationService } from './finance-ledger-reconciliation-service.js';
 
+function authorityReference(entryType: FinanceLedgerEntry['entryType']): string {
+  return `authority:${entryType}`;
+}
+
+function evidenceReferences(entryType: FinanceLedgerEntry['entryType']): string[] {
+  if (entryType === 'PAYMENT_REQUEST_CREATED') return [authorityReference('PAYMENT_REQUIREMENT_CREATED')];
+  if (entryType === 'PAYMENT_PROVIDER_STATE_OBSERVED') return [authorityReference('PAYMENT_REQUEST_CREATED')];
+  if (entryType === 'FINANCE_CLEARANCE_CREATED') return [authorityReference('PAYMENT_PROVIDER_STATE_OBSERVED')];
+  if (entryType === 'PAYMENT_REQUIREMENT_SATISFIED') return [authorityReference('FINANCE_CLEARANCE_CREATED')];
+  return [`evidence:${entryType}`];
+}
+
 function entry(entryType: FinanceLedgerEntry['entryType']): FinanceLedgerEntry {
   return {
     entryId: `finance-ledger:${entryType}`,
@@ -17,8 +29,8 @@ function entry(entryType: FinanceLedgerEntry['entryType']): FinanceLedgerEntry {
           : entryType === 'PAYMENT_REQUIREMENT_SATISFIED'
             ? 'commercial_payment_satisfaction'
             : 'payment_provider_evidence',
-    authorityReference: `authority:${entryType}`,
-    evidenceReferences: [`evidence:${entryType}`],
+    authorityReference: authorityReference(entryType),
+    evidenceReferences: evidenceReferences(entryType),
     amountMinor: 12500,
     currency: 'ZAR',
     occurredAt: '2026-08-23T18:00:00.000Z',
