@@ -26,36 +26,42 @@ const amountMinor = 41500;
 const currency = 'ZAR';
 const now = new Date().toISOString();
 
+const requirementReference = `requirement:${suffix}`;
+const paymentRequestReference = `payment-request:${suffix}`;
+const providerStateReference = `payment-provider:paystack:${suffix}`;
+const clearanceReference = `finance-clearance:${suffix}`;
+const satisfactionReference = `payment-satisfaction:${suffix}`;
+
 const authorities = [
   {
     entryType: 'PAYMENT_REQUIREMENT_CREATED',
     authorityType: 'commercial_payment_requirement',
-    authorityReference: `requirement:${suffix}`,
-    evidenceReferences: [`requirement:${suffix}`],
+    authorityReference: requirementReference,
+    evidenceReferences: [requirementReference],
   },
   {
     entryType: 'PAYMENT_REQUEST_CREATED',
     authorityType: 'finance_payment_request',
-    authorityReference: `payment-request:${suffix}`,
-    evidenceReferences: [`payment-request:${suffix}`],
+    authorityReference: paymentRequestReference,
+    evidenceReferences: [paymentRequestReference, requirementReference],
   },
   {
     entryType: 'PAYMENT_PROVIDER_STATE_OBSERVED',
     authorityType: 'payment_provider_evidence',
-    authorityReference: `payment-provider:paystack:${suffix}`,
-    evidenceReferences: [`payment-provider:paystack:${suffix}`],
+    authorityReference: providerStateReference,
+    evidenceReferences: [providerStateReference, paymentRequestReference],
   },
   {
     entryType: 'FINANCE_CLEARANCE_CREATED',
     authorityType: 'finance_clearance',
-    authorityReference: `finance-clearance:${suffix}`,
-    evidenceReferences: [`finance-clearance:${suffix}`, `payment-provider:paystack:${suffix}`],
+    authorityReference: clearanceReference,
+    evidenceReferences: [clearanceReference, providerStateReference],
   },
   {
     entryType: 'PAYMENT_REQUIREMENT_SATISFIED',
     authorityType: 'commercial_payment_satisfaction',
-    authorityReference: `payment-satisfaction:${suffix}`,
-    evidenceReferences: [`payment-satisfaction:${suffix}`, `finance-clearance:${suffix}`],
+    authorityReference: satisfactionReference,
+    evidenceReferences: [satisfactionReference, clearanceReference],
   },
 ];
 
