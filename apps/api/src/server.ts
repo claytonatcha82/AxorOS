@@ -17,6 +17,8 @@ import { OperationsProductionPrerequisitePostgresStore } from './data/operations
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
+import { createExecutiveDashboardRequestHandler } from './dashboard/executive-dashboard-request-handler.js';
+import { createExecutiveDashboardService } from './dashboard/executive-dashboard-service.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createFinanceControlPlaneRequestHandler } from './finance-control-plane-request-handler.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
@@ -51,6 +53,7 @@ if (config.betterStackIngestingHost && config.betterStackSourceToken) {
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
+const executiveDashboard = createExecutiveDashboardService(databasePool);
 const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
 const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(
   operationsProductionPrerequisiteStore,
@@ -160,6 +163,11 @@ const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneReq
   operatorCommand: pilotRuntimeOperatorCommand,
   fallback: salesIntakeControlPlaneRequestHandler,
 });
+const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler({
+  config,
+  dashboard: executiveDashboard,
+  fallback: pilotRuntimeControlPlaneRequestHandler,
+});
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
       secretKey: config.paystackSecretKey,
@@ -170,7 +178,7 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
 const server = createServer(createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: pilotRuntimeControlPlaneRequestHandler,
+  fallback: executiveDashboardRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -223,6 +231,7 @@ async function start(): Promise<void> {
       knowledgeRetrievalConfigured: true,
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
+      executiveDashboardConfigured: Boolean(config.controlPlaneToken),
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
@@ -259,26 +268,13 @@ async function start(): Promise<void> {
       ),
       salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification),
       salesInboundReplyRuntimeConfigured: Boolean(salesInboundReplyRuntime),
-      salesInboundGovernedClassificationConfigured: Boolean(
-        salesInboundReplyRuntime && salesInboundModelClassification,
-      ),
-      productionControlPlaneConfigured: Boolean(config.controlPlaneToken),
       registeredIntegrations: registeredIntegrationIds,
-      geminiConfigured: registeredIntegrationIds.includes('model.gemini'),
-      openaiConfigured: registeredIntegrationIds.includes('model.openai'),
-      anthropicConfigured: registeredIntegrationIds.includes('model.anthropic'),
-      externalTelemetryConfigured: Boolean(config.betterStackIngestingHost),
     });
   });
 }
 
-void start().catch(async (error) => {
-  logEvent('error', 'api_startup_failed', {
-    error: error instanceof Error ? error.message : String(error),
-  });
-  try {
-    await databasePool.end();
-  } finally {
-    process.exitCode = 1;
-  }
+start().catch(async (error) => {
+  logEvent('error', 'api_start_failed', { error: error instanceof Error ? error.message : String(error) });
+  await databasePool.end().catch(() => undefined);
+  process.exit(1);
 });
