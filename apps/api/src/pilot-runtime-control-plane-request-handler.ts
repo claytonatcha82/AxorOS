@@ -1,15 +1,18 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
+import type { PilotPendingApproval } from './agents/pilot-runtime-operator-command.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
 const PILOT_RUNTIME_EXECUTE_PATH = '/api/v1/control/runtime/execute';
 const PILOT_RUNTIME_APPROVAL_RESOLVE_PATH = '/api/v1/control/runtime/approval/resolve';
+const PILOT_RUNTIME_PENDING_APPROVALS_PATH = '/api/v1/control/runtime/approvals/pending';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
 export interface PilotRuntimeControlPlaneDependencies {
   config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
   operatorCommand: {
+    listPendingApprovals(limit?: number): Promise<readonly PilotPendingApproval[]>;
     execute(executionId: string, capabilityId: string): Promise<RuntimeExecutionOutcome>;
     resolveApproval(
       executionId: string,
@@ -57,7 +60,9 @@ async function readCommandBody(request: IncomingMessage): Promise<Record<string,
 }
 
 function isPilotRuntimeControlPath(path: string | undefined): boolean {
-  return path === PILOT_RUNTIME_EXECUTE_PATH || path === PILOT_RUNTIME_APPROVAL_RESOLVE_PATH;
+  return path === PILOT_RUNTIME_EXECUTE_PATH
+    || path === PILOT_RUNTIME_APPROVAL_RESOLVE_PATH
+    || path === PILOT_RUNTIME_PENDING_APPROVALS_PATH;
 }
 
 function validExecuteBody(body: Record<string, unknown>): body is { executionId: string; capabilityId: string } {
@@ -108,7 +113,7 @@ export function createPilotRuntimeControlPlaneRequestHandler(
     const corsHeaders: Record<string, string> = { vary: 'Origin' };
     if (origin === dependencies.config.controlCenterUrl) {
       corsHeaders['access-control-allow-origin'] = dependencies.config.controlCenterUrl;
-      corsHeaders['access-control-allow-methods'] = 'POST,OPTIONS';
+      corsHeaders['access-control-allow-methods'] = 'GET,POST,OPTIONS';
       corsHeaders['access-control-allow-headers'] = 'authorization,content-type,x-request-id';
     }
 
@@ -122,8 +127,14 @@ export function createPilotRuntimeControlPlaneRequestHandler(
       return;
     }
 
-    if (request.method !== 'POST') {
-      sendJson(response, 405, { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } }, { allow: 'POST,OPTIONS', ...corsHeaders });
+    const isPendingList = request.url === PILOT_RUNTIME_PENDING_APPROVALS_PATH;
+    if ((isPendingList && request.method !== 'GET') || (!isPendingList && request.method !== 'POST')) {
+      sendJson(
+        response,
+        405,
+        { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } },
+        { allow: isPendingList ? 'GET,OPTIONS' : 'POST,OPTIONS', ...corsHeaders },
+      );
       return;
     }
 
@@ -142,6 +153,17 @@ export function createPilotRuntimeControlPlaneRequestHandler(
         },
         { ...(notConfigured ? {} : { 'www-authenticate': 'Bearer' }), ...corsHeaders },
       );
+      return;
+    }
+
+    if (isPendingList) {
+      try {
+        const approvals = await dependencies.operatorCommand.listPendingApprovals();
+        sendJson(response, 200, { ok: true, data: { approvals } }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Pending approval listing failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'runtime_pending_approvals_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
