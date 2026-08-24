@@ -12,6 +12,12 @@ function assessment(state: 'READY_TO_BIND_REQUIREMENT' | 'REQUIREMENT_SATISFIED'
       advisoryModelAllowed: true,
     },
     auditEventReference: `workflow-event:${state}`,
+    reconciliation: {
+      commercialRecordReference: 'commercial:finance-control:1',
+      reconciled: true,
+      entryTypes: [],
+      issues: [],
+    },
   };
 }
 
