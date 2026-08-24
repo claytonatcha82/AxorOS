@@ -6,6 +6,7 @@ import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-p
 import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
+import { registerPilotRuntimeCapabilities } from './pilot-runtime-capabilities.js';
 import {
   DEFAULT_PRODUCTION_MODEL_POLICY,
   type ProductionModelPolicy,
@@ -52,6 +53,7 @@ export function createProductionRuntimeBootstrap(
     dependencies.pool,
     dependencies.modelPolicy ?? DEFAULT_PRODUCTION_MODEL_POLICY,
   );
+  registerPilotRuntimeCapabilities(handlers, dependencies.integrations);
 
   handlers.require('production_agent', PRODUCTION_PROJECT_PLAN_CAPABILITY);
   handlers.require('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY);
