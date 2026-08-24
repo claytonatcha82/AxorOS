@@ -52,8 +52,22 @@ export class FinanceReportingIntegrityConflictError extends Error {
   }
 }
 
-function canonical(value: FinanceExpenseRecord | FinanceSubscriptionRecord): string {
-  return JSON.stringify(value);
+function expenseCanonical(record: FinanceExpenseRecord): string {
+  return JSON.stringify([
+    record.expenseId, record.category, record.vendor, record.description, record.amountMinor, record.currency,
+    record.billingType, record.billingPeriod ?? null, record.clientId ?? null, record.projectId ?? null,
+    record.expenseDate, record.receiptReference ?? null, record.status, record.approvedBy,
+    record.evidenceReferences,
+  ]);
+}
+
+function subscriptionCanonical(record: FinanceSubscriptionRecord): string {
+  return JSON.stringify([
+    record.subscriptionId, record.clientId, record.service, record.billingFrequency, record.amountMinor,
+    record.currency, record.startDate, record.nextBillingDate, record.status, record.autoRenew,
+    record.paymentMethodReference ?? null, record.invoicePolicy, record.cancellationDate ?? null,
+    record.commercialReference, record.evidenceReferences, record.approvedBy,
+  ]);
 }
 
 function parseStringArray(value: unknown): string[] {
@@ -118,7 +132,9 @@ export class FinanceExpensePostgresStore {
     );
     if (result.rowCount === 1) return 'accepted';
     const existing = await this.get(record.expenseId);
-    if (!existing || canonical(existing) !== canonical(record)) throw new FinanceReportingIntegrityConflictError('expense', record.expenseId);
+    if (!existing || expenseCanonical(existing) !== expenseCanonical(record)) {
+      throw new FinanceReportingIntegrityConflictError('expense', record.expenseId);
+    }
     return 'duplicate';
   }
 }
@@ -173,7 +189,9 @@ export class FinanceSubscriptionPostgresStore {
     );
     if (result.rowCount === 1) return 'accepted';
     const existing = await this.get(record.subscriptionId);
-    if (!existing || canonical(existing) !== canonical(record)) throw new FinanceReportingIntegrityConflictError('subscription', record.subscriptionId);
+    if (!existing || subscriptionCanonical(existing) !== subscriptionCanonical(record)) {
+      throw new FinanceReportingIntegrityConflictError('subscription', record.subscriptionId);
+    }
     return 'duplicate';
   }
 }
