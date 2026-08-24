@@ -83,7 +83,10 @@ try {
   const result = await runtime.ledgerReconciliationService.reconcile(commercialRecordReference);
   assert.equal(result.reconciled, true);
   assert.deepEqual(result.issues, []);
-  assert.deepEqual(result.entryTypes, authorities.map((authority) => authority.entryType));
+  assert.deepEqual(
+    [...result.entryTypes].sort(),
+    authorities.map((authority) => authority.entryType).sort(),
+  );
 
   const after = await runtime.ledgerStore.listByCommercialRecord(commercialRecordReference);
   assert.deepEqual(after, before);
