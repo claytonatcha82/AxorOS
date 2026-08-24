@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { WorkflowEventRecord } from '../data/operational-repository.js';
+import type { FinanceLedgerReconciliationResult } from './finance-ledger-reconciliation.js';
 import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
 
 function workflowEvent(payload: unknown): WorkflowEventRecord {
@@ -16,13 +17,13 @@ function workflowEvent(payload: unknown): WorkflowEventRecord {
   };
 }
 
-function reconciled(commercialRecordReference: string) {
+function reconciled(commercialRecordReference: string): FinanceLedgerReconciliationResult {
   return {
     commercialRecordReference,
     reconciled: true,
     entryTypes: [],
     issues: [],
-  } as const;
+  };
 }
 
 test('Finance governed operational runtime persists deterministic assessment evidence as finance_agent', async () => {
