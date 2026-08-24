@@ -18,6 +18,7 @@ import { createFinanceGovernedOperationalCoordinator } from './finance-governed-
 import { createFinanceGovernedOperationalRuntime } from './finance-governed-operational-runtime.js';
 import { createFinanceGovernedPaymentRequestService } from './finance-governed-payment-request-service.js';
 import { createFinanceLedgerRecorder } from './finance-ledger-recorder.js';
+import { createFinanceLedgerReconciliationService } from './finance-ledger-reconciliation-service.js';
 import { createFinancePaymentClearanceWorkflow } from './finance-payment-clearance-workflow.js';
 import { createFinancePaymentEventLedgerWorkflow } from './finance-payment-event-ledger-workflow.js';
 import { createFinancePaymentEventWorkflow } from './finance-payment-event-workflow.js';
@@ -36,6 +37,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   const clearanceStore = new FinanceClearancePostgresStore(dependencies.pool);
   const ledgerStore = new FinanceLedgerPostgresStore(dependencies.pool);
   const ledgerRecorder = createFinanceLedgerRecorder(ledgerStore);
+  const ledgerReconciliationService = createFinanceLedgerReconciliationService({ ledgerStore });
   const webhookStore = new PaymentWebhookPostgresStore(dependencies.pool);
   const currentStateStore = new FinancePaymentCurrentStatePostgresStore(dependencies.pool);
   const rawRequirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
@@ -75,6 +77,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   });
   const governedOperationalRuntime = createFinanceGovernedOperationalRuntime({
     coordinator: governedOperationalCoordinator,
+    reconciliationService: ledgerReconciliationService,
     eventStore: operationalRepository,
   });
   const governedAdvisoryService = createFinanceGovernedAdvisoryService({
@@ -110,6 +113,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
     clearanceStore,
     ledgerStore,
     ledgerRecorder,
+    ledgerReconciliationService,
     webhookStore,
     currentStateStore,
     requirementStore,

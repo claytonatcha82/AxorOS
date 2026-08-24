@@ -85,6 +85,18 @@ export class FinanceLedgerPostgresStore {
     return row ? rowToEntry(row) : null;
   }
 
+  async listByCommercialRecord(commercialRecordReference: string): Promise<FinanceLedgerEntry[]> {
+    const result = await this.pool.query(
+      `select entry_id, entry_type, commercial_record_reference, authority_type, authority_reference,
+              evidence_references, amount_minor, currency, occurred_at, recorded_at
+         from finance.ledger_entries
+        where commercial_record_reference = $1
+        order by occurred_at asc, recorded_at asc, entry_id asc`,
+      [commercialRecordReference],
+    );
+    return result.rows.map((row) => rowToEntry(row as Record<string, unknown>));
+  }
+
   async save(entry: FinanceLedgerEntry): Promise<'accepted' | 'duplicate'> {
     const result = await this.pool.query(
       `insert into finance.ledger_entries
