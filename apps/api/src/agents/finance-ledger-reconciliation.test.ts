@@ -5,9 +5,21 @@ import type { FinanceLedgerEntry, FinanceLedgerEntryType } from './finance-ledge
 
 const commercialRecordReference = 'commercial:reconcile:1';
 
+function authorityReference(entryType: FinanceLedgerEntryType): string {
+  return `authority:${entryType}`;
+}
+
+function defaultEvidenceReferences(entryType: FinanceLedgerEntryType): string[] {
+  if (entryType === 'PAYMENT_REQUEST_CREATED') return [authorityReference('PAYMENT_REQUIREMENT_CREATED')];
+  if (entryType === 'PAYMENT_PROVIDER_STATE_OBSERVED') return [authorityReference('PAYMENT_REQUEST_CREATED')];
+  if (entryType === 'FINANCE_CLEARANCE_CREATED') return [authorityReference('PAYMENT_PROVIDER_STATE_OBSERVED')];
+  if (entryType === 'PAYMENT_REQUIREMENT_SATISFIED') return [authorityReference('FINANCE_CLEARANCE_CREATED')];
+  return [`evidence:${entryType}`];
+}
+
 function entry(
   entryType: FinanceLedgerEntryType,
-  overrides: Partial<Pick<FinanceLedgerEntry, 'amountMinor' | 'currency'>> = {},
+  overrides: Partial<Pick<FinanceLedgerEntry, 'amountMinor' | 'currency' | 'evidenceReferences'>> = {},
 ): FinanceLedgerEntry {
   return {
     entryId: `finance-ledger:${entryType}`,
@@ -22,8 +34,8 @@ function entry(
           : entryType === 'PAYMENT_REQUIREMENT_SATISFIED'
             ? 'commercial_payment_satisfaction'
             : 'payment_provider_evidence',
-    authorityReference: `authority:${entryType}`,
-    evidenceReferences: [`evidence:${entryType}`],
+    authorityReference: authorityReference(entryType),
+    evidenceReferences: overrides.evidenceReferences ?? defaultEvidenceReferences(entryType),
     amountMinor: overrides.amountMinor ?? 12500,
     currency: overrides.currency ?? 'ZAR',
     occurredAt: '2026-08-23T18:00:00.000Z',
@@ -83,4 +95,22 @@ test('Finance ledger reconciliation detects currency disagreement across an othe
 
   assert.equal(result.reconciled, false);
   assert.deepEqual(result.issues.map((issue) => issue.code), ['CURRENCY_MISMATCH']);
+});
+
+test('Finance ledger reconciliation detects broken authority-reference lineage across a complete lifecycle', () => {
+  const result = reconcileFinanceLedger(commercialRecordReference, [
+    entry('PAYMENT_REQUIREMENT_CREATED'),
+    entry('PAYMENT_REQUEST_CREATED', { evidenceReferences: ['authority:wrong-requirement'] }),
+    entry('PAYMENT_PROVIDER_STATE_OBSERVED', { evidenceReferences: ['authority:wrong-request'] }),
+    entry('FINANCE_CLEARANCE_CREATED', { evidenceReferences: ['authority:wrong-provider-state'] }),
+    entry('PAYMENT_REQUIREMENT_SATISFIED', { evidenceReferences: ['authority:wrong-clearance'] }),
+  ]);
+
+  assert.equal(result.reconciled, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), [
+    'PAYMENT_REQUEST_REQUIREMENT_REFERENCE_MISMATCH',
+    'PROVIDER_PAYMENT_REQUEST_REFERENCE_MISMATCH',
+    'CLEARANCE_PROVIDER_REFERENCE_MISMATCH',
+    'SATISFACTION_CLEARANCE_REFERENCE_MISMATCH',
+  ]);
 });
