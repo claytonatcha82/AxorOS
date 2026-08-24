@@ -1,4 +1,5 @@
 import type { RuntimeExecutionOutcome } from './agent-runtime-orchestrator.js';
+import type { AgentRuntimeExecutionRecord } from './agent-runtime-state.js';
 import type { AgentRuntimeStore } from './agent-runtime-store.js';
 import { EXECUTIVE_STRATEGIC_ANALYSIS_CAPABILITY } from './executive-model-capabilities.js';
 import { KNOWLEDGE_SYNTHESIS_CAPABILITY } from './knowledge-model-capabilities.js';
@@ -20,7 +21,7 @@ export interface PilotRuntimeOperatorOrchestrator {
 }
 
 export interface PilotRuntimeOperatorCommandDependencies {
-  store: Pick<AgentRuntimeStore, 'getExecution'>;
+  store: Pick<AgentRuntimeStore, 'getExecution' | 'listPendingHumanApprovals'>;
   orchestrator: PilotRuntimeOperatorOrchestrator;
 }
 
@@ -38,10 +39,25 @@ function normalizedRequired(value: string, field: string): string {
   return normalized;
 }
 
+function isPilotOperatorRecord(record: AgentRuntimeExecutionRecord): boolean {
+  return PILOT_OPERATOR_CAPABILITIES.has(record.task.destinationAgent);
+}
+
 export function createPilotRuntimeOperatorCommand(
   dependencies: PilotRuntimeOperatorCommandDependencies,
 ) {
   return {
+    async listPendingApprovals(limit = 25): Promise<readonly AgentRuntimeExecutionRecord[]> {
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+        throw new Error('pending approval limit must be an integer from 1 to 50.');
+      }
+      if (!dependencies.store.listPendingHumanApprovals) {
+        throw new Error('pending Human Executive approval listing is not configured.');
+      }
+      const records = await dependencies.store.listPendingHumanApprovals(limit);
+      return records.filter(isPilotOperatorRecord);
+    },
+
     async execute(executionId: string, capabilityId: string): Promise<RuntimeExecutionOutcome> {
       const normalizedExecutionId = normalizedRequired(executionId, 'executionId');
       const normalizedCapabilityId = normalizedRequired(capabilityId, 'capabilityId');
