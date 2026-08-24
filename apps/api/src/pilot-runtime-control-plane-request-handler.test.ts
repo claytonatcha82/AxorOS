@@ -54,6 +54,18 @@ async function withServer(
   const handler = createPilotRuntimeControlPlaneRequestHandler({
     config: { controlCenterUrl, ...(token !== null ? { controlPlaneToken: token } : {}) },
     operatorCommand: {
+      async listPendingApprovals() {
+        commandCalls.push('list-pending');
+        return [{
+          executionId: 'exec-pending-support',
+          destinationAgent: 'support_agent',
+          objective: 'Draft a governed Support reply.',
+          expectedOutput: 'One approved Gmail draft.',
+          capabilityId: 'create_support_email_draft',
+          persistedAt: '2026-08-24T18:00:00.000Z',
+          reason: 'Stage 1 client communication requires Human Executive approval.',
+        }];
+      },
       async execute(executionId, capabilityId) {
         commandCalls.push(`execute:${executionId}:${capabilityId}`);
         return runtimeOutcome('ready');
@@ -75,6 +87,26 @@ async function withServer(
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 }
+
+test('authenticated pending approval listing returns only operator-provided actionable records', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/runtime/approvals/pending`, {
+      headers: {
+        authorization: `Bearer ${controlPlaneToken}`,
+        origin: controlCenterUrl,
+      },
+    });
+    const body = await response.json() as { ok: boolean; data: { approvals: Array<{ executionId: string; capabilityId: string }> } };
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.data.approvals.map(({ executionId, capabilityId }) => ({ executionId, capabilityId })), [{
+      executionId: 'exec-pending-support',
+      capabilityId: 'create_support_email_draft',
+    }]);
+    assert.equal(response.headers.get('access-control-allow-origin'), controlCenterUrl);
+    assert.deepEqual(calls(), ['list-pending']);
+  });
+});
 
 test('authenticated pilot runtime execute command accepts only executionId and capabilityId', async () => {
   await withServer(async (baseUrl, calls) => {
@@ -163,6 +195,14 @@ test('pilot runtime control endpoints reject missing authentication before comma
     });
     assert.equal(response.status, 401);
     assert.equal(response.headers.get('www-authenticate'), 'Bearer');
+    assert.equal(calls().length, 0);
+  });
+});
+
+test('pending approval listing rejects missing authentication before command execution', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/runtime/approvals/pending`);
+    assert.equal(response.status, 401);
     assert.equal(calls().length, 0);
   });
 });
