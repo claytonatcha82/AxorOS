@@ -4,6 +4,7 @@ import type { CoreAgentId } from './agent-runtime-contract.js';
 import type { RuntimeExecutionOutcome } from './agent-runtime-orchestrator.js';
 import type { AgentRuntimeExecutionRecord } from './agent-runtime-state.js';
 import { createPilotRuntimeOperatorCommand } from './pilot-runtime-operator-command.js';
+import { SUPPORT_EMAIL_DRAFT_CAPABILITY } from './support-email-capabilities.js';
 import { SUPPORT_INCIDENT_ANALYSIS_CAPABILITY } from './support-model-capabilities.js';
 
 function record(
@@ -44,6 +45,39 @@ function record(
 function outcome(current: AgentRuntimeExecutionRecord): RuntimeExecutionOutcome {
   return { record: current, replayed: false };
 }
+
+test('pilot operator lists only deterministically actionable pending approvals', async () => {
+  const support = record('support_agent', 'human_executive');
+  support.task.context = {
+    supportEmailApprovalPolicy: {
+      stage: 1,
+      source: 'atlas_os',
+      reason: 'Human Executive approval required for client communication.',
+    },
+  };
+  const production = record('production_agent', 'human_executive');
+  const command = createPilotRuntimeOperatorCommand({
+    store: {
+      async getExecution() { return support; },
+      async listPendingHumanApprovals() { return [support, production]; },
+    },
+    orchestrator: {
+      async execute() { throw new Error('not expected'); },
+      async resolveApproval() { throw new Error('not expected'); },
+    },
+  });
+
+  const approvals = await command.listPendingApprovals();
+  assert.deepEqual(approvals, [{
+    executionId: support.task.executionId,
+    destinationAgent: 'support_agent',
+    objective: support.task.objective,
+    expectedOutput: support.task.expectedOutput,
+    capabilityId: SUPPORT_EMAIL_DRAFT_CAPABILITY,
+    persistedAt: support.persistedAt,
+    reason: 'Human Executive approval required for client communication.',
+  }]);
+});
 
 test('pilot operator executes only an approved capability for the persisted destination agent', async () => {
   const current = record('support_agent');
