@@ -6,14 +6,17 @@ import { createExecutiveDashboardRequestHandler } from './executive-dashboard-re
 const token = 'dashboard-control-token-1234567890123456';
 const controlCenterUrl = 'http://localhost:5173';
 
-async function withServer(run: (baseUrl: string, calls: () => number) => Promise<void>, configuredToken: string | undefined = token) {
+async function withServer(
+  run: (baseUrl: string, calls: () => number) => Promise<void>,
+  options: { configured?: boolean } = { configured: true },
+) {
   let snapshotCalls = 0;
   const fallback: RequestListener = (_request, response) => {
     response.writeHead(418, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ fallback: true }));
   };
   const handler = createExecutiveDashboardRequestHandler({
-    config: { controlCenterUrl, ...(configuredToken ? { controlPlaneToken: configuredToken } : {}) },
+    config: { controlCenterUrl, ...(options.configured === false ? {} : { controlPlaneToken: token }) },
     dashboard: {
       async snapshot() {
         snapshotCalls += 1;
@@ -70,7 +73,7 @@ test('executive dashboard fails closed without configured control token', async 
     });
     assert.equal(response.status, 503);
     assert.equal(calls(), 0);
-  }, undefined);
+  }, { configured: false });
 });
 
 test('non-dashboard paths fall through unchanged', async () => {
