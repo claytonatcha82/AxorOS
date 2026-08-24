@@ -159,7 +159,11 @@ export function createExecutiveDashboardService(pool: Queryable) {
           group by currency
           having sum(case
             when billing_type = 'RECURRING' then amount_minor::numeric
-            when billing_type = 'ONE_TIME' and status = 'PLANNED' then amount_minor::numeric
+            when billing_type = 'ONE_TIME'
+              and status = 'PLANNED'
+              and expense_date >= date_trunc('month', current_date)::date
+              and expense_date < (date_trunc('month', current_date) + interval '1 month')::date
+              then amount_minor::numeric
             else 0 end) > 0
           order by currency`, []),
         pool.query(`select count(*)::int as pending from finance.commercial_payment_requirements where status = 'ACTIVE'`, []),
