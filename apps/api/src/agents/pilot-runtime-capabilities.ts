@@ -9,17 +9,11 @@ import { registerSupportEmailCapabilities } from './support-email-capabilities.j
 import { registerSupportModelCapabilities } from './support-model-capabilities.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 
-export interface PilotRuntimeCapabilityOptions {
-  geminiEnabled: boolean;
-  gmailEnabled: boolean;
-}
-
 export function registerPilotRuntimeCapabilities(
   handlers: AgentRuntimeHandlerRegistry,
   integrations: IntegrationRegistry,
-  options: PilotRuntimeCapabilityOptions,
 ): void {
-  if (options.geminiEnabled) {
+  if (integrations.get('model.gemini')) {
     registerSupportModelCapabilities(handlers, integrations);
     registerMarketingModelCapabilities(handlers, integrations);
     registerOperationsModelCapabilities(handlers, integrations);
@@ -27,7 +21,7 @@ export function registerPilotRuntimeCapabilities(
     registerExecutiveModelCapabilities(handlers, integrations);
   }
 
-  if (options.gmailEnabled) {
+  if (integrations.get('email.gmail')) {
     registerSupportEmailCapabilities(handlers, integrations, { integrationId: 'email.gmail' });
     registerMarketingEmailCapabilities(handlers, integrations, { integrationId: 'email.gmail' });
     registerOperationsEmailCapabilities(handlers, integrations, { integrationId: 'email.gmail' });
