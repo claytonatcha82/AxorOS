@@ -121,7 +121,12 @@ try {
 
   const completed = await post(baseUrl, '/api/v1/control/runtime/execute', { executionId, capabilityId: SUPPORT_EMAIL_DRAFT_CAPABILITY });
   if (completed.data?.status !== 'completed' || completed.data?.resultStatus !== 'completed') {
-    throw new Error(`Approved Support execution did not complete, got ${JSON.stringify(completed.data)}`);
+    const failedRecord = await runtime.store.getExecution(executionId);
+    throw new Error(
+      `Approved Support execution did not complete, got ${JSON.stringify(completed.data)}; `
+      + `runtime error=${failedRecord?.result?.errorMessage ?? 'none'}; `
+      + `errorCode=${failedRecord?.result?.errorCode ?? 'none'}`,
+    );
   }
   const persisted = await runtime.store.getExecution(executionId);
   const draftId = persisted?.result?.output?.draftId;
