@@ -25,6 +25,16 @@ export interface PilotRuntimeOperatorCommandDependencies {
   orchestrator: PilotRuntimeOperatorOrchestrator;
 }
 
+export interface PilotPendingApproval {
+  executionId: string;
+  destinationAgent: string;
+  objective: string;
+  expectedOutput: string;
+  capabilityId: string;
+  persistedAt: string;
+  reason?: string;
+}
+
 const PILOT_OPERATOR_CAPABILITIES = new Map<string, ReadonlySet<string>>([
   ['support_agent', new Set([SUPPORT_INCIDENT_ANALYSIS_CAPABILITY, SUPPORT_EMAIL_DRAFT_CAPABILITY])],
   ['marketing_agent', new Set([MARKETING_DRAFT_COPY_CAPABILITY, MARKETING_EMAIL_DRAFT_CAPABILITY])],
@@ -39,15 +49,43 @@ function normalizedRequired(value: string, field: string): string {
   return normalized;
 }
 
-function isPilotOperatorRecord(record: AgentRuntimeExecutionRecord): boolean {
-  return PILOT_OPERATOR_CAPABILITIES.has(record.task.destinationAgent);
+function pendingApproval(record: AgentRuntimeExecutionRecord): PilotPendingApproval | null {
+  const context = record.task.context as Record<string, unknown>;
+  let capabilityId: string | undefined;
+  let policy: unknown;
+
+  if (record.task.destinationAgent === 'support_agent' && context.supportEmailApprovalPolicy) {
+    capabilityId = SUPPORT_EMAIL_DRAFT_CAPABILITY;
+    policy = context.supportEmailApprovalPolicy;
+  } else if (record.task.destinationAgent === 'marketing_agent' && context.marketingEmailApprovalPolicy) {
+    capabilityId = MARKETING_EMAIL_DRAFT_CAPABILITY;
+    policy = context.marketingEmailApprovalPolicy;
+  } else if (record.task.destinationAgent === 'operations_agent' && context.operationsEmailApprovalPolicy) {
+    capabilityId = OPERATIONS_EMAIL_DRAFT_CAPABILITY;
+    policy = context.operationsEmailApprovalPolicy;
+  }
+
+  if (!capabilityId || !PILOT_OPERATOR_CAPABILITIES.get(record.task.destinationAgent)?.has(capabilityId)) return null;
+  const reason = policy && typeof policy === 'object' && !Array.isArray(policy)
+    ? (policy as Record<string, unknown>).reason
+    : undefined;
+
+  return {
+    executionId: record.task.executionId,
+    destinationAgent: record.task.destinationAgent,
+    objective: record.task.objective,
+    expectedOutput: record.task.expectedOutput,
+    capabilityId,
+    persistedAt: record.persistedAt,
+    ...(typeof reason === 'string' && reason.trim() ? { reason: reason.trim() } : {}),
+  };
 }
 
 export function createPilotRuntimeOperatorCommand(
   dependencies: PilotRuntimeOperatorCommandDependencies,
 ) {
   return {
-    async listPendingApprovals(limit = 25): Promise<readonly AgentRuntimeExecutionRecord[]> {
+    async listPendingApprovals(limit = 25): Promise<readonly PilotPendingApproval[]> {
       if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
         throw new Error('pending approval limit must be an integer from 1 to 50.');
       }
@@ -55,7 +93,7 @@ export function createPilotRuntimeOperatorCommand(
         throw new Error('pending Human Executive approval listing is not configured.');
       }
       const records = await dependencies.store.listPendingHumanApprovals(limit);
-      return records.filter(isPilotOperatorRecord);
+      return records.map(pendingApproval).filter((item): item is PilotPendingApproval => item !== null);
     },
 
     async execute(executionId: string, capabilityId: string): Promise<RuntimeExecutionOutcome> {
