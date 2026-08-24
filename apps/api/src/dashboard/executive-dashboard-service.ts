@@ -100,13 +100,18 @@ export function createExecutiveDashboardService(pool: Queryable) {
           count(*) filter (where status = 'qualified')::int as qualified,
           count(*) filter (where status = 'engaged')::int as engaged,
           count(*) filter (where status = 'converted')::int as converted,
-          (select count(*)::int from operational.lead_preliminary_qualifications where human_review_required = true) as awaiting_human_review
+          (select count(*)::int from runtime.agent_executions
+            where destination_agent = 'lead_agent'
+              and status = 'review'
+              and task->>'approvalRequired' = 'true'
+              and task->>'approvalOwner' = 'human_executive') as awaiting_human_review
         from operational.leads`, []),
         pool.query(`select
           count(*) filter (where event_type = 'sales_supervised_email_sent')::int as contacted,
           count(*) filter (where event_type = 'sales_supervised_email_sent' and created_at >= now() - interval '7 days')::int as contacted_last_7_days,
           (select count(*)::int from operational.sales_inbound_reply_evidence) as inbound_replies,
-          (select count(*)::int from operational.sales_inbound_reply_classifications where primary_category in ('interested','positive','meeting_request','question')) as interested_replies,
+          (select count(*)::int from operational.sales_inbound_reply_classifications
+            where primary_category in ('positive_interest','information_request','pricing_or_commercial_question','meeting_request')) as interested_replies,
           (select count(*)::int from operational.sales_email_send_attempts where status = 'failed') as failed_sends
         from operational.workflow_events`, []),
         pool.query(`select
