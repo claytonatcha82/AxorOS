@@ -5,7 +5,10 @@ import type { FinanceLedgerEntry, FinanceLedgerEntryType } from './finance-ledge
 
 const commercialRecordReference = 'commercial:reconcile:1';
 
-function entry(entryType: FinanceLedgerEntryType): FinanceLedgerEntry {
+function entry(
+  entryType: FinanceLedgerEntryType,
+  overrides: Partial<Pick<FinanceLedgerEntry, 'amountMinor' | 'currency'>> = {},
+): FinanceLedgerEntry {
   return {
     entryId: `finance-ledger:${entryType}`,
     entryType,
@@ -21,8 +24,8 @@ function entry(entryType: FinanceLedgerEntryType): FinanceLedgerEntry {
             : 'payment_provider_evidence',
     authorityReference: `authority:${entryType}`,
     evidenceReferences: [`evidence:${entryType}`],
-    amountMinor: 12500,
-    currency: 'ZAR',
+    amountMinor: overrides.amountMinor ?? 12500,
+    currency: overrides.currency ?? 'ZAR',
     occurredAt: '2026-08-23T18:00:00.000Z',
     recordedAt: '2026-08-23T18:00:00.000Z',
   };
@@ -54,4 +57,30 @@ test('Finance ledger reconciliation detects partial or impossible financial hist
     'CLEARANCE_WITHOUT_PROVIDER_STATE',
     'CLEARANCE_WITHOUT_SATISFACTION',
   ]);
+});
+
+test('Finance ledger reconciliation detects amount disagreement across an otherwise complete lifecycle', () => {
+  const result = reconcileFinanceLedger(commercialRecordReference, [
+    entry('PAYMENT_REQUIREMENT_CREATED', { amountMinor: 12500 }),
+    entry('PAYMENT_REQUEST_CREATED', { amountMinor: 12500 }),
+    entry('PAYMENT_PROVIDER_STATE_OBSERVED', { amountMinor: 12000 }),
+    entry('FINANCE_CLEARANCE_CREATED', { amountMinor: 12500 }),
+    entry('PAYMENT_REQUIREMENT_SATISFIED', { amountMinor: 12500 }),
+  ]);
+
+  assert.equal(result.reconciled, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), ['AMOUNT_MISMATCH']);
+});
+
+test('Finance ledger reconciliation detects currency disagreement across an otherwise complete lifecycle', () => {
+  const result = reconcileFinanceLedger(commercialRecordReference, [
+    entry('PAYMENT_REQUIREMENT_CREATED', { currency: 'ZAR' }),
+    entry('PAYMENT_REQUEST_CREATED', { currency: 'ZAR' }),
+    entry('PAYMENT_PROVIDER_STATE_OBSERVED', { currency: 'USD' }),
+    entry('FINANCE_CLEARANCE_CREATED', { currency: 'ZAR' }),
+    entry('PAYMENT_REQUIREMENT_SATISFIED', { currency: 'ZAR' }),
+  ]);
+
+  assert.equal(result.reconciled, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), ['CURRENCY_MISMATCH']);
 });
