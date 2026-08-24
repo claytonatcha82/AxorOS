@@ -92,7 +92,8 @@ export function createExecutiveDashboardService(pool: Queryable) {
   return {
     async snapshot(): Promise<ExecutiveDashboardSnapshot> {
       const [leadResult, salesResult, projectResult, financeExpectedResult, financeReceivedResult,
-        financeRequirementResult, financeClearanceResult, approvalResult, agentResult, executiveResult, activityResult] = await Promise.all([
+        financeRecurringResult, financeExpenseResult, financeRequirementResult, financeClearanceResult,
+        approvalResult, agentResult, executiveResult, activityResult] = await Promise.all([
         pool.query(`select
           count(*)::int as total,
           count(*) filter (where created_at >= current_date)::int as discovered_today,
@@ -129,6 +130,38 @@ export function createExecutiveDashboardService(pool: Queryable) {
           from finance.clearance_decisions
           where state = 'FINANCE_CLEARED'
           group by currency order by currency`, []),
+        pool.query(`select currency,
+          round(sum(case billing_frequency
+            when 'MONTHLY' then amount_minor::numeric
+            when 'QUARTERLY' then amount_minor::numeric / 3
+            when 'ANNUAL' then amount_minor::numeric / 12
+          end))::bigint as amount_minor
+          from finance.subscriptions
+          where status = 'ACTIVE'
+          group by currency order by currency`, []),
+        pool.query(`select currency,
+          round(sum(case
+            when billing_type = 'RECURRING' then
+              case billing_period
+                when 'MONTHLY' then amount_minor::numeric
+                when 'QUARTERLY' then amount_minor::numeric / 3
+                when 'ANNUAL' then amount_minor::numeric / 12
+              end
+            when billing_type = 'ONE_TIME'
+              and status = 'PLANNED'
+              and expense_date >= date_trunc('month', current_date)::date
+              and expense_date < (date_trunc('month', current_date) + interval '1 month')::date
+              then amount_minor::numeric
+            else 0
+          end))::bigint as amount_minor
+          from finance.expenses
+          where status <> 'CANCELLED'
+          group by currency
+          having sum(case
+            when billing_type = 'RECURRING' then amount_minor::numeric
+            when billing_type = 'ONE_TIME' and status = 'PLANNED' then amount_minor::numeric
+            else 0 end) > 0
+          order by currency`, []),
         pool.query(`select count(*)::int as pending from finance.commercial_payment_requirements where status = 'ACTIVE'`, []),
         pool.query(`select count(*)::int as cleared from finance.clearance_decisions where state = 'FINANCE_CLEARED'`, []),
         pool.query(`select count(*)::int as pending
@@ -158,6 +191,8 @@ export function createExecutiveDashboardService(pool: Queryable) {
       const agentRows = new Map((agentResult.rows as Record<string, unknown>[]).map((row) => [String(row.destination_agent), row]));
       const expectedIncome = moneyRows(financeExpectedResult.rows as Record<string, unknown>[], 'amount_minor');
       const receivedIncome = moneyRows(financeReceivedResult.rows as Record<string, unknown>[], 'amount_minor');
+      const recurringIncome = moneyRows(financeRecurringResult.rows as Record<string, unknown>[], 'amount_minor');
+      const expectedExpenses = moneyRows(financeExpenseResult.rows as Record<string, unknown>[], 'amount_minor');
 
       return {
         generatedAt: new Date().toISOString(),
@@ -179,12 +214,12 @@ export function createExecutiveDashboardService(pool: Queryable) {
         finance: {
           expectedIncome,
           receivedIncome,
-          recurringIncome: [{ amountMinor: 0, currency: 'ZAR', available: false, note: 'No authoritative recurring-revenue contract schedule is persisted yet.' }],
-          expectedExpenses: [{ amountMinor: 0, currency: 'ZAR', available: false, note: 'No authoritative expense ledger is persisted yet.' }],
-          projectedProfit: [{ amountMinor: 0, currency: 'ZAR', available: false, note: 'Unavailable until authoritative expense data exists.' }],
+          recurringIncome,
+          expectedExpenses,
+          projectedProfit: [{ amountMinor: 0, currency: 'ZAR', available: false, note: 'Unavailable until AxorOS has an authoritative period-based profitability basis that prevents recurring-revenue/payment-requirement double counting.' }],
           pendingPaymentRequirements: count(financeRequirementResult.rows[0] as Record<string, unknown> | undefined, 'pending'),
           financeClearances: count(financeClearanceResult.rows[0] as Record<string, unknown> | undefined, 'cleared'),
-          note: 'Expected income is active governed payment requirements. Received income is Finance-cleared payment evidence. Missing finance metrics are shown as unavailable rather than estimated.',
+          note: 'Expected income is active governed payment requirements. Received income is Finance-cleared payment evidence. Recurring income is monthly-equivalent ACTIVE subscription value. Expected expenses are recurring monthly-equivalent costs plus one-time PLANNED costs due this month.',
         },
         approvals: { pendingHumanExecutive: count(approvalResult.rows[0] as Record<string, unknown> | undefined, 'pending') },
         agents: CORE_AGENTS.map((agentId) => {
