@@ -6,6 +6,7 @@ import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js
 import { createOperationsProductionPrerequisiteRecorder } from './agents/operations-production-prerequisite-recorder.js';
 import { createOperationsProductionReadinessPostgresService } from './agents/operations-production-readiness-postgres.js';
 import { createPaystackPaymentWebhookIngress } from './agents/paystack-payment-webhook-ingress.js';
+import { createPilotRuntimeOperatorCommand } from './agents/pilot-runtime-operator-command.js';
 import { PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY } from './agents/production-model-capabilities.js';
 import { createProductionModelPolicy } from './agents/production-model-policy.js';
 import { createPersistedProductionRuntime } from './agents/production-persisted-runtime.js';
@@ -27,6 +28,7 @@ import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { logEvent, setExternalLogSink } from './logger.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
+import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
@@ -101,6 +103,10 @@ const productionRuntime = createPersistedProductionRuntime({
   integrations: integrationRegistry,
   modelPolicy: productionModelPolicy,
 });
+const pilotRuntimeOperatorCommand = createPilotRuntimeOperatorCommand({
+  store: productionRuntime.store,
+  orchestrator: productionRuntime.orchestrator,
+});
 const leadQualificationReviewRuntime = createPersistedLeadQualificationRuntimeReview(databasePool);
 const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(databasePool);
 const runtimeStore = productionRuntime.store;
@@ -149,6 +155,11 @@ const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneReque
   salesEmailCommand: salesSupervisedEmailExecution,
   fallback: financeControlPlaneRequestHandler,
 });
+const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
+  config,
+  operatorCommand: pilotRuntimeOperatorCommand,
+  fallback: salesIntakeControlPlaneRequestHandler,
+});
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
       secretKey: config.paystackSecretKey,
@@ -159,7 +170,7 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
 const server = createServer(createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: salesIntakeControlPlaneRequestHandler,
+  fallback: pilotRuntimeControlPlaneRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -212,6 +223,7 @@ async function start(): Promise<void> {
       knowledgeRetrievalConfigured: true,
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
+      pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
       financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
