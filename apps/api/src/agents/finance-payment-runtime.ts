@@ -77,6 +77,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   });
   const governedOperationalRuntime = createFinanceGovernedOperationalRuntime({
     coordinator: governedOperationalCoordinator,
+    reconciliationService: ledgerReconciliationService,
     eventStore: operationalRepository,
   });
   const governedAdvisoryService = createFinanceGovernedAdvisoryService({
