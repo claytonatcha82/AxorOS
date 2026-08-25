@@ -6,12 +6,16 @@ import type { ApiConfig } from './config.js';
 import type { KnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import type { KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 
+const token = 'knowledge-control-token-12345678901234567890';
 const config: ApiConfig = {
   environment: 'test',
   host: '127.0.0.1',
   port: 3001,
   controlCenterUrl: 'http://localhost:5173',
+  controlPlaneToken: token,
 };
+
+const authHeaders = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
 
 type KnowledgeRetriever = Pick<KnowledgeRetrievalService, 'retrieve'>;
 type KnowledgeContextAssembler = Pick<KnowledgeContextService, 'assemble'>;
@@ -93,7 +97,7 @@ test('POST /api/v1/knowledge/retrieve returns controlled retrieval results', asy
   };
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-request-id': 'knowledge-req-1' },
+      method: 'POST', headers: { ...authHeaders, 'x-request-id': 'knowledge-req-1' },
       body: JSON.stringify({ query: 'website delivery', agent: 'Production Agent', task: 'Build Website', limit: 5 }),
     });
     const body = await response.json() as { ok: boolean; requestId: string; data: { results: Array<{ content: string }> } };
@@ -103,8 +107,51 @@ test('POST /api/v1/knowledge/retrieve returns controlled retrieval results', asy
     assert.equal(body.data.results.length, 1);
     assert.equal(body.data.results[0]!.content, 'Atlas guidance for website delivery.');
     assert.ok(capturedRequest);
+    assert.equal(capturedRequest.agent, 'production_agent');
     assert.equal(capturedRequest.maximumSecurityClassification, 'internal');
     assert.equal(capturedRequest.limit, 5);
+  }, knowledgeRetriever);
+});
+
+test('knowledge endpoints require control-plane authentication', async () => {
+  let retrievalCalls = 0;
+  let contextCalls = 0;
+  const knowledgeRetriever: KnowledgeRetriever = { retrieve: async () => { retrievalCalls += 1; return []; } };
+  const contextAssembler: KnowledgeContextAssembler = {
+    assemble: async (request) => {
+      contextCalls += 1;
+      return { query: request.query, context: '', sources: [], includedItems: 0, truncated: false, characterCount: 0 };
+    },
+  };
+  await withServer(async (baseUrl) => {
+    for (const path of ['/api/v1/knowledge/retrieve', '/api/v1/knowledge/context']) {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'website', agent: 'production_agent', task: 'build' }),
+      });
+      const body = await response.json() as { error: { code: string } };
+      assert.equal(response.status, 401);
+      assert.equal(body.error.code, 'knowledge_unauthorized');
+      assert.equal(response.headers.get('www-authenticate'), 'Bearer');
+    }
+    assert.equal(retrievalCalls, 0);
+    assert.equal(contextCalls, 0);
+  }, knowledgeRetriever, contextAssembler);
+});
+
+test('knowledge endpoints reject non-core agent identities', async () => {
+  let retrievalCalls = 0;
+  const knowledgeRetriever: KnowledgeRetriever = { retrieve: async () => { retrievalCalls += 1; return []; } };
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, {
+      method: 'POST', headers: authHeaders,
+      body: JSON.stringify({ query: 'website', agent: 'attacker_agent', task: 'research' }),
+    });
+    const body = await response.json() as { error: { code: string; message: string } };
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, 'invalid_knowledge_retrieval_request');
+    assert.match(body.error.message, /registered AxorOS core agent/);
+    assert.equal(retrievalCalls, 0);
   }, knowledgeRetriever);
 });
 
@@ -113,7 +160,7 @@ test('knowledge retrieval endpoint cannot request restricted or confidential dat
   const knowledgeRetriever: KnowledgeRetriever = { retrieve: async (request) => { maximumSecurityClassification = request.maximumSecurityClassification; return []; } };
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: authHeaders,
       body: JSON.stringify({ query: 'security policy', agent: 'lead_agent', task: 'research', maximumSecurityClassification: 'confidential' }),
     });
     assert.equal(response.status, 200);
@@ -124,7 +171,7 @@ test('knowledge retrieval endpoint cannot request restricted or confidential dat
 test('knowledge retrieval endpoint rejects invalid JSON bodies', async () => {
   const knowledgeRetriever: KnowledgeRetriever = { retrieve: async () => [] };
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{invalid' });
+    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: authHeaders, body: '{invalid' });
     const body = await response.json() as { error: { code: string } };
     assert.equal(response.status, 400);
     assert.equal(body.error.code, 'invalid_json_body');
@@ -134,7 +181,7 @@ test('knowledge retrieval endpoint rejects invalid JSON bodies', async () => {
 test('knowledge retrieval endpoint rejects invalid retrieval requests', async () => {
   const knowledgeRetriever: KnowledgeRetriever = { retrieve: async () => { throw new Error('query is required.'); } };
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '', agent: 'lead_agent', task: 'research' }) });
+    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ query: '', agent: 'lead_agent', task: 'research' }) });
     const body = await response.json() as { error: { code: string; message: string } };
     assert.equal(response.status, 400);
     assert.equal(body.error.code, 'invalid_knowledge_retrieval_request');
@@ -144,7 +191,7 @@ test('knowledge retrieval endpoint rejects invalid retrieval requests', async ()
 
 test('knowledge retrieval endpoint reports unavailable service when not configured', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: 'website', agent: 'lead_agent', task: 'research' }) });
+    const response = await fetch(`${baseUrl}/api/v1/knowledge/retrieve`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ query: 'website', agent: 'lead_agent', task: 'research' }) });
     const body = await response.json() as { error: { code: string } };
     assert.equal(response.status, 503);
     assert.equal(body.error.code, 'knowledge_retrieval_not_configured');
@@ -165,7 +212,7 @@ test('POST /api/v1/knowledge/context returns a bounded Atlas context package', a
   };
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/context`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-request-id': 'context-req-1' },
+      method: 'POST', headers: { ...authHeaders, 'x-request-id': 'context-req-1' },
       body: JSON.stringify({ query: 'website delivery', agent: 'Production Agent', task: 'Build Website', limit: 6, maxCharacters: 8000 }),
     });
     const body = await response.json() as { ok: boolean; requestId: string; data: { context: string; includedItems: number } };
@@ -175,6 +222,7 @@ test('POST /api/v1/knowledge/context returns a bounded Atlas context package', a
     assert.equal(body.data.includedItems, 1);
     assert.match(body.data.context, /\[ATLAS-01\]/);
     assert.ok(capturedRequest);
+    assert.equal(capturedRequest.agent, 'production_agent');
     assert.equal(capturedRequest.maximumSecurityClassification, 'internal');
     assert.equal(capturedRequest.limit, 6);
     assert.equal(capturedRequest.maxCharacters, 8000);
@@ -191,7 +239,7 @@ test('knowledge context endpoint cannot raise the internal security ceiling', as
   };
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/context`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: authHeaders,
       body: JSON.stringify({ query: 'policy', agent: 'sales_agent', task: 'proposal', maximumSecurityClassification: 'confidential' }),
     });
     assert.equal(response.status, 200);
@@ -203,7 +251,7 @@ test('knowledge context endpoint rejects invalid context requests', async () => 
   const contextAssembler: KnowledgeContextAssembler = { assemble: async () => { throw new Error('maxCharacters must be an integer between 1000 and 40000.'); } };
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/context`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: authHeaders,
       body: JSON.stringify({ query: 'website', agent: 'production_agent', task: 'build', maxCharacters: 500 }),
     });
     const body = await response.json() as { error: { code: string; message: string } };
@@ -216,7 +264,7 @@ test('knowledge context endpoint rejects invalid context requests', async () => 
 test('knowledge context endpoint reports unavailable service when not configured', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/knowledge/context`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: authHeaders,
       body: JSON.stringify({ query: 'website', agent: 'production_agent', task: 'build' }),
     });
     const body = await response.json() as { error: { code: string } };
