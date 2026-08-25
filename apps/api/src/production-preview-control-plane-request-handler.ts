@@ -56,6 +56,10 @@ function optionalString(body: Record<string, unknown>, key: string): string | un
 function parseCommand(body: Record<string, unknown>): GovernedPreviewBuildDeploymentRequest {
   const allowed = new Set(['commercialRecordReference','financeClearanceId','operationsReadinessId','projectName','productionBranch','previewBranch','buildOutputDirectory','executionId','correlationId','idempotencyKey','commitHash','commitMessage']);
   if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error('unexpected_field');
+
+  const commitHash = optionalString(body, 'commitHash');
+  const commitMessage = optionalString(body, 'commitMessage');
+
   return {
     commercialRecordReference: requiredString(body, 'commercialRecordReference'),
     financeClearanceId: requiredString(body, 'financeClearanceId'),
@@ -68,8 +72,8 @@ function parseCommand(body: Record<string, unknown>): GovernedPreviewBuildDeploy
     correlationId: optionalString(body, 'correlationId') ?? randomUUID(),
     idempotencyKey: requiredString(body, 'idempotencyKey'),
     requestedBy: 'human_executive',
-    ...(optionalString(body, 'commitHash') ? { commitHash: optionalString(body, 'commitHash') } : {}),
-    ...(optionalString(body, 'commitMessage') ? { commitMessage: optionalString(body, 'commitMessage') } : {}),
+    ...(commitHash ? { commitHash } : {}),
+    ...(commitMessage ? { commitMessage } : {}),
   };
 }
 
