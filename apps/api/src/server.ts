@@ -30,10 +30,12 @@ import type { ModelGenerationInput, ModelGenerationOutput } from './integrations
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
+import { createLeadResearchControlPlaneRequestHandler } from './lead-research-control-plane-request-handler.js';
 import { logEvent, setExternalLogSink } from './logger.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
+import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
 import { createSalesInboundModelClassificationService } from './services/sales-inbound-model-classification-service.js';
@@ -134,6 +136,12 @@ const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
 const knowledgeRepository = createKnowledgeRepository(databasePool);
 const knowledgeRetrievalService = createKnowledgeRetrievalService(knowledgeRepository);
 const knowledgeContextService = createKnowledgeContextService(knowledgeRetrievalService);
+const leadLiveResearchRuntime = createLeadLiveResearchRuntime({
+  pool: databasePool,
+  integrations: integrationRegistry,
+  knowledgeContext: knowledgeContextService,
+  runtimeStore,
+});
 const apiRequestHandler = createRequestHandler(
   config,
   () => checkDatabase(databasePool),
@@ -178,6 +186,11 @@ const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler(
   dashboard: executiveDashboard,
   fallback: pilotRuntimeControlPlaneRequestHandler,
 });
+const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneRequestHandler({
+  config,
+  research: leadLiveResearchRuntime,
+  fallback: executiveDashboardRequestHandler,
+});
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
       secretKey: config.paystackSecretKey,
@@ -188,7 +201,7 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
 const server = createServer(createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: executiveDashboardRequestHandler,
+  fallback: leadResearchControlPlaneRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -243,6 +256,13 @@ async function start(): Promise<void> {
       runtimeRecoveryConfigured: true,
       executiveDashboardConfigured: Boolean(config.controlPlaneToken),
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
+        && registeredIntegrationIds.includes('research.tavily-web'),
+      leadLiveResearchControlPlaneConfigured: Boolean(
+        config.controlPlaneToken
+        && registeredIntegrationIds.includes('research.google-places')
+        && registeredIntegrationIds.includes('research.tavily-web'),
+      ),
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
       financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
