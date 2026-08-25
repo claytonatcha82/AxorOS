@@ -4,8 +4,8 @@ import { DeterministicPaymentIntegration } from './deterministic-payment-integra
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail-draft-integration.js';
 import { createGooglePlacesLeadResearchIntegration } from './google-places-lead-research-integration.js';
-import { IntegrationRegistry } from './integration-registry.js';
-import type { IntegrationExecutionPolicy } from './integration-policy.js';
+import { IntegrationRegistry, type LiveIntegrationExecutionGate } from './integration-registry.js';
+import type { IntegrationExecutionPolicy, ScopedLiveIntegrationRule } from './integration-policy.js';
 import { createOpenAIModelIntegration } from './openai-model-integration.js';
 import { createPaystackPaymentIntegration } from './paystack-payment-integration.js';
 import { createPaystackPaymentRequestIntegration } from './paystack-payment-request-integration.js';
@@ -18,25 +18,42 @@ export interface IntegrationBootstrapResult {
   gmailIntegration?: GmailEmailIntegration;
 }
 
+export interface IntegrationBootstrapOptions {
+  liveExecutionGate?: LiveIntegrationExecutionGate;
+}
+
 function integrationPolicy(config: ApiConfig): IntegrationExecutionPolicy {
+  const scopedLiveRules: ScopedLiveIntegrationRule[] = [];
+
+  if (config.googlePlacesApiKey) {
+    scopedLiveRules.push({ integrationId: 'research.google-places', operation: 'search_businesses', riskCeiling: 'low' });
+  }
+  if (config.tavilyApiKey) {
+    scopedLiveRules.push({ integrationId: 'research.tavily-web', operation: 'search_public_web', riskCeiling: 'low' });
+  }
+  if (config.gmailSupervisedSalesSendEnabled) {
+    scopedLiveRules.push({ integrationId: 'email.gmail', operation: 'send_email', riskCeiling: 'medium' });
+  }
+  if (config.paymentIntegrationMode === 'live' && config.paystackSecretKey) {
+    scopedLiveRules.push(
+      { integrationId: 'payment.paystack', operation: 'verify_payment', riskCeiling: 'high' },
+      { integrationId: 'payment.paystack.request', operation: 'initialize_payment_request', riskCeiling: 'medium' },
+    );
+  }
+
   return {
     defaultMode: 'sandbox',
     allowLive: false,
     liveRiskCeiling: 'low',
-    ...(config.gmailSupervisedSalesSendEnabled
-      ? {
-          scopedLiveRules: [{
-            integrationId: 'email.gmail',
-            operation: 'send_email',
-            riskCeiling: 'medium' as const,
-          }],
-        }
-      : {}),
+    ...(scopedLiveRules.length > 0 ? { scopedLiveRules } : {}),
   };
 }
 
-export function createConfiguredIntegrationRegistry(config: ApiConfig): IntegrationBootstrapResult {
-  const registry = new IntegrationRegistry(integrationPolicy(config));
+export function createConfiguredIntegrationRegistry(
+  config: ApiConfig,
+  options: IntegrationBootstrapOptions = {},
+): IntegrationBootstrapResult {
+  const registry = new IntegrationRegistry(integrationPolicy(config), options.liveExecutionGate);
   const registeredIntegrationIds: string[] = [];
   let gmailIntegration: GmailEmailIntegration | undefined;
 
