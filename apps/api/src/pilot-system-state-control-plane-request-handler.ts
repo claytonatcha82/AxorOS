@@ -2,10 +2,13 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 import type { PilotSystemState, PilotSystemStatePostgresStore } from './data/pilot-system-state-postgres-store.js';
+import {
+  createAgentReadinessServiceFromConfig,
+  type AgentReadinessApiConfig,
+} from './dashboard/agent-readiness-service.js';
 
 const PATH = '/api/v1/control/pilot/state';
-
-type Config = Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
+type Config = Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'> & Partial<AgentReadinessApiConfig>;
 
 export interface PilotSystemStateControlPlaneDependencies {
   config: Config;
@@ -58,7 +61,22 @@ export function createPilotSystemStateControlPlaneRequestHandler(dependencies: P
       const confirmation = body.confirmation;
       if (state !== 'PILOT_DISABLED' && state !== 'PILOT_ACTIVE') return sendJson(response, 400, { ok: false, error: { code: 'invalid_pilot_state', message: 'State must be PILOT_DISABLED or PILOT_ACTIVE.' } }, corsHeaders);
       if (!reason) return sendJson(response, 400, { ok: false, error: { code: 'pilot_state_reason_required', message: 'A Human Executive reason is required.' } }, corsHeaders);
-      if (state === 'PILOT_ACTIVE' && confirmation !== 'ACTIVATE PILOT') return sendJson(response, 409, { ok: false, error: { code: 'pilot_activation_confirmation_required', message: 'Pilot activation requires the exact confirmation ACTIVATE PILOT.' } }, corsHeaders);
+
+      if (state === 'PILOT_ACTIVE') {
+        if (confirmation !== 'ACTIVATE PILOT') return sendJson(response, 409, { ok: false, error: { code: 'pilot_activation_confirmation_required', message: 'Pilot activation requires the exact confirmation ACTIVATE PILOT.' } }, corsHeaders);
+        const readiness = createAgentReadinessServiceFromConfig(dependencies.config).snapshot();
+        const notReady = readiness.filter((record) => record.status !== 'READY');
+        if (notReady.length > 0) {
+          return sendJson(response, 409, {
+            ok: false,
+            error: {
+              code: 'pilot_activation_readiness_blocked',
+              message: `Pilot activation is blocked until all core agents are READY: ${notReady.map((record) => `${record.agentId}=${record.status}`).join(', ')}.`,
+            },
+            data: { readiness },
+          }, corsHeaders);
+        }
+      }
 
       const updated = await dependencies.store.set(state as PilotSystemState, 'human_executive', reason);
       return sendJson(response, 200, { ok: true, data: updated }, corsHeaders);
