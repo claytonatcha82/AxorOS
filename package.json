@@ -19,6 +19,8 @@
     "verify:db:secrets": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- npm run verify:db",
     "runtime:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-runtime-migration.mjs",
     "runtime:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-runtime-persistence.mjs",
+    "pilot:state:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-pilot-system-state-migration.mjs",
+    "pilot:state:verify:dev": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-pilot-system-state-persistence.mjs",
     "payment:webhook:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-payment-webhook-migration.mjs",
     "payment:webhook:verify:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/verify-payment-webhook-persistence.mjs",
     "finance:clearance:migrate:dev": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=dev --path=/api -- node scripts/apply-finance-clearance-migration.mjs",
