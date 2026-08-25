@@ -12,6 +12,7 @@ export interface LeadResearchPlan {
   atlasSourcePaths: string[];
 }
 
+const LEGACY_INDUSTRY_SECTION = /#\s+(?:Target\s+)?Industries([\s\S]*?)(?=\n#\s+|$)/i;
 const BULLET = /^\s*-\s+(.+?)\s*$/gm;
 
 function unique(values: string[]): string[] {
@@ -30,24 +31,35 @@ function atlasPaths(atlas: LeadAtlasContextBundle): string[] {
   ));
 }
 
-function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
-  const industrySources = atlas.idealClientProfile.sources.filter((source) =>
-    source.citation.headingPath.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()))
-  );
-  if (industrySources.length === 0) {
-    throw new Error('Atlas Ideal Client Profile did not provide an Industries section.');
-  }
+function bulletsFromText(text: string): string[] {
+  return [...text.matchAll(BULLET)].map((item) => item[1]!.replace(/\*\*/g, '').trim());
+}
 
-  const industries = industrySources.flatMap((source) => {
-    const reference = source.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const section = atlas.idealClientProfile.context.match(
-      new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\\[ATLAS-|$)`),
-    )?.[1] ?? '';
-    return [...section.matchAll(BULLET)].map((item) => item[1]!.replace(/\*\*/g, '').trim());
+function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
+  const industrySources = atlas.idealClientProfile.sources.filter((source) => {
+    const headings = source.citation.headingPath;
+    return Array.isArray(headings)
+      && headings.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()));
   });
 
-  if (industries.length === 0) throw new Error('Atlas Ideal Client Profile did not provide target industries.');
-  return unique(industries);
+  if (industrySources.length > 0) {
+    const industries = industrySources.flatMap((source) => {
+      const reference = source.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const section = atlas.idealClientProfile.context.match(
+        new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\\[ATLAS-|$)`),
+      )?.[1] ?? '';
+      return bulletsFromText(section);
+    });
+    if (industries.length > 0) return unique(industries);
+  }
+
+  const legacyMatch = atlas.idealClientProfile.context.match(LEGACY_INDUSTRY_SECTION);
+  if (!legacyMatch?.[1]) {
+    throw new Error('Atlas Ideal Client Profile did not provide a Target Industries or Industries section.');
+  }
+  const legacyIndustries = bulletsFromText(legacyMatch[1]);
+  if (legacyIndustries.length === 0) throw new Error('Atlas Ideal Client Profile did not provide target industries.');
+  return unique(legacyIndustries);
 }
 
 export function createLeadAtlasResearchPlanner() {
