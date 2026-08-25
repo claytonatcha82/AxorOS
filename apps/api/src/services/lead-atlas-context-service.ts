@@ -1,3 +1,4 @@
+import type { ExactSourceContextService } from '../knowledge/exact-source-context-service.js';
 import type { KnowledgeContextPackage, KnowledgeContextService } from '../knowledge/knowledge-context-service.js';
 
 export interface LeadAtlasContextBundle {
@@ -46,18 +47,30 @@ function assertAuthoritativeSource(package_: KnowledgeContextPackage, expectedTi
   }
 }
 
-export function createLeadAtlasContextService(contextService: Pick<KnowledgeContextService, 'assemble'>) {
+export function createLeadAtlasContextService(
+  contextService: Pick<KnowledgeContextService, 'assemble'>,
+  exactSourceContext?: Pick<ExactSourceContextService, 'assembleExact'>,
+) {
   return {
     async load(): Promise<LeadAtlasContextBundle> {
       const entries = await Promise.all(REQUIRED_SOURCES.map(async (source) => {
-        const package_ = await contextService.assemble({
-          query: source.query,
-          agent: 'lead_agent',
-          task: 'lead_research_and_qualification',
-          maximumSecurityClassification: 'internal',
-          limit: 12,
-          maxCharacters: 14_000,
-        });
+        const package_ = exactSourceContext
+          ? await exactSourceContext.assembleExact({
+              title: source.expectedTitle,
+              pathPrefix: 'Volume 1 - Agency/',
+              agent: 'lead_agent',
+              task: 'lead_research_and_qualification',
+              maximumSecurityClassification: 'internal',
+              maxCharacters: 14_000,
+            })
+          : await contextService.assemble({
+              query: source.query,
+              agent: 'lead_agent',
+              task: 'lead_research_and_qualification',
+              maximumSecurityClassification: 'internal',
+              limit: 12,
+              maxCharacters: 14_000,
+            });
         assertAuthoritativeSource(package_, source.expectedTitle);
         return [source.key, package_] as const;
       }));
