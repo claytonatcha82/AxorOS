@@ -5,6 +5,11 @@ import { enforceIntegrationPolicy, SAFE_INTEGRATION_POLICY, type IntegrationExec
 type AnyExternalIntegration = ExternalIntegration<unknown, unknown>;
 export type LiveIntegrationExecutionGate = (request: IntegrationRequest) => Promise<void>;
 
+function requiresPilotExecutionGate(request: IntegrationRequest): boolean {
+  return request.mode === 'live'
+    || (request.integrationId === 'payment.paystack.request' && request.operation === 'initialize_payment_request');
+}
+
 export class IntegrationRegistry {
   private readonly integrations = new Map<string, AnyExternalIntegration>();
   private liveExecutionGate: LiveIntegrationExecutionGate | undefined;
@@ -47,7 +52,7 @@ export class IntegrationRegistry {
     const errors = validateIntegrationRequest(request as IntegrationRequest);
     if (errors.length) throw new Error(errors.join(' '));
     enforceIntegrationPolicy(request as IntegrationRequest, this.policy);
-    if (request.mode === 'live' && this.liveExecutionGate) {
+    if (requiresPilotExecutionGate(request as IntegrationRequest) && this.liveExecutionGate) {
       await this.liveExecutionGate(request as IntegrationRequest);
     }
 
