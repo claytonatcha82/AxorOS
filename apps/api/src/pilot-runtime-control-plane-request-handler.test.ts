@@ -72,8 +72,8 @@ async function withServer(
           executionId: 'exec-stale-production',
           destinationAgent: 'production_agent',
           objective: 'Recover stale Production execution.',
-          status: 'escalated',
-          approvalOwner: 'human_executive',
+          status: 'escalated' as const,
+          owner: 'human_executive',
           nextAction: 'human_executive_reconcile_stale_execution',
           priority: 'critical',
           risks: ['stale_runtime_execution'],
@@ -132,7 +132,7 @@ test('authenticated recovery listing returns persisted stale execution work', as
     });
     const body = await response.json() as {
       ok: boolean;
-      data: { recovery: Array<{ executionId: string; status: string; nextAction: string; approvalOwner: string | null }> };
+      data: { recovery: Array<{ executionId: string; status: string; nextAction: string; owner: string }> };
     };
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
@@ -141,7 +141,7 @@ test('authenticated recovery listing returns persisted stale execution work', as
       destinationAgent: 'production_agent',
       objective: 'Recover stale Production execution.',
       status: 'escalated',
-      approvalOwner: 'human_executive',
+      owner: 'human_executive',
       nextAction: 'human_executive_reconcile_stale_execution',
       priority: 'critical',
       risks: ['stale_runtime_execution'],
