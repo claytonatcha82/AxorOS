@@ -1,5 +1,6 @@
 import type { ApiConfig } from '../config.js';
 import { createAnthropicModelIntegration } from './anthropic-model-integration.js';
+import { createCloudflareDeploymentIntegration } from './cloudflare-deployment-integration.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail-draft-integration.js';
@@ -125,6 +126,15 @@ export function createConfiguredIntegrationRegistry(
     const tavily = createTavilyPublicWebResearchIntegration({ apiKey: config.tavilyApiKey });
     registry.register(tavily);
     registeredIntegrationIds.push(tavily.integrationId);
+  }
+
+  if (config.deploymentIntegrationId === 'deployment.cloudflare' && config.cloudflareAccountId && config.cloudflareApiToken) {
+    const cloudflare = createCloudflareDeploymentIntegration({
+      accountId: config.cloudflareAccountId,
+      apiToken: config.cloudflareApiToken,
+    });
+    registry.register(cloudflare);
+    registeredIntegrationIds.push(cloudflare.integrationId);
   }
 
   return {
