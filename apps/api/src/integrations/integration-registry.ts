@@ -3,11 +3,15 @@ import { validateIntegrationRequest } from './integration-contract.js';
 import { enforceIntegrationPolicy, SAFE_INTEGRATION_POLICY, type IntegrationExecutionPolicy } from './integration-policy.js';
 
 type AnyExternalIntegration = ExternalIntegration<unknown, unknown>;
+export type LiveIntegrationExecutionGate = (request: IntegrationRequest) => Promise<void>;
 
 export class IntegrationRegistry {
   private readonly integrations = new Map<string, AnyExternalIntegration>();
 
-  constructor(private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY) {}
+  constructor(
+    private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY,
+    private readonly liveExecutionGate?: LiveIntegrationExecutionGate,
+  ) {}
 
   register<TInput, TOutput>(integration: ExternalIntegration<TInput, TOutput>): void {
     if (!integration.integrationId.trim()) throw new Error('integrationId is required.');
@@ -36,6 +40,9 @@ export class IntegrationRegistry {
     const errors = validateIntegrationRequest(request as IntegrationRequest);
     if (errors.length) throw new Error(errors.join(' '));
     enforceIntegrationPolicy(request as IntegrationRequest, this.policy);
+    if (request.mode === 'live' && this.liveExecutionGate) {
+      await this.liveExecutionGate(request as IntegrationRequest);
+    }
 
     const integration = this.require(request.integrationId);
     if (!integration.supportedModes.includes(request.mode)) {
