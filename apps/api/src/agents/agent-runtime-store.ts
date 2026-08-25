@@ -18,6 +18,7 @@ export interface AgentRuntimeStore {
   commitRuntimeMutation?(mutation: RuntimeMutation): Promise<void>;
   listStaleInProgressExecutions?(before: string, limit: number): Promise<readonly AgentRuntimeExecutionRecord[]>;
   listPendingHumanApprovals?(limit: number): Promise<readonly AgentRuntimeExecutionRecord[]>;
+  listRecoveryRequiredExecutions?(limit: number): Promise<readonly AgentRuntimeExecutionRecord[]>;
 }
 
 export class RuntimeVersionConflictError extends Error {

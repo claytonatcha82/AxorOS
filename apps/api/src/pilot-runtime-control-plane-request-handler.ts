@@ -1,18 +1,20 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrator.js';
-import type { PilotPendingApproval } from './agents/pilot-runtime-operator-command.js';
+import type { PilotPendingApproval, PilotRecoveryItem } from './agents/pilot-runtime-operator-command.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
 const PILOT_RUNTIME_EXECUTE_PATH = '/api/v1/control/runtime/execute';
 const PILOT_RUNTIME_APPROVAL_RESOLVE_PATH = '/api/v1/control/runtime/approval/resolve';
 const PILOT_RUNTIME_PENDING_APPROVALS_PATH = '/api/v1/control/runtime/approvals/pending';
+const PILOT_RUNTIME_RECOVERY_PATH = '/api/v1/control/runtime/recovery';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
 export interface PilotRuntimeControlPlaneDependencies {
   config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
   operatorCommand: {
     listPendingApprovals(limit?: number): Promise<readonly PilotPendingApproval[]>;
+    listRecoveryRequired(limit?: number): Promise<readonly PilotRecoveryItem[]>;
     execute(executionId: string, capabilityId: string): Promise<RuntimeExecutionOutcome>;
     resolveApproval(
       executionId: string,
@@ -62,7 +64,8 @@ async function readCommandBody(request: IncomingMessage): Promise<Record<string,
 function isPilotRuntimeControlPath(path: string | undefined): boolean {
   return path === PILOT_RUNTIME_EXECUTE_PATH
     || path === PILOT_RUNTIME_APPROVAL_RESOLVE_PATH
-    || path === PILOT_RUNTIME_PENDING_APPROVALS_PATH;
+    || path === PILOT_RUNTIME_PENDING_APPROVALS_PATH
+    || path === PILOT_RUNTIME_RECOVERY_PATH;
 }
 
 function validExecuteBody(body: Record<string, unknown>): body is { executionId: string; capabilityId: string } {
@@ -127,13 +130,14 @@ export function createPilotRuntimeControlPlaneRequestHandler(
       return;
     }
 
-    const isPendingList = request.url === PILOT_RUNTIME_PENDING_APPROVALS_PATH;
-    if ((isPendingList && request.method !== 'GET') || (!isPendingList && request.method !== 'POST')) {
+    const isReadOnlyList = request.url === PILOT_RUNTIME_PENDING_APPROVALS_PATH
+      || request.url === PILOT_RUNTIME_RECOVERY_PATH;
+    if ((isReadOnlyList && request.method !== 'GET') || (!isReadOnlyList && request.method !== 'POST')) {
       sendJson(
         response,
         405,
         { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } },
-        { allow: isPendingList ? 'GET,OPTIONS' : 'POST,OPTIONS', ...corsHeaders },
+        { allow: isReadOnlyList ? 'GET,OPTIONS' : 'POST,OPTIONS', ...corsHeaders },
       );
       return;
     }
@@ -156,13 +160,24 @@ export function createPilotRuntimeControlPlaneRequestHandler(
       return;
     }
 
-    if (isPendingList) {
+    if (request.url === PILOT_RUNTIME_PENDING_APPROVALS_PATH) {
       try {
         const approvals = await dependencies.operatorCommand.listPendingApprovals();
         sendJson(response, 200, { ok: true, data: { approvals } }, corsHeaders);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Pending approval listing failed.';
         sendJson(response, 400, { ok: false, error: { code: 'runtime_pending_approvals_rejected', message } }, corsHeaders);
+      }
+      return;
+    }
+
+    if (request.url === PILOT_RUNTIME_RECOVERY_PATH) {
+      try {
+        const recovery = await dependencies.operatorCommand.listRecoveryRequired();
+        sendJson(response, 200, { ok: true, data: { recovery } }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Runtime recovery listing failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'runtime_recovery_listing_rejected', message } }, corsHeaders);
       }
       return;
     }

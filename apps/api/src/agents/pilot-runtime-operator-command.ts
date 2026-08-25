@@ -21,7 +21,7 @@ export interface PilotRuntimeOperatorOrchestrator {
 }
 
 export interface PilotRuntimeOperatorCommandDependencies {
-  store: Pick<AgentRuntimeStore, 'getExecution' | 'listPendingHumanApprovals'>;
+  store: Pick<AgentRuntimeStore, 'getExecution' | 'listPendingHumanApprovals' | 'listRecoveryRequiredExecutions'>;
   orchestrator: PilotRuntimeOperatorOrchestrator;
 }
 
@@ -33,6 +33,18 @@ export interface PilotPendingApproval {
   capabilityId: string;
   persistedAt: string;
   reason?: string;
+}
+
+export interface PilotRecoveryItem {
+  executionId: string;
+  destinationAgent: string;
+  objective: string;
+  status: 'review' | 'escalated';
+  owner: string;
+  nextAction: string;
+  priority: string;
+  risks: readonly string[];
+  persistedAt: string;
 }
 
 const PILOT_OPERATOR_CAPABILITIES = new Map<string, ReadonlySet<string>>([
@@ -94,6 +106,27 @@ export function createPilotRuntimeOperatorCommand(
       }
       const records = await dependencies.store.listPendingHumanApprovals(limit);
       return records.map(pendingApproval).filter((item): item is PilotPendingApproval => item !== null);
+    },
+
+    async listRecoveryRequired(limit = 25): Promise<readonly PilotRecoveryItem[]> {
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+        throw new Error('recovery queue limit must be an integer from 1 to 50.');
+      }
+      if (!dependencies.store.listRecoveryRequiredExecutions) {
+        throw new Error('runtime recovery queue listing is not configured.');
+      }
+      const records = await dependencies.store.listRecoveryRequiredExecutions(limit);
+      return records.map((record) => ({
+        executionId: record.task.executionId,
+        destinationAgent: record.task.destinationAgent,
+        objective: record.task.objective,
+        status: record.task.status as 'review' | 'escalated',
+        owner: record.task.approvalOwner ?? 'operations_agent',
+        nextAction: record.task.nextAction,
+        priority: record.task.priority,
+        risks: record.task.risks,
+        persistedAt: record.persistedAt,
+      }));
     },
 
     async execute(executionId: string, capabilityId: string): Promise<RuntimeExecutionOutcome> {

@@ -66,6 +66,20 @@ async function withServer(
           reason: 'Stage 1 client communication requires Human Executive approval.',
         }];
       },
+      async listRecoveryRequired() {
+        commandCalls.push('list-recovery');
+        return [{
+          executionId: 'exec-stale-production',
+          destinationAgent: 'production_agent',
+          objective: 'Recover stale Production execution.',
+          status: 'escalated' as const,
+          owner: 'human_executive',
+          nextAction: 'human_executive_reconcile_stale_execution',
+          priority: 'critical',
+          risks: ['stale_runtime_execution'],
+          persistedAt: '2026-08-24T18:05:00.000Z',
+        }];
+      },
       async execute(executionId, capabilityId) {
         commandCalls.push(`execute:${executionId}:${capabilityId}`);
         return runtimeOutcome('ready');
@@ -105,6 +119,36 @@ test('authenticated pending approval listing returns only operator-provided acti
     }]);
     assert.equal(response.headers.get('access-control-allow-origin'), controlCenterUrl);
     assert.deepEqual(calls(), ['list-pending']);
+  });
+});
+
+test('authenticated recovery listing returns persisted stale execution work', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/runtime/recovery`, {
+      headers: {
+        authorization: `Bearer ${controlPlaneToken}`,
+        origin: controlCenterUrl,
+      },
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      data: { recovery: Array<{ executionId: string; status: string; nextAction: string; owner: string }> };
+    };
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.data.recovery, [{
+      executionId: 'exec-stale-production',
+      destinationAgent: 'production_agent',
+      objective: 'Recover stale Production execution.',
+      status: 'escalated',
+      owner: 'human_executive',
+      nextAction: 'human_executive_reconcile_stale_execution',
+      priority: 'critical',
+      risks: ['stale_runtime_execution'],
+      persistedAt: '2026-08-24T18:05:00.000Z',
+    }]);
+    assert.equal(response.headers.get('access-control-allow-origin'), controlCenterUrl);
+    assert.deepEqual(calls(), ['list-recovery']);
   });
 });
 

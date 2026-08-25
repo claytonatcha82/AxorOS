@@ -225,5 +225,18 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimePostgre
       );
       return result.rows.map((row) => mapExecution(row as Record<string, unknown>));
     },
+
+    async listRecoveryRequiredExecutions(limit) {
+      const result = await pool.query(
+        `select task, result, version, last_event_id, persisted_at
+         from runtime.agent_executions
+         where status in ('review', 'escalated')
+           and task->>'nextAction' in ('operations_reconcile_stale_execution_before_retry', 'human_executive_reconcile_stale_execution')
+         order by persisted_at asc
+         limit $1`,
+        [limit],
+      );
+      return result.rows.map((row) => mapExecution(row as Record<string, unknown>));
+    },
   };
 }
