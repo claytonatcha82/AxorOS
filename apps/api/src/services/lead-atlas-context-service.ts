@@ -16,22 +16,22 @@ interface RequiredAtlasSource {
 const REQUIRED_SOURCES: RequiredAtlasSource[] = [
   {
     key: 'idealClientProfile',
-    query: 'Ideal Client Profile target industries business characteristics geographic focus client mindset challenges goals qualification criteria',
+    query: 'Ideal Client Profile',
     expectedTitle: 'Ideal Client Profile',
   },
   {
     key: 'leadGeneration',
-    query: 'Lead Generation System prospect research acquisition philosophy target market qualify lead CRM process AI Lead Agent',
+    query: 'Lead Generation System',
     expectedTitle: 'Lead Generation System',
   },
   {
     key: 'leadQualification',
-    query: 'Lead Qualification business fit project fit partnership potential decision maker commercial fit timeline scoring qualification levels',
+    query: 'Lead Qualification',
     expectedTitle: 'Lead Qualification',
   },
   {
     key: 'leadAgentGovernance',
-    query: 'Lead Agent responsibilities workflow permissions knowledge integration handover standard failure conditions',
+    query: 'Lead Agent',
     expectedTitle: 'Lead Agent',
   },
 ];
