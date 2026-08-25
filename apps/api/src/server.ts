@@ -3,6 +3,7 @@ import { createRequestHandler } from './app.js';
 import { createRuntimeRecoveryRunner } from './agents/agent-runtime-recovery-runner.js';
 import { createFinanceGovernedControlCommand } from './agents/finance-governed-control-command.js';
 import { createFinancePaymentRuntime } from './agents/finance-payment-runtime.js';
+import { createPersistedMarketingRuntime } from './agents/marketing-persisted-runtime.js';
 import { createOperationsProductionPrerequisiteRecorder } from './agents/operations-production-prerequisite-recorder.js';
 import { createOperationsProductionReadinessPostgresService } from './agents/operations-production-readiness-postgres.js';
 import { createPaystackPaymentWebhookIngress } from './agents/paystack-payment-webhook-ingress.js';
@@ -32,6 +33,7 @@ import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
 import { createLeadResearchControlPlaneRequestHandler } from './lead-research-control-plane-request-handler.js';
 import { logEvent, setExternalLogSink } from './logger.js';
+import { createMarketingControlPlaneRequestHandler } from './marketing-control-plane-request-handler.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
@@ -112,6 +114,10 @@ const productionRuntime = createPersistedProductionRuntime({
   integrations: integrationRegistry,
   modelPolicy: productionModelPolicy,
 });
+const marketingRuntime = createPersistedMarketingRuntime({
+  pool: databasePool,
+  integrations: integrationRegistry,
+});
 const pilotRuntimeOperatorCommand = createPilotRuntimeOperatorCommand({
   store: productionRuntime.store,
   orchestrator: productionRuntime.orchestrator,
@@ -191,6 +197,11 @@ const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneReq
   research: leadLiveResearchRuntime,
   fallback: executiveDashboardRequestHandler,
 });
+const marketingControlPlaneRequestHandler = createMarketingControlPlaneRequestHandler({
+  config,
+  marketing: marketingRuntime.commands,
+  fallback: leadResearchControlPlaneRequestHandler,
+});
 const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
   ? createPaystackPaymentWebhookIngress({
       secretKey: config.paystackSecretKey,
@@ -201,7 +212,7 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
 const server = createServer(createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: leadResearchControlPlaneRequestHandler,
+  fallback: marketingControlPlaneRequestHandler,
 }));
 let shuttingDown = false;
 
@@ -263,6 +274,11 @@ async function start(): Promise<void> {
         && registeredIntegrationIds.includes('research.google-places')
         && registeredIntegrationIds.includes('research.tavily-web'),
       ),
+      marketingDraftRuntimeConfigured: registeredIntegrationIds.includes('model.gemini'),
+      marketingDraftControlPlaneConfigured: Boolean(
+        config.controlPlaneToken && registeredIntegrationIds.includes('model.gemini'),
+      ),
+      marketingPublishingConfigured: false,
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
       financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
