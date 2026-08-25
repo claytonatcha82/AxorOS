@@ -16,7 +16,24 @@ async function withServer(
     response.end(JSON.stringify({ fallback: true }));
   };
   const handler = createExecutiveDashboardRequestHandler({
-    config: { controlCenterUrl, ...(options.configured === false ? {} : { controlPlaneToken: token }) },
+    config: {
+      controlCenterUrl,
+      ...(options.configured === false ? {} : { controlPlaneToken: token }),
+      databaseUrl: 'postgresql://pilot:test@localhost:5432/axoros',
+      googlePlacesApiKey: 'places-key',
+      tavilyApiKey: 'tavily-key',
+      openaiApiKey: 'openai-key',
+      geminiApiKey: 'gemini-key',
+      anthropicApiKey: 'anthropic-key',
+      anthropicModel: 'claude-test',
+      gmailClientId: 'gmail-client',
+      gmailClientSecret: 'gmail-secret',
+      gmailRefreshToken: 'gmail-refresh',
+      gmailIdentityAddresses: { sales: 'sales@example.test', support: 'support@example.test' },
+      paystackSecretKey: 'sk_test_example',
+      paymentIntegrationId: 'payment.paystack',
+      paymentIntegrationMode: 'sandbox',
+    },
     dashboard: {
       async snapshot() {
         snapshotCalls += 1;
@@ -45,16 +62,26 @@ async function withServer(
   }
 }
 
-test('executive dashboard returns authenticated read-only snapshot', async () => {
+test('executive dashboard returns authenticated snapshot with authoritative readiness', async () => {
   await withServer(async (baseUrl, calls) => {
     const response = await fetch(`${baseUrl}/api/v1/control/dashboard/executive`, {
       headers: { authorization: `Bearer ${token}`, origin: controlCenterUrl },
     });
-    const body = await response.json() as { ok: boolean; data: { leads: { total: number }; clients: Array<{ displayName: string }> } };
+    const body = await response.json() as {
+      ok: boolean;
+      data: {
+        leads: { total: number };
+        clients: Array<{ displayName: string }>;
+        agentReadiness: Array<{ agentId: string; status: string }>;
+      };
+    };
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.leads.total, 4);
     assert.equal(body.data.clients[0]?.displayName, 'Pilot Client');
+    assert.equal(body.data.agentReadiness.length, 9);
+    assert.equal(body.data.agentReadiness.find((record) => record.agentId === 'lead_agent')?.status, 'READY');
+    assert.equal(body.data.agentReadiness.find((record) => record.agentId === 'finance_agent')?.status, 'DEGRADED');
     assert.equal(response.headers.get('access-control-allow-origin'), controlCenterUrl);
     assert.equal(calls(), 1);
   });
