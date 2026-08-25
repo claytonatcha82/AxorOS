@@ -16,6 +16,7 @@ import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
 import { FinanceExpensePostgresStore, FinanceSubscriptionPostgresStore } from './data/finance-reporting-postgres-store.js';
 import { OperationsProductionPrerequisitePostgresStore } from './data/operations-production-prerequisite-postgres-store.js';
+import { PilotSystemStatePostgresStore } from './data/pilot-system-state-postgres-store.js';
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
@@ -28,6 +29,7 @@ import { createConfiguredIntegrationRegistry } from './integrations/integration-
 import type { ExternalIntegration } from './integrations/integration-contract.js';
 import type { GmailEmailIntegration } from './integrations/gmail-draft-integration.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from './integrations/model-integration.js';
+import { createPilotLiveExecutionGate } from './integrations/pilot-live-execution-gate.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
@@ -36,6 +38,7 @@ import { logEvent, setExternalLogSink } from './logger.js';
 import { createMarketingControlPlaneRequestHandler } from './marketing-control-plane-request-handler.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
+import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
@@ -60,6 +63,8 @@ const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
 const executiveDashboard = createExecutiveDashboardService(databasePool);
+const pilotSystemState = new PilotSystemStatePostgresStore(databasePool);
+integrationRegistry.setLiveExecutionGate(createPilotLiveExecutionGate(pilotSystemState));
 const financeExpenses = new FinanceExpensePostgresStore(databasePool);
 const financeSubscriptions = new FinanceSubscriptionPostgresStore(databasePool);
 const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
@@ -187,10 +192,16 @@ const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneReq
   operatorCommand: pilotRuntimeOperatorCommand,
   fallback: salesIntakeControlPlaneRequestHandler,
 });
+const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({
+  config,
+  store: pilotSystemState,
+  fallback: pilotRuntimeControlPlaneRequestHandler,
+});
 const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler({
   config,
   dashboard: executiveDashboard,
-  fallback: pilotRuntimeControlPlaneRequestHandler,
+  pilotSystemState,
+  fallback: pilotSystemStateControlPlaneRequestHandler,
 });
 const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneRequestHandler({
   config,
@@ -252,6 +263,7 @@ process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 
 async function start(): Promise<void> {
+  const initialPilotState = await pilotSystemState.get();
   await runtimeRecoveryRunner.runOnce();
   runtimeRecoveryRunner.start();
 
@@ -266,6 +278,8 @@ async function start(): Promise<void> {
       knowledgeContextConfigured: true,
       runtimeRecoveryConfigured: true,
       executiveDashboardConfigured: Boolean(config.controlPlaneToken),
+      pilotSystemStateControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      pilotSystemState: initialPilotState.state,
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
       leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
         && registeredIntegrationIds.includes('research.tavily-web'),

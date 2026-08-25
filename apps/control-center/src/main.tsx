@@ -5,7 +5,26 @@ import './styles.css';
 
 type Money = { amountMinor: number; currency: string; available: boolean; note?: string };
 type AgentId = 'knowledge_agent' | 'executive_agent' | 'operations_agent' | 'lead_agent' | 'sales_agent' | 'production_agent' | 'support_agent' | 'marketing_agent' | 'finance_agent';
+type AgentReadinessStatus = 'READY' | 'NOT_CONFIGURED' | 'BLOCKED' | 'DEGRADED';
 type ClientOption = { clientId: string; displayName: string; status: string };
+type PilotSystemState = 'PILOT_DISABLED' | 'PILOT_ACTIVE';
+
+type AgentReadinessRecord = {
+  agentId: AgentId;
+  status: AgentReadinessStatus;
+  requiredIntegrations: string[];
+  missingIntegrations: string[];
+  blockers: string[];
+  notes: string[];
+};
+
+type PilotStateRecord = {
+  state: PilotSystemState;
+  changedBy: string;
+  reason: string;
+  version: number;
+  changedAt: string;
+};
 
 type DashboardSnapshot = {
   generatedAt: string;
@@ -25,6 +44,8 @@ type DashboardSnapshot = {
   };
   approvals: { pendingHumanExecutive: number };
   agents: Array<{ agentId: AgentId; totalExecutions: number; activeExecutions: number; completedExecutions: number; reviewExecutions: number; failedExecutions: number; latestActivityAt: string | null; latestObjective: string | null }>;
+  agentReadiness: AgentReadinessRecord[];
+  pilotState: PilotStateRecord;
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
   recentActivity: Array<{ eventType: string; actorType: string; actorId: string | null; createdAt: string }>;
 };
@@ -68,6 +89,13 @@ function humanize(value: string): string {
   return value.replace(/_agent$/, '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function runtimeActivity(agent: DashboardSnapshot['agents'][number]): 'ACTIVE' | 'REVIEW' | 'FAILED' | 'IDLE' {
+  if (agent.activeExecutions > 0) return 'ACTIVE';
+  if (agent.reviewExecutions > 0) return 'REVIEW';
+  if (agent.failedExecutions > 0) return 'FAILED';
+  return 'IDLE';
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as { ok?: boolean; data?: T; error?: { message?: string } };
   if (!response.ok || body.ok === false || body.data === undefined) {
@@ -83,6 +111,9 @@ function App() {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [loading, setLoading] = useState(false);
   const [actioning, setActioning] = useState<string | null>(null);
+  const [pilotChanging, setPilotChanging] = useState(false);
+  const [pilotReason, setPilotReason] = useState('');
+  const [pilotConfirmation, setPilotConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const headers = useMemo(() => ({ authorization: `Bearer ${token}` }), [token]);
@@ -147,6 +178,31 @@ function App() {
     }
   }
 
+  async function changePilotState(state: PilotSystemState) {
+    if (!token || !pilotReason.trim()) return;
+    setPilotChanging(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/state`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          state,
+          reason: pilotReason.trim(),
+          ...(state === 'PILOT_ACTIVE' ? { confirmation: pilotConfirmation } : {}),
+        }),
+      });
+      await readJson<PilotStateRecord>(response);
+      setPilotReason('');
+      setPilotConfirmation('');
+      await refresh();
+    } catch (pilotError) {
+      setError(pilotError instanceof Error ? pilotError.message : String(pilotError));
+    } finally {
+      setPilotChanging(false);
+    }
+  }
+
   if (!token) {
     return (
       <main className="login-shell">
@@ -167,13 +223,17 @@ function App() {
   }
 
   const moneyUnavailableNote = dashboard?.finance.expectedExpenses.find((item) => !item.available)?.note;
+  const readinessByAgent = new Map((dashboard?.agentReadiness ?? []).map((record) => [record.agentId, record]));
+  const allAgentsReady = Boolean(dashboard?.agentReadiness.length) && dashboard!.agentReadiness.every((record) => record.status === 'READY');
+  const notReadyAgents = dashboard?.agentReadiness.filter((record) => record.status !== 'READY') ?? [];
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-row"><div className="brand-mark small">AX</div><div><strong>AxorOS</strong><span>Control Center</span></div></div>
         <nav>
-          <a href="#overview" className="active">Overview</a>
+          <a href="#pilot" className="active">Pilot control</a>
+          <a href="#overview">Overview</a>
           <a href="#finance">Finance</a>
           <a href="#finance-records">Finance records</a>
           <a href="#agents">Agents</a>
@@ -204,6 +264,40 @@ function App() {
         {!dashboard && !error && <div className="loading-panel">Loading authoritative business state…</div>}
 
         {dashboard && <>
+          <section id="pilot" className="section-block">
+            <div className="section-heading">
+              <div><p className="eyebrow">System authority</p><h2>Pilot activation</h2></div>
+              <span className={dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'status-badge' : 'pill attention-pill'}>{dashboard.pilotState.state}</span>
+            </div>
+            <div className="split-grid">
+              <article className="panel-card">
+                <div className="card-heading"><div><p className="eyebrow">Authoritative state</p><h2>{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Pilot is active' : 'Pilot is disabled'}</h2></div></div>
+                <p className="muted">{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Approved live pilot operations may proceed subject to every existing agent, risk, Finance and Human Executive gate.' : 'Live pilot operations must remain blocked. AxorOS may continue readiness testing, persistence checks and sandbox verification.'}</p>
+                <div className="finance-table">
+                  <div><span>Changed by</span><strong>{humanize(dashboard.pilotState.changedBy)}</strong></div>
+                  <div><span>Version</span><strong>{dashboard.pilotState.version}</strong></div>
+                  <div><span>Changed</span><strong>{formatDate(dashboard.pilotState.changedAt)}</strong></div>
+                </div>
+                <p className="panel-note">{dashboard.pilotState.reason}</p>
+              </article>
+
+              <article className="panel-card">
+                <div className="card-heading"><div><p className="eyebrow">Human Executive control</p><h2>{allAgentsReady ? 'Activation prerequisites satisfied' : 'Activation blocked by readiness'}</h2></div></div>
+                {!allAgentsReady && <div className="empty-inline">{notReadyAgents.map((record) => `${AGENT_LABELS[record.agentId]}: ${record.status}`).join(' · ')}</div>}
+                <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                  <input value={pilotReason} onChange={(event) => setPilotReason(event.target.value)} placeholder="Human Executive reason for state change" />
+                  {dashboard.pilotState.state === 'PILOT_DISABLED' && <input value={pilotConfirmation} onChange={(event) => setPilotConfirmation(event.target.value)} placeholder="Type ACTIVATE PILOT to confirm" />}
+                  {dashboard.pilotState.state === 'PILOT_DISABLED' ? (
+                    <button disabled={pilotChanging || !allAgentsReady || !pilotReason.trim() || pilotConfirmation !== 'ACTIVATE PILOT'} onClick={() => void changePilotState('PILOT_ACTIVE')}>{pilotChanging ? 'Processing…' : 'Activate pilot'}</button>
+                  ) : (
+                    <button className="reject-button" disabled={pilotChanging || !pilotReason.trim()} onClick={() => void changePilotState('PILOT_DISABLED')}>{pilotChanging ? 'Processing…' : 'Disable pilot immediately'}</button>
+                  )}
+                </div>
+                <p className="panel-note">The API independently rechecks all nine agent readiness records. Browser manipulation cannot bypass the server-side activation gate.</p>
+              </article>
+            </div>
+          </section>
+
           <section id="overview" className="section-block">
             <div className="section-heading"><div><p className="eyebrow">Executive overview</p><h2>Agency pulse</h2></div><span className="pill">{dashboard.approvals.pendingHumanExecutive} approvals waiting</span></div>
             <div className="metric-grid">
@@ -261,14 +355,17 @@ function App() {
           <section id="agents" className="section-block">
             <div className="section-heading"><div><p className="eyebrow">Agent network</p><h2>All nine agents</h2></div></div>
             <div className="agent-grid">
-              {dashboard.agents.map((agent) => (
-                <article className="agent-card" key={agent.agentId}>
-                  <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>{agent.activeExecutions > 0 ? 'Active' : agent.failedExecutions > 0 ? 'Needs attention' : 'Ready'}</span></div></div>
-                  <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
-                  <p>{agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
-                  <small>{formatDate(agent.latestActivityAt)}</small>
-                </article>
-              ))}
+              {dashboard.agents.map((agent) => {
+                const readiness = readinessByAgent.get(agent.agentId);
+                return (
+                  <article className="agent-card" key={agent.agentId}>
+                    <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>Readiness: {readiness?.status ?? 'NOT_CONFIGURED'} · Activity: {runtimeActivity(agent)}</span></div></div>
+                    <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
+                    <p>{readiness?.blockers.length ? readiness.blockers.join(' · ') : readiness?.notes[0] ?? agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
+                    <small>{formatDate(agent.latestActivityAt)}</small>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
