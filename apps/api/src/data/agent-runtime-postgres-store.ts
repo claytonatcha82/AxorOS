@@ -3,6 +3,10 @@ import type { AgentRuntimeExecutionRecord, AgentRuntimeEvent } from '../agents/a
 import type { RuntimeIdempotencyRecord } from '../agents/agent-runtime-idempotency.js';
 import { RuntimeVersionConflictError, type AgentRuntimeStore, type RuntimeMutation } from '../agents/agent-runtime-store.js';
 
+export type AgentRuntimePostgresStore = AgentRuntimeStore & {
+  commitRuntimeMutation(mutation: RuntimeMutation): Promise<void>;
+};
+
 function parseJson<T>(value: unknown): T {
   if (typeof value === 'string') return JSON.parse(value) as T;
   return value as T;
@@ -148,7 +152,7 @@ async function commitRuntimeMutation(pool: Pool, mutation: RuntimeMutation): Pro
   }
 }
 
-export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimeStore {
+export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimePostgresStore {
   return {
     async getExecution(executionId) {
       const result = await pool.query(
