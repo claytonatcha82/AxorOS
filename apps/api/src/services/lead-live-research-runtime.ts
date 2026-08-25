@@ -1,5 +1,4 @@
 import type { Pool } from 'pg';
-import type { AgentRuntimeStore } from '../agents/agent-runtime-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createTransactionRunner } from '../data/transaction.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
@@ -13,7 +12,10 @@ import { createLeadPreliminaryQualificationService } from './lead-preliminary-qu
 import { createLeadPublicWebEnrichmentService } from './lead-public-web-enrichment-service.js';
 import { createLeadQualificationDispositionPersistenceService } from './lead-qualification-disposition-persistence-service.js';
 import { createLeadQualificationDispositionService } from './lead-qualification-disposition-service.js';
-import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
+import {
+  createLeadQualificationRuntimeReviewRegistrationService,
+  type LeadQualificationRuntimeReviewRegistrationStore,
+} from './lead-qualification-runtime-review-registration-service.js';
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import { createLeadResearchQualificationEvidenceService } from './lead-research-qualification-evidence-service.js';
 import { createLeadResearchWorkflowService } from './lead-research-workflow-service.js';
@@ -22,7 +24,7 @@ export interface LeadLiveResearchRuntimeDependencies {
   pool: Pool;
   integrations: IntegrationRegistry;
   knowledgeContext: Pick<KnowledgeContextService, 'assemble'>;
-  runtimeStore: AgentRuntimeStore;
+  runtimeStore: LeadQualificationRuntimeReviewRegistrationStore;
 }
 
 export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRuntimeDependencies) {
