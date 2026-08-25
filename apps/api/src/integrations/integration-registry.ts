@@ -7,7 +7,7 @@ export type LiveIntegrationExecutionGate = (request: IntegrationRequest) => Prom
 
 export class IntegrationRegistry {
   private readonly integrations = new Map<string, AnyExternalIntegration>();
-  private liveExecutionGate?: LiveIntegrationExecutionGate;
+  private liveExecutionGate: LiveIntegrationExecutionGate | undefined;
 
   constructor(
     private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY,
