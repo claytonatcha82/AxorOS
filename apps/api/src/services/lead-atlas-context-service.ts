@@ -1,3 +1,4 @@
+import type { ExactSourceContextService } from '../knowledge/exact-source-context-service.js';
 import type { KnowledgeContextPackage, KnowledgeContextService } from '../knowledge/knowledge-context-service.js';
 
 export interface LeadAtlasContextBundle {
@@ -16,22 +17,22 @@ interface RequiredAtlasSource {
 const REQUIRED_SOURCES: RequiredAtlasSource[] = [
   {
     key: 'idealClientProfile',
-    query: 'Ideal Client Profile target industries business characteristics geographic focus client mindset challenges goals qualification criteria',
+    query: 'Ideal Client Profile',
     expectedTitle: 'Ideal Client Profile',
   },
   {
     key: 'leadGeneration',
-    query: 'Lead Generation System prospect research acquisition philosophy target market qualify lead CRM process AI Lead Agent',
+    query: 'Lead Generation System',
     expectedTitle: 'Lead Generation System',
   },
   {
     key: 'leadQualification',
-    query: 'Lead Qualification business fit project fit partnership potential decision maker commercial fit timeline scoring qualification levels',
+    query: 'Lead Qualification',
     expectedTitle: 'Lead Qualification',
   },
   {
     key: 'leadAgentGovernance',
-    query: 'Lead Agent responsibilities workflow permissions knowledge integration handover standard failure conditions',
+    query: 'Lead Agent',
     expectedTitle: 'Lead Agent',
   },
 ];
@@ -46,18 +47,30 @@ function assertAuthoritativeSource(package_: KnowledgeContextPackage, expectedTi
   }
 }
 
-export function createLeadAtlasContextService(contextService: Pick<KnowledgeContextService, 'assemble'>) {
+export function createLeadAtlasContextService(
+  contextService: Pick<KnowledgeContextService, 'assemble'>,
+  exactSourceContext?: Pick<ExactSourceContextService, 'assembleExact'>,
+) {
   return {
     async load(): Promise<LeadAtlasContextBundle> {
       const entries = await Promise.all(REQUIRED_SOURCES.map(async (source) => {
-        const package_ = await contextService.assemble({
-          query: source.query,
-          agent: 'lead_agent',
-          task: 'lead_research_and_qualification',
-          maximumSecurityClassification: 'internal',
-          limit: 12,
-          maxCharacters: 14_000,
-        });
+        const package_ = exactSourceContext
+          ? await exactSourceContext.assembleExact({
+              title: source.expectedTitle,
+              pathPrefix: 'Volume 1 - Agency/',
+              agent: 'lead_agent',
+              task: 'lead_research_and_qualification',
+              maximumSecurityClassification: 'internal',
+              maxCharacters: 14_000,
+            })
+          : await contextService.assemble({
+              query: source.query,
+              agent: 'lead_agent',
+              task: 'lead_research_and_qualification',
+              maximumSecurityClassification: 'internal',
+              limit: 12,
+              maxCharacters: 14_000,
+            });
         assertAuthoritativeSource(package_, source.expectedTitle);
         return [source.key, package_] as const;
       }));

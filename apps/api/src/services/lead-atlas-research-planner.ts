@@ -12,7 +12,7 @@ export interface LeadResearchPlan {
   atlasSourcePaths: string[];
 }
 
-const INDUSTRY_SECTION = /# Target Industries([\s\S]*?)(?=\n# |$)/i;
+const LEGACY_INDUSTRY_SECTION = /#\s+(?:Target\s+)?Industries([\s\S]*?)(?=\n#\s+|$)/i;
 const BULLET = /^\s*-\s+(.+?)\s*$/gm;
 
 function unique(values: string[]): string[] {
@@ -31,12 +31,35 @@ function atlasPaths(atlas: LeadAtlasContextBundle): string[] {
   ));
 }
 
+function bulletsFromText(text: string): string[] {
+  return [...text.matchAll(BULLET)].map((item) => item[1]!.replace(/\*\*/g, '').trim());
+}
+
 function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
-  const match = atlas.idealClientProfile.context.match(INDUSTRY_SECTION);
-  if (!match?.[1]) throw new Error('Atlas Ideal Client Profile did not provide a Target Industries section.');
-  const industries = [...match[1].matchAll(BULLET)].map((item) => item[1]!.replace(/\*\*/g, '').trim());
-  if (industries.length === 0) throw new Error('Atlas Ideal Client Profile did not provide target industries.');
-  return unique(industries);
+  const industrySources = atlas.idealClientProfile.sources.filter((source) => {
+    const headings = source.citation.headingPath;
+    return Array.isArray(headings)
+      && headings.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()));
+  });
+
+  if (industrySources.length > 0) {
+    const industries = industrySources.flatMap((source) => {
+      const reference = source.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const section = atlas.idealClientProfile.context.match(
+        new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\\[ATLAS-|$)`),
+      )?.[1] ?? '';
+      return bulletsFromText(section);
+    });
+    if (industries.length > 0) return unique(industries);
+  }
+
+  const legacyMatch = atlas.idealClientProfile.context.match(LEGACY_INDUSTRY_SECTION);
+  if (!legacyMatch?.[1]) {
+    throw new Error('Atlas Ideal Client Profile did not provide a Target Industries or Industries section.');
+  }
+  const legacyIndustries = bulletsFromText(legacyMatch[1]);
+  if (legacyIndustries.length === 0) throw new Error('Atlas Ideal Client Profile did not provide target industries.');
+  return unique(legacyIndustries);
 }
 
 export function createLeadAtlasResearchPlanner() {
