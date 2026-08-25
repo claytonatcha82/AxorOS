@@ -79,9 +79,23 @@ function parseStringArray(value: unknown): string[] {
 }
 
 function dateOnly(value: unknown): string {
-  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const directDate = /^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/.exec(trimmed)?.[1];
+    if (directDate) return directDate;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) throw new Error('Persisted Finance reporting date is invalid.');
-  return parsed.toISOString().slice(0, 10);
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export class FinanceExpensePostgresStore {
