@@ -39,6 +39,7 @@ import { createMarketingControlPlaneRequestHandler } from './marketing-control-p
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
+import { createProductionPreviewControlPlaneRequestHandler } from './production-preview-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
@@ -187,10 +188,22 @@ const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneReque
   salesEmailCommand: salesSupervisedEmailExecution,
   fallback: financeReportingControlPlaneRequestHandler,
 });
+const productionPreviewControlPlaneRequestHandler = createProductionPreviewControlPlaneRequestHandler({
+  config,
+  previewDependencies: {
+    integrations: integrationRegistry,
+    financeClearanceStore: productionRuntime.financeClearanceStore,
+    financePaymentStateStore: productionRuntime.financePaymentStateStore,
+    commercialPaymentRequirementStore: productionRuntime.commercialPaymentRequirementStore,
+    commercialPaymentSatisfactionStore: productionRuntime.commercialPaymentSatisfactionStore,
+    operationsReadinessStore: productionRuntime.operationsReadinessStore,
+  },
+  fallback: salesIntakeControlPlaneRequestHandler,
+});
 const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
   config,
   operatorCommand: pilotRuntimeOperatorCommand,
-  fallback: salesIntakeControlPlaneRequestHandler,
+  fallback: productionPreviewControlPlaneRequestHandler,
 });
 const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({
   config,
@@ -314,6 +327,9 @@ async function start(): Promise<void> {
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
       productionRuntimePersistenceConfigured: true,
+      productionPreviewDeploymentControlPlaneConfigured: Boolean(
+        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.preview'),
+      ),
       productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
       leadQualificationReviewRuntimeConfigured: true,
       leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
