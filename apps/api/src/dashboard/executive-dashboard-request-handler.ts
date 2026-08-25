@@ -1,12 +1,18 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { authenticateControlPlaneRequest } from '../control-plane-auth.js';
 import type { ApiConfig } from '../config.js';
+import {
+  createAgentReadinessServiceFromConfig,
+  type AgentReadinessApiConfig,
+} from './agent-readiness-service.js';
 import type { ExecutiveDashboardService } from './executive-dashboard-service.js';
 
 const DASHBOARD_PATH = '/api/v1/control/dashboard/executive';
 
+type DashboardConfig = Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'> & Partial<AgentReadinessApiConfig>;
+
 export interface ExecutiveDashboardRequestHandlerDependencies {
-  config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
+  config: DashboardConfig;
   dashboard: Pick<ExecutiveDashboardService, 'snapshot'>;
   fallback: RequestListener;
 }
@@ -67,7 +73,8 @@ export function createExecutiveDashboardRequestHandler(dependencies: ExecutiveDa
 
     try {
       const snapshot = await dependencies.dashboard.snapshot();
-      sendJson(response, 200, { ok: true, data: snapshot }, corsHeaders);
+      const readiness = createAgentReadinessServiceFromConfig(dependencies.config).snapshot();
+      sendJson(response, 200, { ok: true, data: { ...snapshot, agentReadiness: readiness } }, corsHeaders);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Executive dashboard snapshot failed.';
       sendJson(response, 500, { ok: false, error: { code: 'executive_dashboard_failed', message } }, corsHeaders);
