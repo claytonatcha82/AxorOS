@@ -5,7 +5,17 @@ import './styles.css';
 
 type Money = { amountMinor: number; currency: string; available: boolean; note?: string };
 type AgentId = 'knowledge_agent' | 'executive_agent' | 'operations_agent' | 'lead_agent' | 'sales_agent' | 'production_agent' | 'support_agent' | 'marketing_agent' | 'finance_agent';
+type AgentReadinessStatus = 'READY' | 'NOT_CONFIGURED' | 'BLOCKED' | 'DEGRADED';
 type ClientOption = { clientId: string; displayName: string; status: string };
+
+type AgentReadinessRecord = {
+  agentId: AgentId;
+  status: AgentReadinessStatus;
+  requiredIntegrations: string[];
+  missingIntegrations: string[];
+  blockers: string[];
+  notes: string[];
+};
 
 type DashboardSnapshot = {
   generatedAt: string;
@@ -25,6 +35,7 @@ type DashboardSnapshot = {
   };
   approvals: { pendingHumanExecutive: number };
   agents: Array<{ agentId: AgentId; totalExecutions: number; activeExecutions: number; completedExecutions: number; reviewExecutions: number; failedExecutions: number; latestActivityAt: string | null; latestObjective: string | null }>;
+  agentReadiness: AgentReadinessRecord[];
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
   recentActivity: Array<{ eventType: string; actorType: string; actorId: string | null; createdAt: string }>;
 };
@@ -66,6 +77,13 @@ function formatDate(value: string | null): string {
 
 function humanize(value: string): string {
   return value.replace(/_agent$/, '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function runtimeActivity(agent: DashboardSnapshot['agents'][number]): 'ACTIVE' | 'REVIEW' | 'FAILED' | 'IDLE' {
+  if (agent.activeExecutions > 0) return 'ACTIVE';
+  if (agent.reviewExecutions > 0) return 'REVIEW';
+  if (agent.failedExecutions > 0) return 'FAILED';
+  return 'IDLE';
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -167,6 +185,7 @@ function App() {
   }
 
   const moneyUnavailableNote = dashboard?.finance.expectedExpenses.find((item) => !item.available)?.note;
+  const readinessByAgent = new Map((dashboard?.agentReadiness ?? []).map((record) => [record.agentId, record]));
 
   return (
     <div className="app-shell">
@@ -261,14 +280,20 @@ function App() {
           <section id="agents" className="section-block">
             <div className="section-heading"><div><p className="eyebrow">Agent network</p><h2>All nine agents</h2></div></div>
             <div className="agent-grid">
-              {dashboard.agents.map((agent) => (
-                <article className="agent-card" key={agent.agentId}>
-                  <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>{agent.activeExecutions > 0 ? 'Active' : agent.failedExecutions > 0 ? 'Needs attention' : 'Ready'}</span></div></div>
-                  <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
-                  <p>{agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
-                  <small>{formatDate(agent.latestActivityAt)}</small>
-                </article>
-              ))}
+              {dashboard.agents.map((agent) => {
+                const readiness = readinessByAgent.get(agent.agentId);
+                const activity = runtimeActivity(agent);
+                const readinessDetail = readiness?.blockers[0] ?? readiness?.notes[0] ?? 'Required runtime and integration prerequisites are configured.';
+                return (
+                  <article className="agent-card" key={agent.agentId}>
+                    <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>Readiness: {readiness?.status ?? 'NOT_CONFIGURED'} · Activity: {activity}</span></div></div>
+                    <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
+                    <p>{readinessDetail}</p>
+                    <p>{agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
+                    <small>{formatDate(agent.latestActivityAt)}</small>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
