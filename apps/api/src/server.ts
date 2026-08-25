@@ -29,6 +29,7 @@ import { createConfiguredIntegrationRegistry } from './integrations/integration-
 import type { ExternalIntegration } from './integrations/integration-contract.js';
 import type { GmailEmailIntegration } from './integrations/gmail-draft-integration.js';
 import type { ModelGenerationInput, ModelGenerationOutput } from './integrations/model-integration.js';
+import { createPilotLiveExecutionGate } from './integrations/pilot-live-execution-gate.js';
 import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
@@ -63,6 +64,7 @@ const { registry: integrationRegistry, registeredIntegrationIds } = createConfig
 const operationalRepository = createOperationalRepository(databasePool);
 const executiveDashboard = createExecutiveDashboardService(databasePool);
 const pilotSystemState = new PilotSystemStatePostgresStore(databasePool);
+integrationRegistry.setLiveExecutionGate(createPilotLiveExecutionGate(pilotSystemState));
 const financeExpenses = new FinanceExpensePostgresStore(databasePool);
 const financeSubscriptions = new FinanceSubscriptionPostgresStore(databasePool);
 const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
