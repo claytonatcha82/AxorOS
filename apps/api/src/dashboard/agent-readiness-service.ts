@@ -1,4 +1,5 @@
 import type { CoreAgentId } from '../agents/agent-runtime-contract.js';
+import type { ApiConfig } from '../config.js';
 
 export type AgentReadinessStatus = 'READY' | 'NOT_CONFIGURED' | 'BLOCKED' | 'DEGRADED';
 
@@ -19,6 +20,13 @@ export interface AgentReadinessInputs {
   paymentIntegrationId?: string;
   paymentMode?: 'sandbox' | 'live';
 }
+
+export type AgentReadinessApiConfig = Pick<ApiConfig,
+  'controlPlaneToken' | 'databaseUrl' | 'geminiApiKey' | 'openaiApiKey' | 'anthropicApiKey' |
+  'anthropicModel' | 'productionModelIntegrationId' | 'gmailClientId' | 'gmailClientSecret' |
+  'gmailRefreshToken' | 'gmailIdentityAddresses' | 'googlePlacesApiKey' | 'tavilyApiKey' |
+  'paystackSecretKey' | 'paymentIntegrationId' | 'paymentIntegrationMode'
+>;
 
 const CORE_AGENTS: CoreAgentId[] = [
   'knowledge_agent', 'executive_agent', 'operations_agent', 'lead_agent', 'sales_agent',
@@ -67,6 +75,30 @@ export function createAgentReadinessService(input: AgentReadinessInputs) {
       return CORE_AGENTS.map(assess);
     },
   };
+}
+
+export function createAgentReadinessServiceFromConfig(config: AgentReadinessApiConfig) {
+  const registeredIntegrationIds = ['model.sandbox', 'payment.sandbox'];
+  if (config.geminiApiKey) registeredIntegrationIds.push('model.gemini');
+  if (config.openaiApiKey) registeredIntegrationIds.push('model.openai');
+  if (config.anthropicApiKey && config.anthropicModel) registeredIntegrationIds.push('model.anthropic');
+  if (config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken && config.gmailIdentityAddresses) {
+    registeredIntegrationIds.push('email.gmail');
+  }
+  if (config.googlePlacesApiKey) registeredIntegrationIds.push('research.google-places');
+  if (config.tavilyApiKey) registeredIntegrationIds.push('research.tavily-web');
+  if (config.paystackSecretKey) {
+    registeredIntegrationIds.push('payment.paystack', 'payment.paystack.request');
+  }
+
+  return createAgentReadinessService({
+    registeredIntegrationIds,
+    controlPlaneConfigured: Boolean(config.controlPlaneToken),
+    databaseConfigured: Boolean(config.databaseUrl),
+    ...(config.productionModelIntegrationId ? { productionModelIntegrationId: config.productionModelIntegrationId } : {}),
+    ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}),
+    ...(config.paymentIntegrationMode ? { paymentMode: config.paymentIntegrationMode } : {}),
+  });
 }
 
 export type AgentReadinessService = ReturnType<typeof createAgentReadinessService>;
