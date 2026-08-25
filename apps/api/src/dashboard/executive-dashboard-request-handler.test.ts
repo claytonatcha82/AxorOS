@@ -22,6 +22,7 @@ async function withServer(
         snapshotCalls += 1;
         return {
           generatedAt: '2026-08-24T20:00:00.000Z',
+          clients: [{ clientId: '00000000-0000-0000-0000-000000000001', displayName: 'Pilot Client', status: 'active' }],
           leads: { total: 4, discoveredToday: 1, discoveredLast7Days: 4, qualified: 1, engaged: 1, converted: 0, awaitingHumanReview: 2 },
           sales: { contacted: 2, contactedLast7Days: 2, inboundReplies: 1, interestedReplies: 1, failedSends: 0 },
           projects: { total: 1, active: 1, qa: 0, awaitingApproval: 0, delivered: 0 },
@@ -49,10 +50,11 @@ test('executive dashboard returns authenticated read-only snapshot', async () =>
     const response = await fetch(`${baseUrl}/api/v1/control/dashboard/executive`, {
       headers: { authorization: `Bearer ${token}`, origin: controlCenterUrl },
     });
-    const body = await response.json() as { ok: boolean; data: { leads: { total: number } } };
+    const body = await response.json() as { ok: boolean; data: { leads: { total: number }; clients: Array<{ displayName: string }> } };
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.leads.total, 4);
+    assert.equal(body.data.clients[0]?.displayName, 'Pilot Client');
     assert.equal(response.headers.get('access-control-allow-origin'), controlCenterUrl);
     assert.equal(calls(), 1);
   });
