@@ -10,11 +10,11 @@ export function createPilotLiveExecutionGate(
     try {
       state = await store.get();
     } catch {
-      throw new Error(`live integration ${request.integrationId}/${request.operation} blocked: authoritative pilot state is unavailable.`);
+      throw new Error(`external integration ${request.integrationId}/${request.operation} blocked: authoritative pilot state is unavailable.`);
     }
 
     if (state.state !== 'PILOT_ACTIVE') {
-      throw new Error(`live integration ${request.integrationId}/${request.operation} blocked while pilot state is ${state.state}.`);
+      throw new Error(`external integration ${request.integrationId}/${request.operation} blocked while pilot state is ${state.state}.`);
     }
   };
 }
