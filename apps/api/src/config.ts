@@ -29,6 +29,9 @@ export interface ApiConfig {
   paystackSecretKey?: string;
   paymentIntegrationId?: 'payment.paystack';
   paymentIntegrationMode?: 'sandbox' | 'live';
+  cloudflareAccountId?: string;
+  cloudflareApiToken?: string;
+  deploymentIntegrationId?: 'deployment.cloudflare';
 }
 
 const allowedEnvironments = new Set<AxorOSEnvironment>(['development', 'staging', 'production', 'test']);
@@ -128,6 +131,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (requestedPaymentIntegration && requestedPaymentIntegration !== 'sandbox' && requestedPaymentIntegration !== 'paystack') throw new Error('AXOROS_PAYMENT_INTEGRATION must be sandbox or paystack.');
   if (requestedPaymentIntegration === 'paystack' && !paystackSecretKey) throw new Error('AXOROS_PAYMENT_INTEGRATION=paystack requires AXOROS_PAYSTACK_SECRET_KEY.');
 
+  const cloudflareAccountId = env.AXOROS_CLOUDFLARE_ACCOUNT_ID?.trim() || undefined;
+  const cloudflareApiToken = env.AXOROS_CLOUDFLARE_API_TOKEN?.trim() || undefined;
+  if ((cloudflareAccountId && !cloudflareApiToken) || (!cloudflareAccountId && cloudflareApiToken)) {
+    throw new Error('Cloudflare deployment integration requires account ID and API token together.');
+  }
+  const requestedDeploymentIntegration = env.AXOROS_DEPLOYMENT_INTEGRATION?.trim();
+  if (requestedDeploymentIntegration && requestedDeploymentIntegration !== 'cloudflare') {
+    throw new Error('AXOROS_DEPLOYMENT_INTEGRATION must be cloudflare.');
+  }
+  if (requestedDeploymentIntegration === 'cloudflare' && (!cloudflareAccountId || !cloudflareApiToken)) {
+    throw new Error('AXOROS_DEPLOYMENT_INTEGRATION=cloudflare requires AXOROS_CLOUDFLARE_ACCOUNT_ID and AXOROS_CLOUDFLARE_API_TOKEN.');
+  }
+
   const config: ApiConfig = { environment: rawEnvironment as AxorOSEnvironment, host: env.AXOROS_API_HOST ?? '127.0.0.1', port, controlCenterUrl: parsedControlCenterUrl.origin };
   if (controlPlaneToken) config.controlPlaneToken = controlPlaneToken;
   if (databaseUrl) config.databaseUrl = databaseUrl;
@@ -151,6 +167,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (requestedPaymentIntegration === 'paystack' && paystackSecretKey) {
     config.paymentIntegrationId = 'payment.paystack';
     config.paymentIntegrationMode = paystackSecretKey.startsWith('sk_live_') ? 'live' : 'sandbox';
+  }
+  if (cloudflareAccountId) config.cloudflareAccountId = cloudflareAccountId;
+  if (cloudflareApiToken) config.cloudflareApiToken = cloudflareApiToken;
+  if (requestedDeploymentIntegration === 'cloudflare' && cloudflareAccountId && cloudflareApiToken) {
+    config.deploymentIntegrationId = 'deployment.cloudflare';
   }
   return config;
 }
