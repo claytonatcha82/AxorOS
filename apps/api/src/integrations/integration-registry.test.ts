@@ -117,3 +117,51 @@ test('registry refuses unsupported operations before provider execution', async 
   registry.register(integration());
   await assert.rejects(() => registry.execute(request({ operation: 'delete_mailbox' })), /does not support operation/);
 });
+
+test('live execution gate is enforced after scoped policy and before provider execution', async () => {
+  let providerCalls = 0;
+  const provider = integration();
+  provider.execute = async (input) => {
+    providerCalls += 1;
+    return {
+      integrationId: input.integrationId,
+      operation: input.operation,
+      provider: 'test-provider',
+      mode: input.mode,
+      status: 'succeeded',
+      output: { accepted: true },
+      evidenceReferences: [],
+      retryable: false,
+    };
+  };
+  const registry = new IntegrationRegistry({
+    defaultMode: 'sandbox',
+    allowLive: false,
+    liveRiskCeiling: 'low',
+    scopedLiveRules: [{ integrationId: 'email.primary', operation: 'send_message', riskCeiling: 'medium' }],
+  });
+  registry.register(provider);
+  registry.setLiveExecutionGate(async () => {
+    throw new Error('pilot disabled');
+  });
+
+  await assert.rejects(
+    () => registry.execute(request({ mode: 'live', risk: 'medium', idempotencyKey: 'live:exec-1:gated' })),
+    /pilot disabled/,
+  );
+  assert.equal(providerCalls, 0);
+});
+
+test('sandbox execution does not consult live execution gate', async () => {
+  let gateCalls = 0;
+  const registry = new IntegrationRegistry();
+  registry.register(integration());
+  registry.setLiveExecutionGate(async () => {
+    gateCalls += 1;
+    throw new Error('must not run for sandbox');
+  });
+
+  const response = await registry.execute(request({ mode: 'sandbox' }));
+  assert.equal(response.status, 'succeeded');
+  assert.equal(gateCalls, 0);
+});
