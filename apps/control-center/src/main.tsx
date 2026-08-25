@@ -60,6 +60,18 @@ type PendingApproval = {
   reason?: string;
 };
 
+type RecoveryItem = {
+  executionId: string;
+  destinationAgent: string;
+  objective: string;
+  status: 'review' | 'escalated';
+  owner: string;
+  nextAction: string;
+  priority: string;
+  risks: string[];
+  persistedAt: string;
+};
+
 const API_BASE_URL = (import.meta.env.VITE_AXOROS_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://127.0.0.1:3001';
 
 const AGENT_LABELS: Record<AgentId, string> = {
@@ -109,6 +121,7 @@ function App() {
   const [draftToken, setDraftToken] = useState('');
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [recovery, setRecovery] = useState<RecoveryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [actioning, setActioning] = useState<string | null>(null);
   const [pilotChanging, setPilotChanging] = useState(false);
@@ -123,16 +136,19 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const [dashboardResponse, approvalsResponse] = await Promise.all([
+      const [dashboardResponse, approvalsResponse, recoveryResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/control/dashboard/executive`, { headers }),
         fetch(`${API_BASE_URL}/api/v1/control/runtime/approvals/pending`, { headers }),
+        fetch(`${API_BASE_URL}/api/v1/control/runtime/recovery`, { headers }),
       ]);
-      const [dashboardData, approvalsData] = await Promise.all([
+      const [dashboardData, approvalsData, recoveryData] = await Promise.all([
         readJson<DashboardSnapshot>(dashboardResponse),
         readJson<{ approvals: PendingApproval[] }>(approvalsResponse),
+        readJson<{ recovery: RecoveryItem[] }>(recoveryResponse),
       ]);
       setDashboard(dashboardData);
       setApprovals(approvalsData.approvals);
+      setRecovery(recoveryData.recovery);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
     } finally {
@@ -238,12 +254,13 @@ function App() {
           <a href="#finance-records">Finance records</a>
           <a href="#agents">Agents</a>
           <a href="#approvals">Approvals</a>
+          <a href="#recovery">Runtime recovery</a>
           <a href="#executive">Executive updates</a>
           <a href="#activity">Activity</a>
         </nav>
         <div className="sidebar-footer">
           <span className="status-dot" /> Development connected
-          <button className="text-button" onClick={() => { setToken(''); setDraftToken(''); setDashboard(null); setApprovals([]); }}>Lock dashboard</button>
+          <button className="text-button" onClick={() => { setToken(''); setDraftToken(''); setDashboard(null); setApprovals([]); setRecovery([]); }}>Lock dashboard</button>
         </div>
       </aside>
 
@@ -382,6 +399,28 @@ function App() {
                       <button className="reject-button" disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'rejected')}>Reject</button>
                       <button disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'approved')}>{actioning === approval.executionId ? 'Processing…' : 'Approve & execute'}</button>
                     </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section id="recovery" className="section-block">
+            <div className="section-heading"><div><p className="eyebrow">Runtime resilience</p><h2>Recovery required</h2></div><span className="pill attention-pill">{recovery.length} waiting</span></div>
+            {recovery.length === 0 ? (
+              <div className="empty-state"><strong>No stale runtime executions require reconciliation.</strong><span>Crash recovery will surface persisted review or escalation work here. No automatic retries are performed.</span></div>
+            ) : (
+              <div className="approval-list">
+                {recovery.map((item) => (
+                  <article className="approval-card" key={item.executionId}>
+                    <div>
+                      <span className="agent-tag">{humanize(item.destinationAgent)} · {humanize(item.status)}</span>
+                      <h3>{item.objective}</h3>
+                      <p>Owner: {humanize(item.owner)} · Next action: {humanize(item.nextAction)}</p>
+                      <p>{item.risks.length ? `Risks: ${item.risks.map(humanize).join(' · ')}` : 'No persisted runtime risks.'}</p>
+                      <small>{formatDate(item.persistedAt)} · Priority: {humanize(item.priority)}</small>
+                    </div>
+                    <div className="approval-actions"><span className="pill">Read only</span></div>
                   </article>
                 ))}
               </div>
