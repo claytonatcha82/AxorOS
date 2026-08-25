@@ -1,6 +1,7 @@
+import type { ProductionDeploymentAuthorityRecord } from '../data/production-deployment-authority-postgres-store.js';
 import type { IntegrationRequest, IntegrationResponse } from '../integrations/integration-contract.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
-import { assertProductionDeploymentReady, type ProductionDeploymentGateInput } from './production-deployment-gate.js';
+import { assertProductionDeploymentReady } from './production-deployment-gate.js';
 
 const MUTATING_DEPLOYMENT_OPERATIONS = new Set([
   'create_preview_deployment',
@@ -10,12 +11,17 @@ const MUTATING_DEPLOYMENT_OPERATIONS = new Set([
 ]);
 
 export interface GovernedProductionDeploymentRequest {
-  gate: ProductionDeploymentGateInput;
+  authorityId: string;
+  commercialRecordReference: string;
+  projectName: string;
   integrationRequest: IntegrationRequest;
 }
 
 export interface GovernedProductionDeploymentDependencies {
   integrations: Pick<IntegrationRegistry, 'get' | 'execute'>;
+  deploymentAuthorityStore: {
+    get(authorityId: string): Promise<ProductionDeploymentAuthorityRecord | null>;
+  };
 }
 
 export async function executeGovernedProductionDeployment(
@@ -40,7 +46,22 @@ export async function executeGovernedProductionDeployment(
   if (request.risk !== 'high' && request.risk !== 'critical') {
     throw new Error('Production deployment mutations require high or critical risk classification.');
   }
+  if (!input.authorityId.trim()) throw new Error('Persisted deployment authority reference is required.');
+  if (!input.commercialRecordReference.trim()) throw new Error('Deployment commercial record is required.');
+  if (!input.projectName.trim()) throw new Error('Deployment project name is required.');
 
-  assertProductionDeploymentReady(input.gate);
+  const authority = await dependencies.deploymentAuthorityStore.get(input.authorityId.trim());
+  if (!authority) throw new Error('Persisted Production deployment authority was not found.');
+  if (authority.commercialRecordReference !== input.commercialRecordReference.trim()) {
+    throw new Error('Persisted Production deployment authority commercial record does not match deployment request.');
+  }
+  if (authority.projectName !== input.projectName.trim()) {
+    throw new Error('Persisted Production deployment authority project does not match deployment request.');
+  }
+  if (!authority.evidenceReferences.length) {
+    throw new Error('Persisted Production deployment authority has no supporting evidence.');
+  }
+
+  assertProductionDeploymentReady(authority);
   return dependencies.integrations.execute(request);
 }
