@@ -7,11 +7,18 @@ export type LiveIntegrationExecutionGate = (request: IntegrationRequest) => Prom
 
 export class IntegrationRegistry {
   private readonly integrations = new Map<string, AnyExternalIntegration>();
+  private liveExecutionGate?: LiveIntegrationExecutionGate;
 
   constructor(
     private readonly policy: IntegrationExecutionPolicy = SAFE_INTEGRATION_POLICY,
-    private readonly liveExecutionGate?: LiveIntegrationExecutionGate,
-  ) {}
+    liveExecutionGate?: LiveIntegrationExecutionGate,
+  ) {
+    this.liveExecutionGate = liveExecutionGate;
+  }
+
+  setLiveExecutionGate(gate: LiveIntegrationExecutionGate): void {
+    this.liveExecutionGate = gate;
+  }
 
   register<TInput, TOutput>(integration: ExternalIntegration<TInput, TOutput>): void {
     if (!integration.integrationId.trim()) throw new Error('integrationId is required.');
