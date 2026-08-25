@@ -16,6 +16,7 @@ import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
 import { FinanceExpensePostgresStore, FinanceSubscriptionPostgresStore } from './data/finance-reporting-postgres-store.js';
 import { OperationsProductionPrerequisitePostgresStore } from './data/operations-production-prerequisite-postgres-store.js';
+import { PilotSystemStatePostgresStore } from './data/pilot-system-state-postgres-store.js';
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
 import { createOperationalRepository } from './data/operational-repository.js';
@@ -36,6 +37,7 @@ import { logEvent, setExternalLogSink } from './logger.js';
 import { createMarketingControlPlaneRequestHandler } from './marketing-control-plane-request-handler.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
+import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
@@ -48,281 +50,96 @@ import { createSalesSupervisedEmailExecutionService } from './services/sales-sup
 import { createSalesSupervisedSendGateService } from './services/sales-supervised-send-gate-service.js';
 
 const config = loadConfig();
-if (!config.databaseUrl) {
-  throw new Error('AXOROS_DATABASE_URL is required to start the AxorOS API.');
-}
-
-if (config.betterStackIngestingHost && config.betterStackSourceToken) {
-  setExternalLogSink(createBetterStackLogSink(config.betterStackIngestingHost, config.betterStackSourceToken));
-}
+if (!config.databaseUrl) throw new Error('AXOROS_DATABASE_URL is required to start the AxorOS API.');
+if (config.betterStackIngestingHost && config.betterStackSourceToken) setExternalLogSink(createBetterStackLogSink(config.betterStackIngestingHost, config.betterStackSourceToken));
 
 const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
 const executiveDashboard = createExecutiveDashboardService(databasePool);
+const pilotSystemState = new PilotSystemStatePostgresStore(databasePool);
 const financeExpenses = new FinanceExpensePostgresStore(databasePool);
 const financeSubscriptions = new FinanceSubscriptionPostgresStore(databasePool);
 const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
-const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(
-  operationsProductionPrerequisiteStore,
-);
+const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(operationsProductionPrerequisiteStore);
 const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operationalRepository);
 const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
-const salesSupervisedSendGate = createSalesSupervisedSendGateService(
-  operationalRepository,
-  salesOutreachSuppressions,
-);
+const salesSupervisedSendGate = createSalesSupervisedSendGateService(operationalRepository, salesOutreachSuppressions);
 const salesEmailTransport = createSalesIntegrationEmailTransport(integrationRegistry);
 const salesEmailSendAttempts = new SalesEmailSendAttemptPostgresStore(databasePool);
-const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(
-  operationalRepository,
-  salesEmailTransport,
-  salesEmailSendAttempts,
-  salesOutreachSuppressions,
-);
-const salesOpenAIIntegration = registeredIntegrationIds.includes('model.openai')
-  ? integrationRegistry.require('model.openai') as ExternalIntegration<ModelGenerationInput, ModelGenerationOutput>
-  : undefined;
-const salesInboundModelClassification = salesOpenAIIntegration
-  ? createSalesInboundModelClassificationService(salesOpenAIIntegration)
-  : undefined;
-const salesGmailIntegration = registeredIntegrationIds.includes('email.gmail')
-  ? integrationRegistry.require('email.gmail') as unknown as GmailEmailIntegration
-  : undefined;
-const salesInboundReplyRuntime = salesGmailIntegration
-  ? createPersistedSalesInboundReplyRuntime(
-      databasePool,
-      salesGmailIntegration,
-      salesInboundModelClassification,
-    )
-  : undefined;
-const financePaymentRuntime = createFinancePaymentRuntime({
-  pool: databasePool,
-  integrations: integrationRegistry,
-  ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}),
-  ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}),
-});
-const financeGovernedControlCommand = createFinanceGovernedControlCommand({
-  operationalRuntime: financePaymentRuntime.governedOperationalRuntime,
-  bindingService: financePaymentRuntime.governedBindingService,
-  paymentWebhookEvidenceStore: financePaymentRuntime.webhookStore,
-});
+const salesSupervisedEmailExecution = createSalesSupervisedEmailExecutionService(operationalRepository, salesEmailTransport, salesEmailSendAttempts, salesOutreachSuppressions);
+const salesOpenAIIntegration = registeredIntegrationIds.includes('model.openai') ? integrationRegistry.require('model.openai') as ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> : undefined;
+const salesInboundModelClassification = salesOpenAIIntegration ? createSalesInboundModelClassificationService(salesOpenAIIntegration) : undefined;
+const salesGmailIntegration = registeredIntegrationIds.includes('email.gmail') ? integrationRegistry.require('email.gmail') as unknown as GmailEmailIntegration : undefined;
+const salesInboundReplyRuntime = salesGmailIntegration ? createPersistedSalesInboundReplyRuntime(databasePool, salesGmailIntegration, salesInboundModelClassification) : undefined;
+const financePaymentRuntime = createFinancePaymentRuntime({ pool: databasePool, integrations: integrationRegistry, ...(config.paymentIntegrationId ? { paymentIntegrationId: config.paymentIntegrationId } : {}), ...(config.paymentIntegrationMode ? { mode: config.paymentIntegrationMode } : {}) });
+const financeGovernedControlCommand = createFinanceGovernedControlCommand({ operationalRuntime: financePaymentRuntime.governedOperationalRuntime, bindingService: financePaymentRuntime.governedBindingService, paymentWebhookEvidenceStore: financePaymentRuntime.webhookStore });
 const operationsProductionReadiness = createOperationsProductionReadinessPostgresService({ pool: databasePool });
 const productionModelPolicy = createProductionModelPolicy(config.productionModelIntegrationId);
-const productionRuntime = createPersistedProductionRuntime({
-  pool: databasePool,
-  integrations: integrationRegistry,
-  modelPolicy: productionModelPolicy,
-});
-const marketingRuntime = createPersistedMarketingRuntime({
-  pool: databasePool,
-  integrations: integrationRegistry,
-});
-const pilotRuntimeOperatorCommand = createPilotRuntimeOperatorCommand({
-  store: productionRuntime.store,
-  orchestrator: productionRuntime.orchestrator,
-});
+const productionRuntime = createPersistedProductionRuntime({ pool: databasePool, integrations: integrationRegistry, modelPolicy: productionModelPolicy });
+const marketingRuntime = createPersistedMarketingRuntime({ pool: databasePool, integrations: integrationRegistry });
+const pilotRuntimeOperatorCommand = createPilotRuntimeOperatorCommand({ store: productionRuntime.store, orchestrator: productionRuntime.orchestrator });
 const leadQualificationReviewRuntime = createPersistedLeadQualificationRuntimeReview(databasePool);
 const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(databasePool);
 const runtimeStore = productionRuntime.store;
 const runtimeRecoveryRunner = createRuntimeRecoveryRunner(runtimeStore, {
-  onCycleCompleted(decisions) {
-    if (decisions.length > 0) {
-      logEvent('warn', 'runtime_stale_recovery_completed', {
-        decisions: decisions.map((decision) => ({ executionId: decision.executionId, action: decision.action })),
-      });
-    }
-  },
-  onCycleFailed(error) {
-    logEvent('error', 'runtime_stale_recovery_failed', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  },
+  onCycleCompleted(decisions) { if (decisions.length > 0) logEvent('warn', 'runtime_stale_recovery_completed', { decisions: decisions.map((decision) => ({ executionId: decision.executionId, action: decision.action })) }); },
+  onCycleFailed(error) { logEvent('error', 'runtime_stale_recovery_failed', { error: error instanceof Error ? error.message : String(error) }); },
 });
 const knowledgeRepository = createKnowledgeRepository(databasePool);
 const knowledgeRetrievalService = createKnowledgeRetrievalService(knowledgeRepository);
 const knowledgeContextService = createKnowledgeContextService(knowledgeRetrievalService);
-const leadLiveResearchRuntime = createLeadLiveResearchRuntime({
-  pool: databasePool,
-  integrations: integrationRegistry,
-  knowledgeContext: knowledgeContextService,
-  runtimeStore,
-});
-const apiRequestHandler = createRequestHandler(
-  config,
-  () => checkDatabase(databasePool),
-  knowledgeRetrievalService,
-  knowledgeContextService,
-);
-const controlPlaneRequestHandler = createControlPlaneRequestHandler({
-  config,
-  productionCommand: productionRuntime.commands,
-  operationsProductionPrerequisiteCommand: operationsProductionPrerequisiteRecorder,
-  operationsProductionReadinessCommand: operationsProductionReadiness,
-  leadQualificationReviewCommand: leadQualificationReviewRuntime.commands,
-  fallback: apiRequestHandler,
-});
-const financeControlPlaneRequestHandler = createFinanceControlPlaneRequestHandler({
-  config,
-  financeCommand: financeGovernedControlCommand,
-  paymentRequestCommand: financePaymentRuntime.governedPaymentRequestService,
-  fallback: controlPlaneRequestHandler,
-});
-const financeReportingControlPlaneRequestHandler = createFinanceReportingControlPlaneRequestHandler({
-  config,
-  expenses: financeExpenses,
-  subscriptions: financeSubscriptions,
-  fallback: financeControlPlaneRequestHandler,
-});
-const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
-  config,
-  salesIntakeCommand: salesIntakeRuntime.commands,
-  salesOutreachDraftReviewCommand: salesOutreachDraftReview,
-  salesSupervisedSendGateCommand: salesSupervisedSendGate,
-  salesEmailCommand: salesSupervisedEmailExecution,
-  fallback: financeReportingControlPlaneRequestHandler,
-});
-const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
-  config,
-  operatorCommand: pilotRuntimeOperatorCommand,
-  fallback: salesIntakeControlPlaneRequestHandler,
-});
-const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler({
-  config,
-  dashboard: executiveDashboard,
-  fallback: pilotRuntimeControlPlaneRequestHandler,
-});
-const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneRequestHandler({
-  config,
-  research: leadLiveResearchRuntime,
-  fallback: executiveDashboardRequestHandler,
-});
-const marketingControlPlaneRequestHandler = createMarketingControlPlaneRequestHandler({
-  config,
-  marketing: marketingRuntime.commands,
-  fallback: leadResearchControlPlaneRequestHandler,
-});
-const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey
-  ? createPaystackPaymentWebhookIngress({
-      secretKey: config.paystackSecretKey,
-      currentStateStore: financePaymentRuntime.currentStateStore,
-      eventWorkflow: financePaymentRuntime.eventWorkflow,
-    })
-  : undefined;
-const server = createServer(createPaystackWebhookRequestHandler({
-  config,
-  ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
-  fallback: marketingControlPlaneRequestHandler,
-}));
+const leadLiveResearchRuntime = createLeadLiveResearchRuntime({ pool: databasePool, integrations: integrationRegistry, knowledgeContext: knowledgeContextService, runtimeStore });
+const apiRequestHandler = createRequestHandler(config, () => checkDatabase(databasePool), knowledgeRetrievalService, knowledgeContextService);
+const controlPlaneRequestHandler = createControlPlaneRequestHandler({ config, productionCommand: productionRuntime.commands, operationsProductionPrerequisiteCommand: operationsProductionPrerequisiteRecorder, operationsProductionReadinessCommand: operationsProductionReadiness, leadQualificationReviewCommand: leadQualificationReviewRuntime.commands, fallback: apiRequestHandler });
+const financeControlPlaneRequestHandler = createFinanceControlPlaneRequestHandler({ config, financeCommand: financeGovernedControlCommand, paymentRequestCommand: financePaymentRuntime.governedPaymentRequestService, fallback: controlPlaneRequestHandler });
+const financeReportingControlPlaneRequestHandler = createFinanceReportingControlPlaneRequestHandler({ config, expenses: financeExpenses, subscriptions: financeSubscriptions, fallback: financeControlPlaneRequestHandler });
+const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({ config, salesIntakeCommand: salesIntakeRuntime.commands, salesOutreachDraftReviewCommand: salesOutreachDraftReview, salesSupervisedSendGateCommand: salesSupervisedSendGate, salesEmailCommand: salesSupervisedEmailExecution, fallback: financeReportingControlPlaneRequestHandler });
+const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({ config, operatorCommand: pilotRuntimeOperatorCommand, fallback: salesIntakeControlPlaneRequestHandler });
+const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({ config, store: pilotSystemState, fallback: pilotRuntimeControlPlaneRequestHandler });
+const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler({ config, dashboard: executiveDashboard, pilotSystemState, fallback: pilotSystemStateControlPlaneRequestHandler });
+const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneRequestHandler({ config, research: leadLiveResearchRuntime, fallback: executiveDashboardRequestHandler });
+const marketingControlPlaneRequestHandler = createMarketingControlPlaneRequestHandler({ config, marketing: marketingRuntime.commands, fallback: leadResearchControlPlaneRequestHandler });
+const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack' && config.paystackSecretKey ? createPaystackPaymentWebhookIngress({ secretKey: config.paystackSecretKey, currentStateStore: financePaymentRuntime.currentStateStore, eventWorkflow: financePaymentRuntime.eventWorkflow }) : undefined;
+const server = createServer(createPaystackWebhookRequestHandler({ config, ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}), fallback: marketingControlPlaneRequestHandler }));
 let shuttingDown = false;
 
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
   runtimeRecoveryRunner.stop();
-
   logEvent('info', 'api_shutdown_started', { signal });
-
   server.close(async (error) => {
-    if (error) {
-      logEvent('error', 'api_shutdown_failed', { signal, error: error.message });
-      process.exitCode = 1;
-      return;
-    }
-
-    try {
-      await databasePool.end();
-      logEvent('info', 'api_shutdown_completed', { signal });
-    } catch (databaseError) {
-      logEvent('error', 'database_pool_shutdown_failed', {
-        signal,
-        error: databaseError instanceof Error ? databaseError.message : String(databaseError),
-      });
-      process.exitCode = 1;
-    }
+    if (error) { logEvent('error', 'api_shutdown_failed', { signal, error: error.message }); process.exitCode = 1; return; }
+    try { await databasePool.end(); logEvent('info', 'api_shutdown_completed', { signal }); }
+    catch (databaseError) { logEvent('error', 'database_pool_shutdown_failed', { signal, error: databaseError instanceof Error ? databaseError.message : String(databaseError) }); process.exitCode = 1; }
   });
-
-  setTimeout(() => {
-    logEvent('error', 'api_shutdown_forced', { signal, timeoutMs: 10_000 });
-    process.exit(1);
-  }, 10_000).unref();
+  setTimeout(() => { logEvent('error', 'api_shutdown_forced', { signal, timeoutMs: 10_000 }); process.exit(1); }, 10_000).unref();
 }
-
 process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 
 async function start(): Promise<void> {
+  const initialPilotState = await pilotSystemState.get();
   await runtimeRecoveryRunner.runOnce();
   runtimeRecoveryRunner.start();
-
   server.listen(config.port, config.host, () => {
     logEvent('info', 'api_started', {
-      environment: config.environment,
-      host: config.host,
-      port: config.port,
-      nodeVersion: process.version,
-      databaseConfigured: true,
-      knowledgeRetrievalConfigured: true,
-      knowledgeContextConfigured: true,
-      runtimeRecoveryConfigured: true,
-      executiveDashboardConfigured: Boolean(config.controlPlaneToken),
+      environment: config.environment, host: config.host, port: config.port, nodeVersion: process.version,
+      databaseConfigured: true, knowledgeRetrievalConfigured: true, knowledgeContextConfigured: true, runtimeRecoveryConfigured: true,
+      executiveDashboardConfigured: Boolean(config.controlPlaneToken), pilotSystemStateControlPlaneConfigured: Boolean(config.controlPlaneToken), pilotSystemState: initialPilotState.state,
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
-        && registeredIntegrationIds.includes('research.tavily-web'),
-      leadLiveResearchControlPlaneConfigured: Boolean(
-        config.controlPlaneToken
-        && registeredIntegrationIds.includes('research.google-places')
-        && registeredIntegrationIds.includes('research.tavily-web'),
-      ),
-      marketingDraftRuntimeConfigured: registeredIntegrationIds.includes('model.gemini'),
-      marketingDraftControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('model.gemini'),
-      ),
-      marketingPublishingConfigured: false,
-      financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
-      financeGovernedRuntimeConfigured: true,
-      financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      financeReportingPersistenceConfigured: true,
-      financeReportingControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      financePaymentRequestRuntimeConfigured: registeredIntegrationIds.includes('payment.paystack.request'),
-      financePaymentRequestControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('payment.paystack.request'),
-      ),
-      paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
-      paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
-      paystackWebhookConfigured: Boolean(paystackWebhookIngress),
-      activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox',
-      activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
-      operationsProductionPrerequisiteControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      operationsProductionReadinessRuntimeConfigured: true,
-      operationsProductionReadinessControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      productionRuntimeConfigured: Boolean(
-        productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
-      ),
-      productionRuntimePersistenceConfigured: true,
-      productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
-      leadQualificationReviewRuntimeConfigured: true,
-      leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesIntakeRuntimeConfigured: true,
-      salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedSendGateSuppressionConfigured: true,
-      salesSupervisedEmailRuntimeConfigured: true,
-      salesSupervisedEmailSuppressionConfigured: true,
-      salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedGmailConfigured: Boolean(
-        config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail'),
-      ),
-      salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification),
-      salesInboundReplyRuntimeConfigured: Boolean(salesInboundReplyRuntime),
-      registeredIntegrations: registeredIntegrationIds,
+      leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places') && registeredIntegrationIds.includes('research.tavily-web'),
+      leadLiveResearchControlPlaneConfigured: Boolean(config.controlPlaneToken && registeredIntegrationIds.includes('research.google-places') && registeredIntegrationIds.includes('research.tavily-web')),
+      marketingDraftRuntimeConfigured: registeredIntegrationIds.includes('model.gemini'), marketingDraftControlPlaneConfigured: Boolean(config.controlPlaneToken && registeredIntegrationIds.includes('model.gemini')), marketingPublishingConfigured: false,
+      financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore), financeGovernedRuntimeConfigured: true, financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      financeReportingPersistenceConfigured: true, financeReportingControlPlaneConfigured: Boolean(config.controlPlaneToken), financePaymentRequestRuntimeConfigured: registeredIntegrationIds.includes('payment.paystack.request'), financePaymentRequestControlPlaneConfigured: Boolean(config.controlPlaneToken && registeredIntegrationIds.includes('payment.paystack.request')),
+      paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'), paystackConfigured: registeredIntegrationIds.includes('payment.paystack'), paystackWebhookConfigured: Boolean(paystackWebhookIngress), activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox', activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
+      operationsProductionPrerequisiteControlPlaneConfigured: Boolean(config.controlPlaneToken), operationsProductionReadinessRuntimeConfigured: true, operationsProductionReadinessControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      productionRuntimeConfigured: Boolean(productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY)), productionRuntimePersistenceConfigured: true, productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
+      leadQualificationReviewRuntimeConfigured: true, leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken), salesIntakeRuntimeConfigured: true, salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken), salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken), salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken), salesSupervisedSendGateSuppressionConfigured: true,
+      salesSupervisedEmailRuntimeConfigured: true, salesSupervisedEmailSuppressionConfigured: true, salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken), salesSupervisedGmailConfigured: Boolean(config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail')), salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification), salesInboundReplyRuntimeConfigured: Boolean(salesInboundReplyRuntime), registeredIntegrations: registeredIntegrationIds,
     });
   });
 }
-
-start().catch(async (error) => {
-  logEvent('error', 'api_start_failed', { error: error instanceof Error ? error.message : String(error) });
-  await databasePool.end().catch(() => undefined);
-  process.exit(1);
-});
+start().catch(async (error) => { logEvent('error', 'api_start_failed', { error: error instanceof Error ? error.message : String(error) }); await databasePool.end().catch(() => undefined); process.exit(1); });
