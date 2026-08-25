@@ -165,3 +165,45 @@ test('sandbox execution does not consult live execution gate', async () => {
   assert.equal(response.status, 'succeeded');
   assert.equal(gateCalls, 0);
 });
+
+test('sandbox Paystack payment-request creation is gated while pilot is disabled', async () => {
+  let providerCalls = 0;
+  const paymentRequestIntegration: ExternalIntegration = {
+    integrationId: 'payment.paystack.request',
+    kind: 'payment',
+    provider: 'paystack-test',
+    supportedModes: ['sandbox'],
+    supportedOperations: ['initialize_payment_request'],
+    async execute(input) {
+      providerCalls += 1;
+      return {
+        integrationId: input.integrationId,
+        operation: input.operation,
+        provider: 'paystack-test',
+        mode: input.mode,
+        status: 'succeeded',
+        output: { accepted: true },
+        evidenceReferences: [],
+        retryable: false,
+      };
+    },
+  };
+  const registry = new IntegrationRegistry();
+  registry.register(paymentRequestIntegration);
+  registry.setLiveExecutionGate(async () => {
+    throw new Error('pilot disabled');
+  });
+
+  await assert.rejects(
+    () => registry.execute(request({
+      integrationId: 'payment.paystack.request',
+      operation: 'initialize_payment_request',
+      requestedBy: 'finance_agent',
+      mode: 'sandbox',
+      risk: 'medium',
+      input: { amountMinor: 10000 },
+    })),
+    /pilot disabled/,
+  );
+  assert.equal(providerCalls, 0);
+});
