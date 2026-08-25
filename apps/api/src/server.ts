@@ -13,6 +13,7 @@ import { createPersistedProductionRuntime } from './agents/production-persisted-
 import { createBetterStackLogSink } from './better-stack.js';
 import { loadConfig } from './config.js';
 import { createControlPlaneRequestHandler } from './control-plane-request-handler.js';
+import { FinanceExpensePostgresStore, FinanceSubscriptionPostgresStore } from './data/finance-reporting-postgres-store.js';
 import { OperationsProductionPrerequisitePostgresStore } from './data/operations-production-prerequisite-postgres-store.js';
 import { SalesEmailSendAttemptPostgresStore } from './data/sales-email-send-attempt-postgres-store.js';
 import { SalesOutreachSuppressionPostgresStore } from './data/sales-outreach-suppression-postgres-store.js';
@@ -21,6 +22,7 @@ import { createExecutiveDashboardRequestHandler } from './dashboard/executive-da
 import { createExecutiveDashboardService } from './dashboard/executive-dashboard-service.js';
 import { checkDatabase, createDatabasePool } from './database.js';
 import { createFinanceControlPlaneRequestHandler } from './finance-control-plane-request-handler.js';
+import { createFinanceReportingControlPlaneRequestHandler } from './finance-reporting-control-plane-request-handler.js';
 import { createConfiguredIntegrationRegistry } from './integrations/integration-bootstrap.js';
 import type { ExternalIntegration } from './integrations/integration-contract.js';
 import type { GmailEmailIntegration } from './integrations/gmail-draft-integration.js';
@@ -54,6 +56,8 @@ const databasePool = createDatabasePool(config.databaseUrl);
 const { registry: integrationRegistry, registeredIntegrationIds } = createConfiguredIntegrationRegistry(config);
 const operationalRepository = createOperationalRepository(databasePool);
 const executiveDashboard = createExecutiveDashboardService(databasePool);
+const financeExpenses = new FinanceExpensePostgresStore(databasePool);
+const financeSubscriptions = new FinanceSubscriptionPostgresStore(databasePool);
 const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisitePostgresStore(databasePool);
 const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(
   operationsProductionPrerequisiteStore,
@@ -150,13 +154,19 @@ const financeControlPlaneRequestHandler = createFinanceControlPlaneRequestHandle
   paymentRequestCommand: financePaymentRuntime.governedPaymentRequestService,
   fallback: controlPlaneRequestHandler,
 });
+const financeReportingControlPlaneRequestHandler = createFinanceReportingControlPlaneRequestHandler({
+  config,
+  expenses: financeExpenses,
+  subscriptions: financeSubscriptions,
+  fallback: financeControlPlaneRequestHandler,
+});
 const salesIntakeControlPlaneRequestHandler = createSalesIntakeControlPlaneRequestHandler({
   config,
   salesIntakeCommand: salesIntakeRuntime.commands,
   salesOutreachDraftReviewCommand: salesOutreachDraftReview,
   salesSupervisedSendGateCommand: salesSupervisedSendGate,
   salesEmailCommand: salesSupervisedEmailExecution,
-  fallback: financeControlPlaneRequestHandler,
+  fallback: financeReportingControlPlaneRequestHandler,
 });
 const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
   config,
@@ -236,6 +246,8 @@ async function start(): Promise<void> {
       financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
       financeGovernedRuntimeConfigured: true,
       financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      financeReportingPersistenceConfigured: true,
+      financeReportingControlPlaneConfigured: Boolean(config.controlPlaneToken),
       financePaymentRequestRuntimeConfigured: registeredIntegrationIds.includes('payment.paystack.request'),
       financePaymentRequestControlPlaneConfigured: Boolean(
         config.controlPlaneToken && registeredIntegrationIds.includes('payment.paystack.request'),
