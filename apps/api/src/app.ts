@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiErrorResponse, ApiSuccessResponse, HealthResponse } from '@axoros/contracts';
+import type { CoreAgentId } from './agents/agent-runtime-contract.js';
 import type { ApiConfig } from './config.js';
+import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { DatabaseHealth } from './database.js';
 import type { KnowledgeContextRequest, KnowledgeContextService } from './knowledge/knowledge-context-service.js';
 import type { KnowledgeRetrievalRequest, KnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
@@ -14,6 +16,18 @@ type KnowledgeRetriever = Pick<KnowledgeRetrievalService, 'retrieve'>;
 type KnowledgeContextAssembler = Pick<KnowledgeContextService, 'assemble'>;
 
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const KNOWLEDGE_PATHS = new Set(['/api/v1/knowledge/retrieve', '/api/v1/knowledge/context']);
+const CORE_AGENT_IDS = new Set<CoreAgentId>([
+  'knowledge_agent',
+  'executive_agent',
+  'operations_agent',
+  'lead_agent',
+  'sales_agent',
+  'production_agent',
+  'support_agent',
+  'marketing_agent',
+  'finance_agent',
+]);
 
 function sendJson(response: ServerResponse, statusCode: number, body: JsonBody, requestId: string, extraHeaders: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
@@ -60,6 +74,34 @@ function optionalInteger(value: unknown, field: string): number | undefined {
   return value;
 }
 
+function normalizeKnowledgeAgent(value: unknown): CoreAgentId {
+  if (typeof value !== 'string') throw new Error('agent is required.');
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_') as CoreAgentId;
+  if (!CORE_AGENT_IDS.has(normalized)) throw new Error('agent must be a registered AxorOS core agent.');
+  return normalized;
+}
+
+function authenticateKnowledgeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  config: ApiConfig,
+  requestId: string,
+  corsHeaders: Record<string, string>,
+): boolean {
+  const auth = authenticateControlPlaneRequest(request.headers.authorization, config.controlPlaneToken);
+  if (auth.authenticated) return true;
+  const notConfigured = auth.reason === 'not_configured';
+  sendError(
+    response,
+    notConfigured ? 503 : 401,
+    notConfigured ? 'knowledge_auth_not_configured' : 'knowledge_unauthorized',
+    notConfigured ? 'Knowledge API authentication is not configured.' : 'Authentication is required.',
+    requestId,
+    { ...(notConfigured ? {} : { 'www-authenticate': 'Bearer' }), ...corsHeaders },
+  );
+  return false;
+}
+
 export function createRequestHandler(
   config: ApiConfig,
   checkDatabase?: DatabaseCheck,
@@ -87,7 +129,7 @@ export function createRequestHandler(
     if (origin === config.controlCenterUrl) {
       corsHeaders['access-control-allow-origin'] = config.controlCenterUrl;
       corsHeaders['access-control-allow-methods'] = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
-      corsHeaders['access-control-allow-headers'] = 'content-type,x-request-id';
+      corsHeaders['access-control-allow-headers'] = 'authorization,content-type,x-request-id';
     }
 
     try {
@@ -143,6 +185,10 @@ export function createRequestHandler(
         return;
       }
 
+      if (request.method === 'POST' && request.url && KNOWLEDGE_PATHS.has(request.url)) {
+        if (!authenticateKnowledgeRequest(request, response, config, requestId, corsHeaders)) return;
+      }
+
       if (request.method === 'POST' && request.url === '/api/v1/knowledge/retrieve') {
         if (!knowledgeRetriever) {
           sendError(response, 503, 'knowledge_retrieval_not_configured', 'Knowledge retrieval is not configured.', requestId, corsHeaders);
@@ -161,7 +207,7 @@ export function createRequestHandler(
 
         try {
           const query = typeof body.query === 'string' ? body.query : '';
-          const agent = typeof body.agent === 'string' ? body.agent : '';
+          const agent = normalizeKnowledgeAgent(body.agent);
           const task = typeof body.task === 'string' ? body.task : '';
           const limit = optionalInteger(body.limit, 'limit');
           const retrievalRequest: KnowledgeRetrievalRequest = {
@@ -175,7 +221,7 @@ export function createRequestHandler(
 
           logEvent('info', 'knowledge_retrieval_completed', {
             requestId,
-            agent: agent.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            agent,
             task: task.trim().toLowerCase().replace(/[\s-]+/g, '_'),
             resultCount: results.length,
           });
@@ -207,7 +253,7 @@ export function createRequestHandler(
 
         try {
           const query = typeof body.query === 'string' ? body.query : '';
-          const agent = typeof body.agent === 'string' ? body.agent : '';
+          const agent = normalizeKnowledgeAgent(body.agent);
           const task = typeof body.task === 'string' ? body.task : '';
           const limit = optionalInteger(body.limit, 'limit');
           const maxCharacters = optionalInteger(body.maxCharacters, 'max_characters');
@@ -223,7 +269,7 @@ export function createRequestHandler(
 
           logEvent('info', 'knowledge_context_assembled', {
             requestId,
-            agent: agent.trim().toLowerCase().replace(/[\s-]+/g, '_'),
+            agent,
             task: task.trim().toLowerCase().replace(/[\s-]+/g, '_'),
             includedItems: contextPackage.includedItems,
             truncated: contextPackage.truncated,
