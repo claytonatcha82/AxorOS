@@ -13,7 +13,6 @@ interface CloudflareEnvelope<T> {
 }
 
 interface CloudflareUploadToken { jwt?: string; }
-interface CloudflareMissingAssets { result?: string[]; }
 interface CloudflarePagesDeployment {
   id?: string;
   environment?: string;
@@ -147,7 +146,7 @@ export function createCloudflarePreviewDeploymentIntegration(
               metadata: { contentType: asset.contentType.trim() },
             }))),
           });
-          const uploadPayload = await parseEnvelope<Record<string, never>>(uploadResponse);
+          const uploadPayload = await parseEnvelope<unknown>(uploadResponse);
           if (!uploadResponse.ok || uploadPayload.success === false) {
             const error = uploadPayload.errors?.[0];
             return providerFailure(request, sanitizeMessage(error?.message, apiToken) ?? 'Cloudflare asset upload failed.', uploadResponse.status, error?.code);
