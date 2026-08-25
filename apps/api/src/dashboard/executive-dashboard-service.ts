@@ -10,6 +10,11 @@ export interface DashboardMoney {
 
 export interface ExecutiveDashboardSnapshot {
   generatedAt: string;
+  clients: Array<{
+    clientId: string;
+    displayName: string;
+    status: string;
+  }>;
   leads: {
     total: number;
     discoveredToday: number;
@@ -91,9 +96,13 @@ function moneyRows(rows: Record<string, unknown>[], amountKey: string): Dashboar
 export function createExecutiveDashboardService(pool: Queryable) {
   return {
     async snapshot(): Promise<ExecutiveDashboardSnapshot> {
-      const [leadResult, salesResult, projectResult, financeExpectedResult, financeReceivedResult,
+      const [clientResult, leadResult, salesResult, projectResult, financeExpectedResult, financeReceivedResult,
         financeRecurringResult, financeExpenseResult, financeRequirementResult, financeClearanceResult,
         approvalResult, agentResult, executiveResult, activityResult] = await Promise.all([
+        pool.query(`select id, display_name, status
+          from operational.clients
+          where status <> 'archived'
+          order by display_name asc`, []),
         pool.query(`select
           count(*)::int as total,
           count(*) filter (where created_at >= current_date)::int as discovered_today,
@@ -200,6 +209,11 @@ export function createExecutiveDashboardService(pool: Queryable) {
 
       return {
         generatedAt: new Date().toISOString(),
+        clients: (clientResult.rows as Record<string, unknown>[]).map((row) => ({
+          clientId: String(row.id),
+          displayName: String(row.display_name),
+          status: String(row.status),
+        })),
         leads: {
           total: count(lead, 'total'), discoveredToday: count(lead, 'discovered_today'),
           discoveredLast7Days: count(lead, 'discovered_last_7_days'), qualified: count(lead, 'qualified'),
