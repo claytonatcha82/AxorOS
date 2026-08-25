@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createTransactionRunner } from '../data/transaction.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
+import { createExactSourceContextService } from '../knowledge/exact-source-context-service.js';
 import type { KnowledgeContextService } from '../knowledge/knowledge-context-service.js';
 import { createLeadAtlasContextService } from './lead-atlas-context-service.js';
 import { createLeadAtlasResearchOrchestrator } from './lead-atlas-research-orchestrator.js';
@@ -30,7 +31,8 @@ export interface LeadLiveResearchRuntimeDependencies {
 export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRuntimeDependencies) {
   const repository = createOperationalRepository(dependencies.pool);
   const transactionRunner = createTransactionRunner(dependencies.pool);
-  const atlasContext = createLeadAtlasContextService(dependencies.knowledgeContext);
+  const exactSourceContext = createExactSourceContextService(dependencies.pool);
+  const atlasContext = createLeadAtlasContextService(dependencies.knowledgeContext, exactSourceContext);
   const planner = createLeadAtlasResearchPlanner();
   const discovery = createLeadDiscoveryService(repository, transactionRunner);
   const enrichment = createLeadPublicWebEnrichmentService(repository, transactionRunner);
