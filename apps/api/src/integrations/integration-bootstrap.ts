@@ -1,6 +1,7 @@
 import type { ApiConfig } from '../config.js';
 import { createAnthropicModelIntegration } from './anthropic-model-integration.js';
 import { createCloudflareDeploymentIntegration } from './cloudflare-deployment-integration.js';
+import { createCloudflareRollbackIntegration } from './cloudflare-rollback-integration.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
 import { createGeminiModelIntegration } from './gemini-model-integration.js';
 import { createGmailDraftIntegration, type GmailEmailIntegration } from './gmail-draft-integration.js';
@@ -40,6 +41,9 @@ function integrationPolicy(config: ApiConfig): IntegrationExecutionPolicy {
       { integrationId: 'payment.paystack', operation: 'verify_payment', riskCeiling: 'high' },
       { integrationId: 'payment.paystack.request', operation: 'initialize_payment_request', riskCeiling: 'medium' },
     );
+  }
+  if (config.deploymentIntegrationId === 'deployment.cloudflare' && config.cloudflareAccountId && config.cloudflareApiToken) {
+    scopedLiveRules.push({ integrationId: 'deployment.cloudflare.rollback', operation: 'rollback_production', riskCeiling: 'critical' });
   }
 
   return {
@@ -135,6 +139,13 @@ export function createConfiguredIntegrationRegistry(
     });
     registry.register(cloudflare);
     registeredIntegrationIds.push(cloudflare.integrationId);
+
+    const cloudflareRollback = createCloudflareRollbackIntegration({
+      accountId: config.cloudflareAccountId,
+      apiToken: config.cloudflareApiToken,
+    });
+    registry.register(cloudflareRollback);
+    registeredIntegrationIds.push(cloudflareRollback.integrationId);
   }
 
   return {
