@@ -1,12 +1,15 @@
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { FinanceReportingForms } from './FinanceReportingForms';
 import './styles.css';
 
 type Money = { amountMinor: number; currency: string; available: boolean; note?: string };
 type AgentId = 'knowledge_agent' | 'executive_agent' | 'operations_agent' | 'lead_agent' | 'sales_agent' | 'production_agent' | 'support_agent' | 'marketing_agent' | 'finance_agent';
+type ClientOption = { clientId: string; displayName: string; status: string };
 
 type DashboardSnapshot = {
   generatedAt: string;
+  clients: ClientOption[];
   leads: { total: number; discoveredToday: number; discoveredLast7Days: number; qualified: number; engaged: number; converted: number; awaitingHumanReview: number };
   sales: { contacted: number; contactedLast7Days: number; inboundReplies: number; interestedReplies: number; failedSends: number };
   projects: { total: number; active: number; qa: number; awaitingApproval: number; delivered: number };
@@ -172,6 +175,7 @@ function App() {
         <nav>
           <a href="#overview" className="active">Overview</a>
           <a href="#finance">Finance</a>
+          <a href="#finance-records">Finance records</a>
           <a href="#agents">Agents</a>
           <a href="#approvals">Approvals</a>
           <a href="#executive">Executive updates</a>
@@ -211,7 +215,7 @@ function App() {
               <article className="metric-card finance-highlight"><span>Revenue received</span><strong>{formatMoney(dashboard.finance.receivedIncome)}</strong><small>{dashboard.finance.financeClearances} Finance clearances</small></article>
               <article className="metric-card"><span>Recurring income</span><strong>{formatMoney(dashboard.finance.recurringIncome)}</strong><small>Shown only from authoritative recurring contracts</small></article>
               <article className="metric-card"><span>Expected expenses</span><strong>{formatMoney(dashboard.finance.expectedExpenses)}</strong><small>{moneyUnavailableNote ?? 'Authoritative expense state'}</small></article>
-              <article className="metric-card"><span>Projected profit</span><strong>{formatMoney(dashboard.finance.projectedProfit)}</strong><small>Never inferred without expense data</small></article>
+              <article className="metric-card"><span>Projected profit</span><strong>{formatMoney(dashboard.finance.projectedProfit)}</strong><small>Never inferred without a non-duplicating profitability basis</small></article>
               <article className="metric-card attention"><span>Human approvals</span><strong>{dashboard.approvals.pendingHumanExecutive}</strong><small>{dashboard.leads.awaitingHumanReview} Lead reviews included where actionable</small></article>
             </div>
           </section>
@@ -243,6 +247,16 @@ function App() {
               <p className="panel-note">Contact rate across currently persisted leads. Sales remains governed by its dedicated supervised send path.</p>
             </article>
           </section>
+
+          <div id="finance-records">
+            <FinanceReportingForms
+              apiBaseUrl={API_BASE_URL}
+              token={token}
+              clients={dashboard.clients}
+              onSaved={refresh}
+              onError={(message) => setError(message || null)}
+            />
+          </div>
 
           <section id="agents" className="section-block">
             <div className="section-heading"><div><p className="eyebrow">Agent network</p><h2>All nine agents</h2></div></div>
