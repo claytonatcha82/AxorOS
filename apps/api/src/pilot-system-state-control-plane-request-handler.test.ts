@@ -22,6 +22,7 @@ async function withServer(
   const handler = createPilotSystemStateControlPlaneRequestHandler({
     config: { controlCenterUrl, controlPlaneToken: token },
     store: {
+      async getActivationReadiness() { return null; },
       async get() {
         return {
           state: 'PILOT_DISABLED',
