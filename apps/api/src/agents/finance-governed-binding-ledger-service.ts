@@ -16,6 +16,10 @@ export interface FinanceGovernedBindingLedgerServiceDependencies<TResult> {
   };
 }
 
+function uniqueReferences(references: readonly string[]): string[] {
+  return [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+}
+
 export function createFinanceGovernedBindingLedgerService<TResult>(
   dependencies: FinanceGovernedBindingLedgerServiceDependencies<TResult>,
 ) {
@@ -65,7 +69,10 @@ export function createFinanceGovernedBindingLedgerService<TResult>(
         commercialRecordReference: satisfaction.commercialRecordReference,
         authorityType: 'commercial_payment_satisfaction',
         authorityReference: satisfaction.requirementReference,
-        evidenceReferences: clearance.evidenceReferences,
+        evidenceReferences: uniqueReferences([
+          clearance.clearanceId,
+          ...clearance.evidenceReferences,
+        ]),
         amountMinor: requirement.requiredAmountMinor,
         currency: requirement.currency,
         occurredAt: satisfaction.satisfiedAt,
