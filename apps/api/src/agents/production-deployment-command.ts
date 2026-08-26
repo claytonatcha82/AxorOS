@@ -11,11 +11,11 @@ const MUTATING_DEPLOYMENT_OPERATIONS = new Set([
   'configure_domain',
 ]);
 
-export interface GovernedProductionDeploymentRequest {
+export interface GovernedProductionDeploymentRequest<TInput = Record<string, unknown>> {
   authorityId: string;
   commercialRecordReference: string;
   projectName: string;
-  integrationRequest: IntegrationRequest;
+  integrationRequest: IntegrationRequest<TInput>;
 }
 
 export interface GovernedProductionDeploymentDependencies {
@@ -25,10 +25,13 @@ export interface GovernedProductionDeploymentDependencies {
   };
 }
 
-export async function executeGovernedProductionDeployment(
-  input: GovernedProductionDeploymentRequest,
+export async function executeGovernedProductionDeployment<
+  TInput = Record<string, unknown>,
+  TOutput = Record<string, unknown>,
+>(
+  input: GovernedProductionDeploymentRequest<TInput>,
   dependencies: GovernedProductionDeploymentDependencies,
-): Promise<IntegrationResponse> {
+): Promise<IntegrationResponse<TOutput>> {
   const request = input.integrationRequest;
   const integration = dependencies.integrations.get(request.integrationId);
 
@@ -64,5 +67,5 @@ export async function executeGovernedProductionDeployment(
   }
 
   assertProductionDeploymentReady(authority);
-  return dependencies.integrations.execute(request);
+  return dependencies.integrations.execute<TInput, TOutput>(request);
 }
