@@ -1,4 +1,8 @@
 import type { Pool } from 'pg';
+import {
+  PilotActivationReadinessPostgresStore,
+  type PilotActivationReadinessRecord,
+} from './pilot-activation-readiness-postgres-store.js';
 
 export type PilotSystemState = 'PILOT_DISABLED' | 'PILOT_ACTIVE';
 
@@ -13,7 +17,15 @@ export interface PilotSystemStateRecord {
 type Queryable = Pick<Pool, 'query'>;
 
 export class PilotSystemStatePostgresStore {
-  constructor(private readonly pool: Queryable) {}
+  private readonly activationReadiness: PilotActivationReadinessPostgresStore;
+
+  constructor(private readonly pool: Queryable) {
+    this.activationReadiness = new PilotActivationReadinessPostgresStore(pool);
+  }
+
+  async getActivationReadiness(readinessId: string): Promise<PilotActivationReadinessRecord | null> {
+    return this.activationReadiness.get(readinessId);
+  }
 
   async get(): Promise<PilotSystemStateRecord> {
     const result = await this.pool.query(`select state, changed_by, reason, version, changed_at
