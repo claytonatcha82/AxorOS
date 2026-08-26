@@ -1,3 +1,4 @@
+import type { PersistedFinancePaymentRequest } from '../data/finance-payment-request-postgres-store.js';
 import type { PaymentWebhookEnvelope } from '../integrations/payment-webhook-evidence.js';
 import type { FinancePaymentEventWorkflowResult } from './finance-payment-event-workflow.js';
 import type { RecordFinanceLedgerAuthorityInput } from './finance-ledger-recorder.js';
@@ -5,6 +6,12 @@ import type { RecordFinanceLedgerAuthorityInput } from './finance-ledger-recorde
 export interface FinancePaymentEventLedgerWorkflowDependencies {
   eventWorkflow: {
     ingest(envelope: PaymentWebhookEnvelope): Promise<FinancePaymentEventWorkflowResult>;
+  };
+  paymentRequestStore: {
+    getByProviderPaymentReference(
+      provider: string,
+      providerPaymentReference: string,
+    ): Promise<PersistedFinancePaymentRequest | null>;
   };
   ledgerRecorder: {
     record(input: RecordFinanceLedgerAuthorityInput): Promise<unknown>;
@@ -26,6 +33,10 @@ export function createFinancePaymentEventLedgerWorkflow(
     async ingest(envelope: PaymentWebhookEnvelope): Promise<FinancePaymentEventWorkflowResult> {
       const result = await dependencies.eventWorkflow.ingest(envelope);
       const evidence = result.evidence;
+      const paymentRequest = await dependencies.paymentRequestStore.getByProviderPaymentReference(
+        evidence.provider,
+        evidence.providerPaymentReference,
+      );
 
       await dependencies.ledgerRecorder.record({
         entryType: isAdverseEvent(evidence.eventType)
@@ -34,7 +45,10 @@ export function createFinancePaymentEventLedgerWorkflow(
         commercialRecordReference: evidence.commercialRecordReference,
         authorityType: 'payment_provider_evidence',
         authorityReference: evidence.evidenceReference,
-        evidenceReferences: [evidence.evidenceReference],
+        evidenceReferences: [
+          evidence.evidenceReference,
+          ...(paymentRequest ? [paymentRequest.requirementReference] : []),
+        ],
         occurredAt: evidence.occurredAt,
         ...(evidence.amountMinor !== undefined ? { amountMinor: evidence.amountMinor } : {}),
         ...(evidence.currency !== undefined ? { currency: evidence.currency } : {}),
