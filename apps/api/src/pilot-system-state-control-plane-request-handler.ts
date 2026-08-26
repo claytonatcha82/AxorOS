@@ -1,5 +1,9 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
-import type { PilotActivationCommandInput, PilotActivationCommandResult } from './agents/pilot-activation-command.js';
+import {
+  createPilotActivationCommand,
+  type PilotActivationCommandInput,
+  type PilotActivationCommandResult,
+} from './agents/pilot-activation-command.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 import type { PilotSystemStatePostgresStore } from './data/pilot-system-state-postgres-store.js';
@@ -7,10 +11,12 @@ import type { PilotSystemStatePostgresStore } from './data/pilot-system-state-po
 const PATH = '/api/v1/control/pilot/state';
 type Config = Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
 
+type PilotStateStore = Pick<PilotSystemStatePostgresStore, 'get' | 'set' | 'getActivationReadiness'>;
+
 export interface PilotSystemStateControlPlaneDependencies {
   config: Config;
-  store: Pick<PilotSystemStatePostgresStore, 'get' | 'set'>;
-  activationCommand: {
+  store: PilotStateStore;
+  activationCommand?: {
     activate(input: PilotActivationCommandInput): Promise<PilotActivationCommandResult>;
   };
   fallback: RequestListener;
@@ -50,6 +56,11 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
 export function createPilotSystemStateControlPlaneRequestHandler(
   dependencies: PilotSystemStateControlPlaneDependencies,
 ): RequestListener {
+  const activationCommand = dependencies.activationCommand ?? createPilotActivationCommand({
+    readinessStore: { get: (readinessId) => dependencies.store.getActivationReadiness(readinessId) },
+    pilotStateStore: dependencies.store,
+  });
+
   return async (request, response) => {
     if (request.url !== PATH) return dependencies.fallback(request, response);
 
@@ -118,7 +129,7 @@ export function createPilotSystemStateControlPlaneRequestHandler(
           return sendJson(response, 400, { ok: false, error: { code: 'pilot_activation_readiness_id_required', message: 'A persisted pilot activation readiness ID is required.' } }, corsHeaders);
         }
         try {
-          const activated = await dependencies.activationCommand.activate({
+          const activated = await activationCommand.activate({
             readinessId,
             actor: 'human_executive',
             reason,
