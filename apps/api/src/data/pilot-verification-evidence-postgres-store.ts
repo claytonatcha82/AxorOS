@@ -42,9 +42,22 @@ function normalize(row: Record<string, unknown>): PilotVerificationEvidenceRecor
   };
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, canonicalJson(nested)]),
+    );
+  }
+  return value;
+}
+
 function canonical(record: PilotVerificationEvidenceRecord): string {
   return JSON.stringify({
     ...record,
+    details: canonicalJson(record.details),
     verifiedAt: new Date(record.verifiedAt).toISOString(),
   });
 }
