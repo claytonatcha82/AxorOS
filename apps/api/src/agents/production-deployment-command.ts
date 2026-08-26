@@ -6,6 +6,7 @@ import { assertProductionDeploymentReady } from './production-deployment-gate.js
 const MUTATING_DEPLOYMENT_OPERATIONS = new Set([
   'create_preview_deployment',
   'promote_to_production',
+  'deploy_production',
   'rollback_production',
   'configure_domain',
 ]);
