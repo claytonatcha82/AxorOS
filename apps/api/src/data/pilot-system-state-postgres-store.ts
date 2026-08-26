@@ -39,6 +39,10 @@ export class PilotSystemStatePostgresStore {
     return this.activationReadiness.get(readinessId);
   }
 
+  async getLatestActivationReadiness(): Promise<PilotActivationReadinessRecord | null> {
+    return this.activationReadiness.getLatestReady();
+  }
+
   async getVerificationEvidence(evidenceId: string): Promise<PilotVerificationEvidenceRecord | null> {
     return this.verificationEvidence.get(evidenceId);
   }
