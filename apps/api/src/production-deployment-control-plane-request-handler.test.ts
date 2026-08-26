@@ -6,12 +6,22 @@ import type { GovernedProductionBuildDeploymentRequest, GovernedProductionBuildD
 import { createProductionDeploymentControlPlaneRequestHandler } from './production-deployment-control-plane-request-handler.js';
 
 function request(body: unknown, authorization = 'Bearer control-token') {
-  const req = new EventEmitter() as IncomingMessage & AsyncIterable<Buffer>;
+  const req = new EventEmitter() as IncomingMessage;
   req.method = 'POST';
   req.url = '/api/v1/control/production/deployment/production';
   req.headers = { authorization, origin: 'http://localhost:3000' };
-  req[Symbol.asyncIterator] = async function* () {
-    yield Buffer.from(JSON.stringify(body));
+  const payload = Buffer.from(JSON.stringify(body));
+  req[Symbol.asyncIterator] = () => {
+    let emitted = false;
+    return {
+      async next(): Promise<IteratorResult<Buffer, undefined>> {
+        if (!emitted) {
+          emitted = true;
+          return { done: false, value: payload };
+        }
+        return { done: true, value: undefined };
+      },
+    };
   };
   return req;
 }
