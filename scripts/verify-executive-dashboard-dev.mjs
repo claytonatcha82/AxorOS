@@ -16,8 +16,10 @@ const controlPlaneToken = required('AXOROS_CONTROL_PLANE_TOKEN');
 const controlCenterUrl = process.env.AXOROS_CONTROL_CENTER_URL?.trim() || 'http://localhost:5173';
 const pool = new Pool({
   connectionString,
-  max: 2,
-  connectionTimeoutMillis: 15_000,
+  max: 1,
+  connectionTimeoutMillis: 30_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
   application_name: 'axoros-executive-dashboard-verify',
 });
 const dashboard = createExecutiveDashboardService(pool);
