@@ -58,7 +58,10 @@ export async function executeGovernedProductionBuildDeployment(
     ...(input.commitMessage?.trim() ? { commitMessage: input.commitMessage.trim() } : {}),
   };
 
-  const deployment = await executeGovernedProductionDeployment({
+  const deployment = await executeGovernedProductionDeployment<
+    CloudflareProductionDeploymentInput,
+    DeploymentStatusOutput
+  >({
     authorityId,
     commercialRecordReference,
     projectName,
@@ -73,7 +76,7 @@ export async function executeGovernedProductionBuildDeployment(
       idempotencyKey,
       input: providerInput,
     },
-  }, dependencies) as IntegrationResponse<DeploymentStatusOutput>;
+  }, dependencies);
 
   return {
     deployment,
