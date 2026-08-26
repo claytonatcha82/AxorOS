@@ -28,7 +28,6 @@ const provider = 'deterministic-payment-sandbox';
 const providerPaymentReference = `sandbox_paid_${suffix}`;
 const providerEventReference = `sandbox-webhook:${suffix}`;
 const webhookIdempotencyKey = `payment-webhook:${provider}:${providerEventReference}`;
-const evidenceReference = `payment-provider:${provider}:${providerEventReference}`;
 const occurredAt = new Date().toISOString();
 const amountMinor = 12500;
 const currency = 'ZAR';
@@ -75,8 +74,7 @@ try {
   });
   assert.equal(requirementPersistence, 'accepted');
 
-  const evidence = {
-    idempotencyKey: webhookIdempotencyKey,
+  const ingested = await runtime.eventWorkflow.ingest({
     provider,
     providerEventReference,
     providerPaymentReference,
@@ -85,10 +83,12 @@ try {
     amountMinor,
     currency,
     occurredAt,
-    evidenceReference,
-  };
-  assert.equal(await runtime.webhookStore.save(evidence), 'accepted');
-  assert.equal(await runtime.currentStateStore.apply(evidence), 'accepted');
+    signatureVerified: true,
+  });
+  assert.equal(ingested.evidence.idempotencyKey, webhookIdempotencyKey);
+  assert.equal(ingested.evidence.provider, provider);
+  assert.equal(ingested.evidence.providerPaymentReference, providerPaymentReference);
+  assert.equal(ingested.evidence.commercialRecordReference, commercialRecordReference);
 
   const financeCommand = createFinanceGovernedControlCommand({
     operationalRuntime: runtime.governedOperationalRuntime,
