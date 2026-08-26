@@ -2,6 +2,7 @@ import type { ApiConfig } from '../config.js';
 import { createAnthropicModelIntegration } from './anthropic-model-integration.js';
 import { createCloudflareDeploymentIntegration } from './cloudflare-deployment-integration.js';
 import { createCloudflarePreviewDeploymentIntegration } from './cloudflare-preview-deployment-integration.js';
+import { createCloudflareProductionDeploymentIntegration } from './cloudflare-production-deployment-integration.js';
 import { createCloudflareProjectProvisioningIntegration } from './cloudflare-project-provisioning-integration.js';
 import { createCloudflareRollbackIntegration } from './cloudflare-rollback-integration.js';
 import { DeterministicPaymentIntegration } from './deterministic-payment-integration.js';
@@ -48,6 +49,7 @@ function integrationPolicy(config: ApiConfig): IntegrationExecutionPolicy {
     scopedLiveRules.push(
       { integrationId: 'deployment.cloudflare.project', operation: 'create_project', riskCeiling: 'high' },
       { integrationId: 'deployment.cloudflare.preview', operation: 'create_preview_deployment', riskCeiling: 'high' },
+      { integrationId: 'deployment.cloudflare.production', operation: 'deploy_production', riskCeiling: 'critical' },
       { integrationId: 'deployment.cloudflare.rollback', operation: 'rollback_production', riskCeiling: 'critical' },
     );
   }
@@ -159,6 +161,13 @@ export function createConfiguredIntegrationRegistry(
     });
     registry.register(cloudflarePreview);
     registeredIntegrationIds.push(cloudflarePreview.integrationId);
+
+    const cloudflareProduction = createCloudflareProductionDeploymentIntegration({
+      accountId: config.cloudflareAccountId,
+      apiToken: config.cloudflareApiToken,
+    });
+    registry.register(cloudflareProduction);
+    registeredIntegrationIds.push(cloudflareProduction.integrationId);
 
     const cloudflareRollback = createCloudflareRollbackIntegration({
       accountId: config.cloudflareAccountId,
