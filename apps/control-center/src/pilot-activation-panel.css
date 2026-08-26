@@ -1,0 +1,110 @@
+.pilot-ceremony-card {
+  min-width: 0;
+}
+
+.pilot-ceremony-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pilot-ceremony-form label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #718096);
+}
+
+.pilot-readiness-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.pilot-readiness-preview {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 8px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.pilot-readiness-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pilot-readiness-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.pilot-readiness-summary span,
+.pilot-evidence-row span,
+.pilot-emergency-stop span {
+  font-size: 0.78rem;
+  color: var(--muted, #94a3b8);
+}
+
+.pilot-readiness-summary strong {
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.pilot-evidence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pilot-evidence-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.pilot-evidence-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pilot-evidence-row strong {
+  font-size: 0.88rem;
+}
+
+.pilot-emergency-stop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 12px;
+  background: rgba(127, 29, 29, 0.08);
+}
+
+.pilot-emergency-stop > div {
+  display: grid;
+  gap: 3px;
+}
+
+@media (max-width: 760px) {
+  .pilot-readiness-row,
+  .pilot-readiness-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pilot-emergency-stop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
