@@ -3,6 +3,14 @@ import {
   PilotActivationReadinessPostgresStore,
   type PilotActivationReadinessRecord,
 } from './pilot-activation-readiness-postgres-store.js';
+import {
+  PilotVerificationEvidencePostgresStore,
+  type PilotVerificationEvidenceRecord,
+} from './pilot-verification-evidence-postgres-store.js';
+import {
+  PilotActivationCeremonyAuditPostgresStore,
+  type PilotActivationCeremonyAuditRecord,
+} from './pilot-activation-ceremony-audit-postgres-store.js';
 
 export type PilotSystemState = 'PILOT_DISABLED' | 'PILOT_ACTIVE';
 
@@ -18,13 +26,25 @@ type Queryable = Pick<Pool, 'query'>;
 
 export class PilotSystemStatePostgresStore {
   private readonly activationReadiness: PilotActivationReadinessPostgresStore;
+  private readonly verificationEvidence: PilotVerificationEvidencePostgresStore;
+  private readonly ceremonyAudit: PilotActivationCeremonyAuditPostgresStore;
 
   constructor(private readonly pool: Queryable) {
     this.activationReadiness = new PilotActivationReadinessPostgresStore(pool);
+    this.verificationEvidence = new PilotVerificationEvidencePostgresStore(pool);
+    this.ceremonyAudit = new PilotActivationCeremonyAuditPostgresStore(pool);
   }
 
   async getActivationReadiness(readinessId: string): Promise<PilotActivationReadinessRecord | null> {
     return this.activationReadiness.get(readinessId);
+  }
+
+  async getVerificationEvidence(evidenceId: string): Promise<PilotVerificationEvidenceRecord | null> {
+    return this.verificationEvidence.get(evidenceId);
+  }
+
+  async saveActivationCeremonyAudit(record: PilotActivationCeremonyAuditRecord): Promise<'accepted' | 'replayed'> {
+    return this.ceremonyAudit.save(record);
   }
 
   async get(): Promise<PilotSystemStateRecord> {
