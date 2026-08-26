@@ -7,5 +7,8 @@ export default defineConfig({
     host: 'localhost',
     port: 5173,
     strictPort: true
+  },
+  preview: {
+    allowedHosts: ['axoroscontrol-center-production.up.railway.app']
   }
 });
