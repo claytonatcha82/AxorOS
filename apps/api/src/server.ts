@@ -40,6 +40,7 @@ import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
 import { createProductionPreviewControlPlaneRequestHandler } from './production-preview-control-plane-request-handler.js';
+import { createProductionProjectProvisionControlPlaneRequestHandler } from './production-project-provision-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
 import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
@@ -200,10 +201,22 @@ const productionPreviewControlPlaneRequestHandler = createProductionPreviewContr
   },
   fallback: salesIntakeControlPlaneRequestHandler,
 });
+const productionProjectProvisionControlPlaneRequestHandler = createProductionProjectProvisionControlPlaneRequestHandler({
+  config,
+  provisionDependencies: {
+    integrations: integrationRegistry,
+    financeClearanceStore: productionRuntime.financeClearanceStore,
+    financePaymentStateStore: productionRuntime.financePaymentStateStore,
+    commercialPaymentRequirementStore: productionRuntime.commercialPaymentRequirementStore,
+    commercialPaymentSatisfactionStore: productionRuntime.commercialPaymentSatisfactionStore,
+    operationsReadinessStore: productionRuntime.operationsReadinessStore,
+  },
+  fallback: productionPreviewControlPlaneRequestHandler,
+});
 const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
   config,
   operatorCommand: pilotRuntimeOperatorCommand,
-  fallback: productionPreviewControlPlaneRequestHandler,
+  fallback: productionProjectProvisionControlPlaneRequestHandler,
 });
 const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({
   config,
@@ -327,6 +340,9 @@ async function start(): Promise<void> {
         productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
       ),
       productionRuntimePersistenceConfigured: true,
+      productionProjectProvisionControlPlaneConfigured: Boolean(
+        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.project'),
+      ),
       productionPreviewDeploymentControlPlaneConfigured: Boolean(
         config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.preview'),
       ),
