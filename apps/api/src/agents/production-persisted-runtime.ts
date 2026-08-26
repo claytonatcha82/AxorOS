@@ -37,5 +37,6 @@ export function createPersistedProductionRuntime(
     commercialPaymentRequirementStore: production.commercialPaymentRequirementStore,
     commercialPaymentSatisfactionStore: production.commercialPaymentSatisfactionStore,
     operationsReadinessStore: production.operationsReadinessStore,
+    deploymentAuthorityStore: production.deploymentAuthorityStore,
   };
 }
