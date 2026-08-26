@@ -23,8 +23,18 @@ test('loadConfig rejects invalid environment values', () => {
 test('loadConfig rejects invalid ports', () => {
   assert.throws(
     () => loadConfig({ AXOROS_API_PORT: '70000' }),
-    /Invalid AXOROS_API_PORT/,
+    /Invalid API port/,
   );
+});
+
+test('loadConfig uses Railway PORT when AXOROS_API_PORT is not set', () => {
+  const config = loadConfig({ PORT: '8080' });
+  assert.equal(config.port, 8080);
+});
+
+test('loadConfig prefers AXOROS_API_PORT over Railway PORT', () => {
+  const config = loadConfig({ AXOROS_API_PORT: '3005', PORT: '8080' });
+  assert.equal(config.port, 3005);
 });
 
 test('loadConfig normalises the Control Center URL to an origin', () => {
