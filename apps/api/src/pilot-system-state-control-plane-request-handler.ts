@@ -16,7 +16,9 @@ type Config = Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
 type PilotStateStore = Pick<
   PilotSystemStatePostgresStore,
   'get' | 'set' | 'getActivationReadiness' | 'getVerificationEvidence' | 'saveActivationCeremonyAudit'
->;
+> & {
+  getLatestActivationReadiness?: PilotSystemStatePostgresStore['getLatestActivationReadiness'];
+};
 
 type CeremonyService = ReturnType<typeof createPilotActivationCeremonyService>;
 
@@ -115,9 +117,15 @@ export function createPilotSystemStateControlPlaneRequestHandler(
         if (request.method !== 'GET') {
           return sendJson(response, 405, { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } }, { allow: 'GET,OPTIONS', ...corsHeaders });
         }
-        const readinessId = requestUrl.searchParams.get('readinessId')?.trim() ?? '';
+        let readinessId = requestUrl.searchParams.get('readinessId')?.trim() ?? '';
         if (!readinessId) {
-          return sendJson(response, 400, { ok: false, error: { code: 'pilot_activation_readiness_id_required', message: 'A persisted pilot activation readiness ID is required.' } }, corsHeaders);
+          const latest = dependencies.store.getLatestActivationReadiness
+            ? await dependencies.store.getLatestActivationReadiness()
+            : null;
+          if (!latest) {
+            return sendJson(response, 404, { ok: false, error: { code: 'pilot_activation_readiness_not_found', message: 'No persisted PILOT_ACTIVATION_READY assessment is available.' } }, corsHeaders);
+          }
+          readinessId = latest.readinessId;
         }
         const preview = await ceremony.preview(readinessId, 'Human Executive control-plane readiness preview.');
         return sendJson(response, 200, { ok: true, data: preview }, corsHeaders);
