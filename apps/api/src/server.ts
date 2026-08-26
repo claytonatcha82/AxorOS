@@ -39,6 +39,7 @@ import { createMarketingControlPlaneRequestHandler } from './marketing-control-p
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
+import { createProductionDeploymentControlPlaneRequestHandler } from './production-deployment-control-plane-request-handler.js';
 import { createProductionPreviewControlPlaneRequestHandler } from './production-preview-control-plane-request-handler.js';
 import { createProductionProjectProvisionControlPlaneRequestHandler } from './production-project-provision-control-plane-request-handler.js';
 import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-control-plane-request-handler.js';
@@ -213,10 +214,18 @@ const productionProjectProvisionControlPlaneRequestHandler = createProductionPro
   },
   fallback: productionPreviewControlPlaneRequestHandler,
 });
+const productionDeploymentControlPlaneRequestHandler = createProductionDeploymentControlPlaneRequestHandler({
+  config,
+  deploymentDependencies: {
+    integrations: integrationRegistry,
+    deploymentAuthorityStore: productionRuntime.deploymentAuthorityStore,
+  },
+  fallback: productionProjectProvisionControlPlaneRequestHandler,
+});
 const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneRequestHandler({
   config,
   operatorCommand: pilotRuntimeOperatorCommand,
-  fallback: productionProjectProvisionControlPlaneRequestHandler,
+  fallback: productionDeploymentControlPlaneRequestHandler,
 });
 const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({
   config,
@@ -345,6 +354,9 @@ async function start(): Promise<void> {
       ),
       productionPreviewDeploymentControlPlaneConfigured: Boolean(
         config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.preview'),
+      ),
+      productionDeploymentControlPlaneConfigured: Boolean(
+        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.production'),
       ),
       productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
       leadQualificationReviewRuntimeConfigured: true,
