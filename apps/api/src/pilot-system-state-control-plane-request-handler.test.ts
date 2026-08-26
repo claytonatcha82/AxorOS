@@ -5,6 +5,42 @@ import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system
 
 const token = 'pilot-control-token-1234567890123456';
 const controlCenterUrl = 'http://localhost:5173';
+const categories = [
+  'SYNTHETIC_LIFECYCLE',
+  'PERSISTED_RUNTIME',
+  'FINANCE_INTEGRITY',
+  'CONTROL_PLANE',
+  'DEPLOYMENT_SAFETY',
+] as const;
+
+function readinessRecord(readinessId: string) {
+  return {
+    readinessId,
+    state: 'PILOT_ACTIVATION_READY' as const,
+    syntheticLifecycleVerified: true,
+    persistedRuntimeVerified: true,
+    financeIntegrityVerified: true,
+    controlPlaneVerified: true,
+    deploymentSafetyVerified: true,
+    evidenceReferences: categories.map((category) => `pilot-verification:evidence:${readinessId}:${category}`),
+    assessedBy: 'test',
+    assessedAt: '2026-08-25T00:00:00.000Z',
+  };
+}
+
+function evidenceRecord(evidenceId: string) {
+  const category = categories.find((candidate) => evidenceId.endsWith(`:${candidate}`));
+  if (!category) return null;
+  return {
+    evidenceId,
+    category,
+    outcome: 'PASS' as const,
+    verifier: 'test-verifier',
+    sourceReference: `test://${category.toLowerCase()}`,
+    details: {},
+    verifiedAt: '2026-08-25T00:00:00.000Z',
+  };
+}
 
 async function withServer(
   options: {
@@ -22,7 +58,9 @@ async function withServer(
   const handler = createPilotSystemStateControlPlaneRequestHandler({
     config: { controlCenterUrl, controlPlaneToken: token },
     store: {
-      async getActivationReadiness() { return null; },
+      async getActivationReadiness(readinessId) { return readinessRecord(readinessId); },
+      async getVerificationEvidence(evidenceId) { return evidenceRecord(evidenceId); },
+      async saveActivationCeremonyAudit() { return 'accepted' as const; },
       async get() {
         return {
           state: 'PILOT_DISABLED',
