@@ -55,18 +55,32 @@ function allActivationChecksPass(record: PilotActivationReadinessRecord): boolea
     && record.deploymentSafetyVerified;
 }
 
+const READINESS_COLUMNS = `readiness_id, state,
+  synthetic_lifecycle_verified, persisted_runtime_verified,
+  finance_integrity_verified, control_plane_verified, deployment_safety_verified,
+  evidence_references, assessed_by, assessed_at`;
+
 export class PilotActivationReadinessPostgresStore {
   constructor(private readonly pool: Pick<Pool, 'query'>) {}
 
   async get(readinessId: string): Promise<PilotActivationReadinessRecord | null> {
     const result = await this.pool.query(
-      `select readiness_id, state,
-              synthetic_lifecycle_verified, persisted_runtime_verified,
-              finance_integrity_verified, control_plane_verified, deployment_safety_verified,
-              evidence_references, assessed_by, assessed_at
+      `select ${READINESS_COLUMNS}
          from runtime.pilot_activation_readiness
         where readiness_id = $1`,
       [readinessId],
+    );
+    return result.rows[0] ? normalize(result.rows[0] as Record<string, unknown>) : null;
+  }
+
+  async getLatestReady(): Promise<PilotActivationReadinessRecord | null> {
+    const result = await this.pool.query(
+      `select ${READINESS_COLUMNS}
+         from runtime.pilot_activation_readiness
+        where state = 'PILOT_ACTIVATION_READY'
+        order by assessed_at desc, readiness_id desc
+        limit 1`,
+      [],
     );
     return result.rows[0] ? normalize(result.rows[0] as Record<string, unknown>) : null;
   }

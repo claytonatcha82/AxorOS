@@ -81,17 +81,19 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
     && preview.evidence.every((item) => item.outcome === 'PASS'),
   );
 
-  async function loadPreview() {
+  async function loadPreview(mode: 'latest' | 'explicit') {
     const normalized = readinessId.trim();
-    if (!normalized) return;
+    if (mode === 'explicit' && !normalized) return;
     setLoadingPreview(true);
     props.onError(null);
     try {
+      const query = mode === 'explicit' ? `?readinessId=${encodeURIComponent(normalized)}` : '';
       const response = await fetch(
-        `${props.apiBaseUrl}/api/v1/control/pilot/readiness-preview?readinessId=${encodeURIComponent(normalized)}`,
+        `${props.apiBaseUrl}/api/v1/control/pilot/readiness-preview${query}`,
         { headers },
       );
       const data = await readJson<PilotReadinessPreview>(response);
+      setReadinessId(data.readiness.readinessId);
       setPreview(data);
     } catch (error) {
       setPreview(null);
@@ -146,10 +148,17 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
       </div>
 
       <p className="muted">
-        Activation authority comes from a persisted readiness ID and five immutable PASS receipts. The browser cannot substitute agent-readiness booleans for this evidence.
+        Activation authority comes from the latest persisted readiness assessment and five immutable PASS receipts. You can also enter a specific readiness ID to inspect historical evidence.
       </p>
 
       <div className="pilot-ceremony-form">
+        <div className="pilot-readiness-row">
+          <button className="secondary-button" disabled={loadingPreview} onClick={() => void loadPreview('latest')}>
+            {loadingPreview ? 'Loading…' : 'Load latest verified readiness'}
+          </button>
+          <span className="panel-note">Server-selected by assessed timestamp.</span>
+        </div>
+
         <label htmlFor="pilot-readiness-id">Persisted readiness ID</label>
         <div className="pilot-readiness-row">
           <input
@@ -162,8 +171,8 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
             placeholder="pilot-readiness:evidence-suite:..."
             autoComplete="off"
           />
-          <button className="secondary-button" disabled={loadingPreview || !readinessId.trim()} onClick={() => void loadPreview()}>
-            {loadingPreview ? 'Loading…' : 'Preview readiness'}
+          <button className="secondary-button" disabled={loadingPreview || !readinessId.trim()} onClick={() => void loadPreview('explicit')}>
+            {loadingPreview ? 'Loading…' : 'Preview specific ID'}
           </button>
         </div>
 
