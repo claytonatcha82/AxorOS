@@ -4,6 +4,7 @@ import { FinancePaymentCurrentStatePostgresStore } from '../data/finance-payment
 import { CommercialPaymentRequirementPostgresStore } from '../data/commercial-payment-requirement-postgres-store.js';
 import { CommercialPaymentSatisfactionPostgresStore } from '../data/commercial-payment-satisfaction-postgres-store.js';
 import { OperationsProductionReadinessPostgresStore } from '../data/operations-production-readiness-postgres-store.js';
+import { ProductionDeploymentAuthorityPostgresStore } from '../data/production-deployment-authority-postgres-store.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { AgentRuntimeHandlerRegistry } from './agent-runtime-handlers.js';
 import { registerPilotRuntimeCapabilities } from './pilot-runtime-capabilities.js';
@@ -30,6 +31,7 @@ export interface ProductionRuntimeBootstrapResult {
   commercialPaymentRequirementStore: CommercialPaymentRequirementPostgresStore;
   commercialPaymentSatisfactionStore: CommercialPaymentSatisfactionPostgresStore;
   operationsReadinessStore: OperationsProductionReadinessPostgresStore;
+  deploymentAuthorityStore: ProductionDeploymentAuthorityPostgresStore;
 }
 
 export function createProductionRuntimeBootstrap(
@@ -41,6 +43,7 @@ export function createProductionRuntimeBootstrap(
   const commercialPaymentRequirementStore = new CommercialPaymentRequirementPostgresStore(dependencies.pool);
   const commercialPaymentSatisfactionStore = new CommercialPaymentSatisfactionPostgresStore(dependencies.pool);
   const operationsReadinessStore = new OperationsProductionReadinessPostgresStore(dependencies.pool);
+  const deploymentAuthorityStore = new ProductionDeploymentAuthorityPostgresStore(dependencies.pool);
 
   registerProductionModelCapabilities(
     handlers,
@@ -65,5 +68,6 @@ export function createProductionRuntimeBootstrap(
     commercialPaymentRequirementStore,
     commercialPaymentSatisfactionStore,
     operationsReadinessStore,
+    deploymentAuthorityStore,
   };
 }

@@ -13,18 +13,28 @@ function requiredContextString(task: AgentRuntimeTask, key: string): string {
   return value.trim();
 }
 
-export async function assertTrustedProductionFinanceGate(
-  task: AgentRuntimeTask,
-  clearanceStore: Pick<FinanceClearancePostgresStore, 'get'>,
-  paymentStateStore: Pick<FinancePaymentCurrentStatePostgresStore, 'get'>,
-  paymentRequirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
-  paymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
-): Promise<void> {
-  if (task.destinationAgent !== 'production_agent') return;
+export interface PersistedProductionFinanceGateInput {
+  financeClearanceId: string;
+  commercialRecordReference: string;
+}
 
-  const clearanceId = requiredContextString(task, 'financeClearanceId');
-  const commercialRecordReference = requiredContextString(task, 'commercialRecordReference');
-  const persisted = await clearanceStore.get(clearanceId);
+export interface PersistedProductionFinanceGateDependencies {
+  clearanceStore: Pick<FinanceClearancePostgresStore, 'get'>;
+  paymentStateStore: Pick<FinancePaymentCurrentStatePostgresStore, 'get'>;
+  paymentRequirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>;
+  paymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>;
+}
+
+export async function assertPersistedProductionFinanceReady(
+  input: PersistedProductionFinanceGateInput,
+  dependencies: PersistedProductionFinanceGateDependencies,
+): Promise<void> {
+  const clearanceId = input.financeClearanceId.trim();
+  const commercialRecordReference = input.commercialRecordReference.trim();
+  if (!clearanceId) throw new Error('Production start blocked: trusted financeClearanceId is required.');
+  if (!commercialRecordReference) throw new Error('Production start blocked: trusted commercialRecordReference is required.');
+
+  const persisted = await dependencies.clearanceStore.get(clearanceId);
 
   if (!persisted) throw new Error('Production start blocked: trusted Finance clearance record was not found.');
   if (persisted.state !== 'FINANCE_CLEARED') throw new Error('Production start blocked: persisted Finance clearance is not FINANCE_CLEARED.');
@@ -45,8 +55,8 @@ export async function assertTrustedProductionFinanceGate(
   }
 
   await assertCommercialPaymentGateSatisfied({
-    requirementStore: paymentRequirementStore,
-    satisfactionStore: paymentSatisfactionStore,
+    requirementStore: dependencies.paymentRequirementStore,
+    satisfactionStore: dependencies.paymentSatisfactionStore,
   }, {
     commercialRecordReference,
     gate: 'PRODUCTION_START',
@@ -62,7 +72,7 @@ export async function assertTrustedProductionFinanceGate(
     throw new Error('Production start blocked: Finance clearance payment provider could not be resolved.');
   }
 
-  const current = await paymentStateStore.get(provider, persisted.providerPaymentReference);
+  const current = await dependencies.paymentStateStore.get(provider, persisted.providerPaymentReference);
   if (!current) throw new Error('Production start blocked: authoritative current payment state was not found.');
   if (current.commercialRecordReference !== persisted.commercialRecordReference) {
     throw new Error('Production start blocked: current payment state does not match the commercial record.');
@@ -76,4 +86,24 @@ export async function assertTrustedProductionFinanceGate(
   if (current.currency !== undefined && current.currency !== persisted.currency) {
     throw new Error('Production start blocked: current payment currency does not match the Finance clearance.');
   }
+}
+
+export async function assertTrustedProductionFinanceGate(
+  task: AgentRuntimeTask,
+  clearanceStore: Pick<FinanceClearancePostgresStore, 'get'>,
+  paymentStateStore: Pick<FinancePaymentCurrentStatePostgresStore, 'get'>,
+  paymentRequirementStore: Pick<CommercialPaymentRequirementPostgresStore, 'get'>,
+  paymentSatisfactionStore: Pick<CommercialPaymentSatisfactionPostgresStore, 'get'>,
+): Promise<void> {
+  if (task.destinationAgent !== 'production_agent') return;
+
+  await assertPersistedProductionFinanceReady({
+    financeClearanceId: requiredContextString(task, 'financeClearanceId'),
+    commercialRecordReference: requiredContextString(task, 'commercialRecordReference'),
+  }, {
+    clearanceStore,
+    paymentStateStore,
+    paymentRequirementStore,
+    paymentSatisfactionStore,
+  });
 }
