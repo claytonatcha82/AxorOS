@@ -6,6 +6,7 @@ import test from 'node:test';
 import type { ProductionDeploymentAuthorityRecord } from '../data/production-deployment-authority-postgres-store.js';
 import type { ExternalIntegration, IntegrationResponse } from '../integrations/integration-contract.js';
 import type { DeploymentStatusOutput } from '../integrations/deployment-provider-contract.js';
+import type { CloudflareProductionDeploymentInput } from '../integrations/cloudflare-production-deployment-integration.js';
 import { IntegrationRegistry } from '../integrations/integration-registry.js';
 import { executeGovernedProductionBuildDeployment } from './production-build-deployment-command.js';
 
@@ -35,7 +36,7 @@ function registry(capture: { calls: number; input?: unknown }): IntegrationRegis
     liveRiskCeiling: 'low',
     scopedLiveRules: [{ integrationId: 'deployment.cloudflare.production', operation: 'deploy_production', riskCeiling: 'critical' }],
   });
-  const integration: ExternalIntegration = {
+  const integration: ExternalIntegration<CloudflareProductionDeploymentInput, DeploymentStatusOutput> = {
     integrationId: 'deployment.cloudflare.production',
     kind: 'deployment',
     provider: 'cloudflare',
@@ -98,7 +99,7 @@ test('packages a real build directory and executes production only after strict 
     assert.equal(result.packagedFileCount, 2);
     assert.ok(result.packagedBytes > 0);
     assert.equal(capture.calls, 1);
-    const providerInput = capture.input as { projectName: string; productionBranch: string; assets: Array<{ path: string }> };
+    const providerInput = capture.input as CloudflareProductionDeploymentInput;
     assert.equal(providerInput.projectName, 'client-site');
     assert.equal(providerInput.productionBranch, 'main');
     assert.deepEqual(providerInput.assets.map((asset) => asset.path), ['/assets/app.js', '/index.html']);
