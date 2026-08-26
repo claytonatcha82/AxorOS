@@ -23,6 +23,8 @@ async function withServer(
     config: { controlCenterUrl, controlPlaneToken: token },
     store: {
       async getActivationReadiness() { return null; },
+      async getVerificationEvidence() { return null; },
+      async saveActivationCeremonyAudit() { return 'accepted' as const; },
       async get() {
         return {
           state: 'PILOT_DISABLED',
