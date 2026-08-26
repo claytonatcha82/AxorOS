@@ -62,6 +62,7 @@ export function createFinancePaymentRuntime(dependencies: FinancePaymentRuntimeD
   });
   const eventWorkflow = createFinancePaymentEventLedgerWorkflow({
     eventWorkflow: rawEventWorkflow,
+    paymentRequestStore,
     ledgerRecorder,
   });
   const commercialPaymentBindingWorkflow = createFinanceCommercialPaymentBindingWorkflow({
