@@ -66,7 +66,7 @@ test('Finance payment request workflow journals only persisted governed checkout
     commercialRecordReference: persisted.commercialRecordReference,
     authorityType: 'finance_payment_request',
     authorityReference: persisted.requirementReference,
-    evidenceReferences: persisted.evidenceReferences,
+    evidenceReferences: [persisted.requirementReference, ...persisted.evidenceReferences],
     amountMinor: persisted.amountMinor,
     currency: persisted.currency,
     occurredAt: persisted.createdAt,
