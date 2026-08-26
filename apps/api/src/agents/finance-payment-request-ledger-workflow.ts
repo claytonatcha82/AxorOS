@@ -14,6 +14,10 @@ export interface FinancePaymentRequestLedgerWorkflowDependencies {
   };
 }
 
+function uniqueReferences(references: readonly string[]): string[] {
+  return [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+}
+
 export function createFinancePaymentRequestLedgerWorkflow(
   dependencies: FinancePaymentRequestLedgerWorkflowDependencies,
 ) {
@@ -36,7 +40,10 @@ export function createFinancePaymentRequestLedgerWorkflow(
         commercialRecordReference: persisted.commercialRecordReference,
         authorityType: 'finance_payment_request',
         authorityReference: persisted.requirementReference,
-        evidenceReferences: persisted.evidenceReferences,
+        evidenceReferences: uniqueReferences([
+          persisted.requirementReference,
+          ...persisted.evidenceReferences,
+        ]),
         amountMinor: persisted.amountMinor,
         currency: persisted.currency,
         occurredAt: persisted.createdAt,
