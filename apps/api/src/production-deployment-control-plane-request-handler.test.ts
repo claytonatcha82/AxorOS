@@ -1,28 +1,15 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
 import type { GovernedProductionBuildDeploymentRequest, GovernedProductionBuildDeploymentResult } from './agents/production-build-deployment-command.js';
 import { createProductionDeploymentControlPlaneRequestHandler } from './production-deployment-control-plane-request-handler.js';
 
 function request(body: unknown, authorization = 'Bearer control-token') {
-  const req = new EventEmitter() as IncomingMessage;
+  const req = Readable.from([Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage;
   req.method = 'POST';
   req.url = '/api/v1/control/production/deployment/production';
   req.headers = { authorization, origin: 'http://localhost:3000' };
-  const payload = Buffer.from(JSON.stringify(body));
-  req[Symbol.asyncIterator] = () => {
-    let emitted = false;
-    return {
-      async next(): Promise<IteratorResult<Buffer, undefined>> {
-        if (!emitted) {
-          emitted = true;
-          return { done: false, value: payload };
-        }
-        return { done: true, value: undefined };
-      },
-    };
-  };
   return req;
 }
 
