@@ -34,6 +34,20 @@ function normaliseTimestamp(value: unknown): string {
   return parsed.toISOString();
 }
 
+function normalize(row: Record<string, unknown>): PersistedFinancePaymentRequest {
+  return {
+    requirementReference: String(row.requirement_reference),
+    commercialRecordReference: String(row.commercial_record_reference),
+    provider: String(row.provider),
+    providerPaymentReference: String(row.provider_payment_reference),
+    authorizationUrl: String(row.authorization_url),
+    amountMinor: Number(row.amount_minor),
+    currency: String(row.currency),
+    evidenceReferences: parseEvidenceReferences(row.evidence_references),
+    createdAt: normaliseTimestamp(row.created_at),
+  };
+}
+
 function sameRequest(existing: PersistedFinancePaymentRequest, incoming: PersistedFinancePaymentRequest): boolean {
   return existing.requirementReference === incoming.requirementReference
     && existing.commercialRecordReference === incoming.commercialRecordReference
@@ -46,31 +60,37 @@ function sameRequest(existing: PersistedFinancePaymentRequest, incoming: Persist
     && existing.evidenceReferences.every((reference, index) => reference === incoming.evidenceReferences[index]);
 }
 
+const COLUMNS = `requirement_reference, commercial_record_reference, provider, provider_payment_reference,
+  authorization_url, amount_minor, currency, evidence_references, created_at`;
+
 export class FinancePaymentRequestPostgresStore {
   constructor(private readonly pool: Pick<Pool, 'query'>) {}
 
   async get(requirementReference: string): Promise<PersistedFinancePaymentRequest | null> {
     const result = await this.pool.query(
-      `select requirement_reference, commercial_record_reference, provider, provider_payment_reference,
-              authorization_url, amount_minor, currency, evidence_references, created_at
+      `select ${COLUMNS}
          from finance.payment_requests
         where requirement_reference = $1
         limit 1`,
       [requirementReference],
     );
     const row = result.rows[0] as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return {
-      requirementReference: String(row.requirement_reference),
-      commercialRecordReference: String(row.commercial_record_reference),
-      provider: String(row.provider),
-      providerPaymentReference: String(row.provider_payment_reference),
-      authorizationUrl: String(row.authorization_url),
-      amountMinor: Number(row.amount_minor),
-      currency: String(row.currency),
-      evidenceReferences: parseEvidenceReferences(row.evidence_references),
-      createdAt: normaliseTimestamp(row.created_at),
-    };
+    return row ? normalize(row) : null;
+  }
+
+  async getByProviderPaymentReference(
+    provider: string,
+    providerPaymentReference: string,
+  ): Promise<PersistedFinancePaymentRequest | null> {
+    const result = await this.pool.query(
+      `select ${COLUMNS}
+         from finance.payment_requests
+        where provider = $1 and provider_payment_reference = $2
+        limit 1`,
+      [provider, providerPaymentReference],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? normalize(row) : null;
   }
 
   async save(request: PersistedFinancePaymentRequest): Promise<'accepted' | 'duplicate'> {
