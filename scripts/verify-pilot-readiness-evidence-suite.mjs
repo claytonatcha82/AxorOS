@@ -118,8 +118,23 @@ try {
   if (readiness.state !== 'PILOT_ACTIVATION_READY') {
     throw new Error(`Expected PILOT_ACTIVATION_READY assessment, received ${readiness.state}.`);
   }
-  if (readiness.evidenceReferences.length !== 5) {
-    throw new Error(`Expected 5 readiness evidence references, received ${readiness.evidenceReferences.length}.`);
+  if (readiness.evidence.length !== 5) {
+    throw new Error(`Expected 5 assessment evidence records, received ${readiness.evidence.length}.`);
+  }
+
+  const persistedReadiness = await readinessStore.get(readinessId);
+  if (!persistedReadiness) {
+    throw new Error('Evidence-backed readiness assessment was not persisted.');
+  }
+  if (persistedReadiness.state !== 'PILOT_ACTIVATION_READY') {
+    throw new Error(`Persisted readiness expected PILOT_ACTIVATION_READY, received ${persistedReadiness.state}.`);
+  }
+  if (persistedReadiness.evidenceReferences.length !== 5) {
+    throw new Error(`Expected 5 persisted readiness evidence references, received ${persistedReadiness.evidenceReferences.length}.`);
+  }
+  const expectedReferences = evidenceIds.map((evidenceId) => `pilot-verification:${evidenceId}`);
+  if (JSON.stringify(persistedReadiness.evidenceReferences) !== JSON.stringify(expectedReferences)) {
+    throw new Error('Persisted readiness evidence lineage does not exactly match the five verification receipts.');
   }
 
   const afterState = await pilotStateStore.get();
@@ -136,6 +151,7 @@ try {
   console.log('\n==========================================================');
   console.log('PASS  Five real verification runners produced five immutable PASS receipts.');
   console.log(`PASS  Evidence-backed readiness derived as ${readiness.state}.`);
+  console.log('PASS  Persisted readiness lineage exactly matches all five verification receipts.');
   console.log(`Readiness ID: ${readinessId}`);
   console.log(`Evidence receipts: ${evidenceIds.length}`);
   console.log(`Pilot state remained ${afterState.state} at version ${afterState.version}.`);
