@@ -38,11 +38,28 @@ function resultFor(event: PaymentWebhookEnvelope): FinancePaymentEventWorkflowRe
   };
 }
 
+const paymentRequestStore = {
+  async getByProviderPaymentReference() {
+    return {
+      requirementReference: 'requirement:event-ledger:1',
+      commercialRecordReference: 'commercial:event-ledger:1',
+      provider: 'paystack',
+      providerPaymentReference: 'AXOROS-PAYMENT-1',
+      authorizationUrl: 'https://checkout.test',
+      amountMinor: 12500,
+      currency: 'ZAR',
+      evidenceReferences: ['payment-request:evidence'],
+      createdAt: '2026-08-23T14:59:00.000Z',
+    };
+  },
+};
+
 test('Finance payment event ledger workflow journals provider state from persisted trusted evidence', async () => {
   const recorded: RecordFinanceLedgerAuthorityInput[] = [];
   const paid = envelope('payment_paid');
   const workflow = createFinancePaymentEventLedgerWorkflow({
     eventWorkflow: { async ingest() { return resultFor(paid); } },
+    paymentRequestStore,
     ledgerRecorder: { async record(input) { recorded.push(input); } },
   });
 
@@ -51,6 +68,10 @@ test('Finance payment event ledger workflow journals provider state from persist
   assert.equal(recorded[0]?.entryType, 'PAYMENT_PROVIDER_STATE_OBSERVED');
   assert.equal(recorded[0]?.authorityType, 'payment_provider_evidence');
   assert.equal(recorded[0]?.authorityReference, 'payment-provider:paystack:event:payment_paid');
+  assert.deepEqual(recorded[0]?.evidenceReferences, [
+    'payment-provider:paystack:event:payment_paid',
+    'requirement:event-ledger:1',
+  ]);
   assert.equal(recorded[0]?.amountMinor, 12500);
   assert.equal(recorded[0]?.currency, 'ZAR');
 });
@@ -60,6 +81,7 @@ test('Finance payment event ledger workflow classifies adverse provider lifecycl
   const disputed = envelope('payment_disputed');
   const workflow = createFinancePaymentEventLedgerWorkflow({
     eventWorkflow: { async ingest() { return resultFor(disputed); } },
+    paymentRequestStore,
     ledgerRecorder: { async record(input) { recorded.push(input); } },
   });
 
