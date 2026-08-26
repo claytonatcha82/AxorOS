@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { FinanceReportingForms } from './FinanceReportingForms';
+import { PilotActivationPanel } from './PilotActivationPanel';
 import './styles.css';
 
 type Money = { amountMinor: number; currency: string; available: boolean; note?: string };
@@ -298,20 +299,13 @@ function App() {
                 <p className="panel-note">{dashboard.pilotState.reason}</p>
               </article>
 
-              <article className="panel-card">
-                <div className="card-heading"><div><p className="eyebrow">Human Executive control</p><h2>{allAgentsReady ? 'Activation prerequisites satisfied' : 'Activation blocked by readiness'}</h2></div></div>
-                {!allAgentsReady && <div className="empty-inline">{notReadyAgents.map((record) => `${AGENT_LABELS[record.agentId]}: ${record.status}`).join(' · ')}</div>}
-                <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-                  <input value={pilotReason} onChange={(event) => setPilotReason(event.target.value)} placeholder="Human Executive reason for state change" />
-                  {dashboard.pilotState.state === 'PILOT_DISABLED' && <input value={pilotConfirmation} onChange={(event) => setPilotConfirmation(event.target.value)} placeholder="Type ACTIVATE PILOT to confirm" />}
-                  {dashboard.pilotState.state === 'PILOT_DISABLED' ? (
-                    <button disabled={pilotChanging || !allAgentsReady || !pilotReason.trim() || pilotConfirmation !== 'ACTIVATE PILOT'} onClick={() => void changePilotState('PILOT_ACTIVE')}>{pilotChanging ? 'Processing…' : 'Activate pilot'}</button>
-                  ) : (
-                    <button className="reject-button" disabled={pilotChanging || !pilotReason.trim()} onClick={() => void changePilotState('PILOT_DISABLED')}>{pilotChanging ? 'Processing…' : 'Disable pilot immediately'}</button>
-                  )}
-                </div>
-                <p className="panel-note">The API independently rechecks all nine agent readiness records. Browser manipulation cannot bypass the server-side activation gate.</p>
-              </article>
+              <PilotActivationPanel
+                apiBaseUrl={API_BASE_URL}
+                token={token}
+                pilotState={dashboard.pilotState}
+                onStateChanged={refresh}
+                onError={(message) => setError(message)}
+              />
             </div>
           </section>
 
