@@ -1,7 +1,7 @@
 import type { IntegrationRequest, IntegrationResponse } from './integration-contract.js';
 import type { EmailDraftOutput, EmailIntegration, EmailMessageInput } from './email-integration.js';
 import { validateEmailMessage } from './email-integration.js';
-import { assertAgentMayUseEmailIdentity } from './email-identity-policy.js';
+import { assertAgentMayUseEmailIdentity, getEmailIdentity } from './email-identity-policy.js';
 
 export interface GmailDraftIntegrationOptions {
   clientId: string;
@@ -289,8 +289,11 @@ export function createGmailDraftIntegration(options: GmailDraftIntegrationOption
         throw new Error(`No Gmail address configured for email identity ${request.input.fromIdentity}.`);
       }
 
+      const identity = getEmailIdentity(request.input.fromIdentity);
+      const fromHeader = formatAddress(identity?.displayName, fromAddress);
+
       const accessToken = await getAccessToken();
-      const mime = buildMimeMessage(request.input, fromAddress);
+      const mime = buildMimeMessage(request.input, fromHeader);
 
       if (isDraft) {
         const response = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {

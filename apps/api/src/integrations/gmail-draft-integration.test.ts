@@ -201,7 +201,7 @@ test('creates a real Gmail mailbox draft through drafts.create only', async () =
   assert.equal(authHeader, 'Bearer synthetic-access-token');
   const body = JSON.parse(String(calls[1]?.init?.body)) as { message: { raw: string } };
   const decoded = Buffer.from(body.message.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-  assert.match(decoded, /From: sales@example\.test/);
+  assert.match(decoded, /From: \"AxorOS Sales Team\" <sales@example\.test>/);
   assert.match(decoded, /To: \"Synthetic Prospect\" <prospect@example\.test>/);
   assert.match(decoded, /Subject: Synthetic website discussion/);
   assert.match(decoded, /Synthetic draft body\. Do not send\./);

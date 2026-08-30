@@ -4,9 +4,9 @@ import { EMAIL_IDENTITIES, assertAgentMayUseEmailIdentity, getEmailIdentity } fr
 
 test('registers distinct external identities for approved specialist agents', () => {
   assert.equal(EMAIL_IDENTITIES.length, 5);
-  assert.equal(getEmailIdentity('sales')?.displayName, 'AxorOS Sales');
-  assert.equal(getEmailIdentity('support')?.displayName, 'AxorOS Support');
-  assert.equal(getEmailIdentity('finance')?.displayName, 'AxorOS Finance');
+  assert.equal(getEmailIdentity('sales')?.displayName, 'AxorOS Sales Team');
+  assert.equal(getEmailIdentity('support')?.displayName, 'AxorOS Support Team');
+  assert.equal(getEmailIdentity('finance')?.displayName, 'AxorOS Finance Team');
 });
 
 test('allows Sales Agent to use only the sales identity', () => {
