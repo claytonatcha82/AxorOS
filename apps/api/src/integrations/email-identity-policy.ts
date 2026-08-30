@@ -10,11 +10,11 @@ export interface EmailIdentityDefinition {
 }
 
 export const EMAIL_IDENTITIES: readonly EmailIdentityDefinition[] = [
-  { identityId: 'sales', displayName: 'AxorOS Sales', allowedAgents: ['sales_agent'], externalUse: true },
-  { identityId: 'support', displayName: 'AxorOS Support', allowedAgents: ['support_agent'], externalUse: true },
-  { identityId: 'finance', displayName: 'AxorOS Finance', allowedAgents: ['finance_agent'], externalUse: true },
-  { identityId: 'marketing', displayName: 'AxorOS Marketing', allowedAgents: ['marketing_agent'], externalUse: true },
-  { identityId: 'operations', displayName: 'AxorOS Operations', allowedAgents: ['operations_agent'], externalUse: true },
+  { identityId: 'sales', displayName: 'AxorOS Sales Team', allowedAgents: ['sales_agent'], externalUse: true },
+  { identityId: 'support', displayName: 'AxorOS Support Team', allowedAgents: ['support_agent'], externalUse: true },
+  { identityId: 'finance', displayName: 'AxorOS Finance Team', allowedAgents: ['finance_agent'], externalUse: true },
+  { identityId: 'marketing', displayName: 'AxorOS Marketing Team', allowedAgents: ['marketing_agent'], externalUse: true },
+  { identityId: 'operations', displayName: 'AxorOS Operations Team', allowedAgents: ['operations_agent'], externalUse: true },
 ] as const;
 
 export function getEmailIdentity(identityId: string): EmailIdentityDefinition | undefined {
