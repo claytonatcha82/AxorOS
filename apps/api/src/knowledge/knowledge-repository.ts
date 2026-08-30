@@ -213,6 +213,38 @@ export function createKnowledgeRepository(pool: Pool) {
 
     async replaceDocumentWithChunks(ingestionRunId: string, document: KnowledgeDocumentInput, chunks: AtlasChunk[]): Promise<string> {
       return withTransaction(async (client) => {
+        const existingAtPath = await client.query(
+          `select id, document_id
+           from knowledge.documents
+           where path = $1
+           for update`,
+          [document.path],
+        );
+
+        if (existingAtPath.rows.length > 0 && String(existingAtPath.rows[0]!.document_id) !== document.documentId) {
+          const conflictingIdentity = await client.query(
+            `select id, path
+             from knowledge.documents
+             where document_id = $1
+               and id <> $2
+             for update`,
+            [document.documentId, existingAtPath.rows[0]!.id],
+          );
+
+          if (conflictingIdentity.rows.length > 0) {
+            throw new Error(
+              `Knowledge document identity conflict: document_id "${document.documentId}" already belongs to path "${String(conflictingIdentity.rows[0]!.path)}" while ingesting "${document.path}".`,
+            );
+          }
+
+          await client.query(
+            `update knowledge.documents
+             set document_id = $2
+             where id = $1`,
+            [existingAtPath.rows[0]!.id, document.documentId],
+          );
+        }
+
         const result = await client.query(
           `insert into knowledge.documents
             (document_id, title, path, volume, folder, document_type, knowledge_domain, status, priority,
