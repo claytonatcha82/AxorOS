@@ -13,16 +13,30 @@ for (const key of requiredSecrets) {
 }
 
 const paymentIntegration = process.env.AXOROS_PAYMENT_INTEGRATION?.trim();
+const axorosEnvironment = process.env.AXOROS_ENV?.trim();
+
 if (paymentIntegration === 'paystack') {
   const paystackSecretKey = process.env.AXOROS_PAYSTACK_SECRET_KEY?.trim();
+
   if (!paystackSecretKey) {
     failures += 1;
     console.error('FAIL  AXOROS_PAYSTACK_SECRET_KEY is missing while Paystack is active');
-  } else if (!paystackSecretKey.startsWith('sk_test_')) {
+  } else if (
+    !paystackSecretKey.startsWith('sk_test_') &&
+    !paystackSecretKey.startsWith('sk_live_')
+  ) {
     failures += 1;
-    console.error('FAIL  Stage 1 Paystack configuration must use an sk_test_ key');
+    console.error('FAIL  AXOROS_PAYSTACK_SECRET_KEY must be a Paystack test or live secret key');
+  } else if (axorosEnvironment === 'production' && !paystackSecretKey.startsWith('sk_live_')) {
+    failures += 1;
+    console.error('FAIL  Production Paystack configuration requires an sk_live_ key');
+  } else if (axorosEnvironment !== 'production' && !paystackSecretKey.startsWith('sk_test_')) {
+    failures += 1;
+    console.error('FAIL  Non-production Paystack configuration requires an sk_test_ key');
+  } else if (paystackSecretKey.startsWith('sk_live_')) {
+    console.log('PASS  Paystack production secret is present and uses the sk_live_ prefix');
   } else {
-    console.log('PASS  Paystack Stage 1 test secret is present and uses the sk_test_ prefix');
+    console.log('PASS  Paystack non-production secret is present and uses the sk_test_ prefix');
   }
 } else if (paymentIntegration && paymentIntegration !== 'sandbox') {
   failures += 1;
