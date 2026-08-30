@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "AxorOS agency automation system",
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": {"node": ">=24 <25", "npm": ">=11"},
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
   "scripts": {
     "verify:env": "node scripts/verify-environment.mjs",
     "verify:db": "node scripts/verify-database.mjs",
@@ -63,6 +69,11 @@
     "build": "npm run build --workspace @axoros/contracts && npm run build --workspace @axoros/api && npm run build --workspace @axoros/control-center",
     "typecheck": "npm run typecheck --workspace @axoros/contracts && npm run typecheck --workspace @axoros/api && npm run typecheck --workspace @axoros/control-center",
     "test": "npm run test --workspace @axoros/api && npm run test --workspace @axoros/control-center",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "verify:secrets:required:prod": "infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node scripts/verify-required-secrets.mjs",
+    "paystack:live:readiness:prod": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node --dns-result-order=ipv4first --no-network-family-autoselection scripts/verify-paystack-live-readiness.mjs",
+    "pilot:readiness:evidence:verify:prod": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node scripts/verify-pilot-readiness-evidence-suite.mjs",
+    "pilot:activation:ceremony:verify:prod": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node scripts/verify-pilot-activation-ceremony.mjs",
+    "pilot:readiness:latest:verify:prod": "npm run build --workspace @axoros/api && infisical run --projectId=79dae67a-8cd4-4536-94bf-dda02dcb82d1 --env=prod --path=/api -- node scripts/verify-pilot-latest-readiness-discovery.mjs"
   }
 }
