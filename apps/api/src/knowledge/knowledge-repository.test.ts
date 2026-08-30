@@ -9,7 +9,7 @@ test('reconciles a changed Atlas document_id on the same canonical source path',
     removeListener() {},
     release() {},
     async query(text: string, values?: unknown[]) {
-      calls.push({ text, values });
+      calls.push(values === undefined ? { text } : { text, values });
       if (text === 'begin' || text === 'commit' || text === 'rollback') return { rows: [] };
       if (text.includes('where path = $1')) {
         return { rows: [{ id: 'db-doc-1', document_id: 'old-document-id' }] };
