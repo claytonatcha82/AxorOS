@@ -39,6 +39,7 @@ import { createMarketingControlPlaneRequestHandler } from './marketing-control-p
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
 import { createPublicContactRequestHandler } from './public-contact-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
+import { createPilotLeadWorkerRunOnceRequestHandler } from './pilot-lead-worker-run-once-request-handler.js';
 import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
 import { createProductionDeploymentControlPlaneRequestHandler } from './production-deployment-control-plane-request-handler.js';
 import { createProductionPreviewControlPlaneRequestHandler } from './production-preview-control-plane-request-handler.js';
@@ -260,10 +261,15 @@ const pilotRuntimeControlPlaneRequestHandler = createPilotRuntimeControlPlaneReq
   operatorCommand: pilotRuntimeOperatorCommand,
   fallback: productionDeploymentControlPlaneRequestHandler,
 });
+const pilotLeadWorkerRunOnceRequestHandler = createPilotLeadWorkerRunOnceRequestHandler({
+  config,
+  worker: pilotLeadWorker,
+  fallback: pilotRuntimeControlPlaneRequestHandler,
+});
 const pilotSystemStateControlPlaneRequestHandler = createPilotSystemStateControlPlaneRequestHandler({
   config,
   store: pilotSystemState,
-  fallback: pilotRuntimeControlPlaneRequestHandler,
+  fallback: pilotLeadWorkerRunOnceRequestHandler,
 });
 const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler({
   config,
@@ -357,6 +363,7 @@ async function start(): Promise<void> {
       pilotSystemState: initialPilotState.state,
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
       pilotLeadWorkerConfigured: true,
+      pilotLeadWorkerRunOnceControlPlaneConfigured: Boolean(config.controlPlaneToken),
       pilotLeadWorkerIntervalMs: 60 * 60 * 1000,
       pilotLeadWorkerMaxBusinessesPerCycle: 3,
       leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
