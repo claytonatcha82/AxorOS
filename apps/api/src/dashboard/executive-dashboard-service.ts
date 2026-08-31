@@ -104,25 +104,28 @@ export function createExecutiveDashboardService(pool: Queryable) {
           where status <> 'archived'
           order by display_name asc`, []),
         pool.query(`select
-          count(*)::int as total,
+          count(*) filter (where created_at >= date_trunc('month', current_date))::int as total,
           count(*) filter (where created_at >= current_date)::int as discovered_today,
-          count(*) filter (where created_at >= now() - interval '7 days')::int as discovered_last_7_days,
-          count(*) filter (where status = 'qualified')::int as qualified,
-          count(*) filter (where status = 'engaged')::int as engaged,
-          count(*) filter (where status = 'converted')::int as converted,
+          count(*) filter (where created_at >= greatest(now() - interval '7 days', date_trunc('month', current_date)))::int as discovered_last_7_days,
+          count(*) filter (where status = 'qualified' and created_at >= date_trunc('month', current_date))::int as qualified,
+          count(*) filter (where status = 'engaged' and created_at >= date_trunc('month', current_date))::int as engaged,
+          count(*) filter (where status = 'converted' and created_at >= date_trunc('month', current_date))::int as converted,
           (select count(*)::int from runtime.agent_executions
             where destination_agent = 'lead_agent'
               and status = 'review'
               and task->>'approvalRequired' = 'true'
-              and task->>'approvalOwner' = 'human_executive') as awaiting_human_review
+              and task->>'approvalOwner' = 'human_executive'
+              and persisted_at >= date_trunc('month', current_date)) as awaiting_human_review
         from operational.leads`, []),
         pool.query(`select
-          count(*) filter (where event_type = 'sales_supervised_email_sent')::int as contacted,
-          count(*) filter (where event_type = 'sales_supervised_email_sent' and created_at >= now() - interval '7 days')::int as contacted_last_7_days,
-          (select count(*)::int from operational.sales_inbound_reply_evidence) as inbound_replies,
+          count(*) filter (where event_type = 'sales_supervised_email_sent' and created_at >= date_trunc('month', current_date))::int as contacted,
+          count(*) filter (where event_type = 'sales_supervised_email_sent' and created_at >= greatest(now() - interval '7 days', date_trunc('month', current_date)))::int as contacted_last_7_days,
+          (select count(*)::int from operational.sales_inbound_reply_evidence where received_at >= date_trunc('month', current_date)) as inbound_replies,
           (select count(*)::int from operational.sales_inbound_reply_classifications
-            where primary_category in ('positive_interest','information_request','pricing_or_commercial_question','meeting_request')) as interested_replies,
-          (select count(*)::int from operational.sales_email_send_attempts where status = 'failed') as failed_sends
+            where primary_category in ('positive_interest','information_request','pricing_or_commercial_question','meeting_request')
+              and classified_at >= date_trunc('month', current_date)) as interested_replies,
+          (select count(*)::int from operational.sales_email_send_attempts where status = 'failed'
+              and attempted_at >= date_trunc('month', current_date)) as failed_sends
         from operational.workflow_events`, []),
         pool.query(`select
           count(*)::int as total,
@@ -130,14 +133,17 @@ export function createExecutiveDashboardService(pool: Queryable) {
           count(*) filter (where status = 'qa')::int as qa,
           count(*) filter (where status = 'awaiting_approval')::int as awaiting_approval,
           count(*) filter (where status = 'delivered')::int as delivered
-        from operational.projects`, []),
+        from operational.projects
+          where created_at >= date_trunc('month', current_date)`, []),
         pool.query(`select currency, coalesce(sum(required_amount_minor), 0)::bigint as amount_minor
           from finance.commercial_payment_requirements
           where status = 'ACTIVE'
+            and created_at >= date_trunc('month', current_date)
           group by currency order by currency`, []),
         pool.query(`select currency, coalesce(sum(amount_minor), 0)::bigint as amount_minor
           from finance.clearance_decisions
           where state = 'FINANCE_CLEARED'
+            and created_at >= date_trunc('month', current_date)
           group by currency order by currency`, []),
         pool.query(`select currency,
           round(sum(case billing_frequency
@@ -175,8 +181,8 @@ export function createExecutiveDashboardService(pool: Queryable) {
               then amount_minor::numeric
             else 0 end) > 0
           order by currency`, []),
-        pool.query(`select count(*)::int as pending from finance.commercial_payment_requirements where status = 'ACTIVE'`, []),
-        pool.query(`select count(*)::int as cleared from finance.clearance_decisions where state = 'FINANCE_CLEARED'`, []),
+        pool.query(`select count(*)::int as pending from finance.commercial_payment_requirements where status = 'ACTIVE' and created_at >= date_trunc('month', current_date)`, []),
+        pool.query(`select count(*)::int as cleared from finance.clearance_decisions where state = 'FINANCE_CLEARED' and created_at >= date_trunc('month', current_date)`, []),
         pool.query(`select count(*)::int as pending
           from runtime.agent_executions
           where status = 'review' and task->>'approvalRequired' = 'true' and task->>'approvalOwner' = 'human_executive'`, []),
@@ -188,7 +194,7 @@ export function createExecutiveDashboardService(pool: Queryable) {
           count(*) filter (where status = 'failed')::int as failed_executions,
           max(persisted_at) as latest_activity_at,
           (array_agg(task->>'objective' order by persisted_at desc))[1] as latest_objective
-        from runtime.agent_executions group by destination_agent`, []),
+        from runtime.agent_executions where persisted_at >= date_trunc('month', current_date) group by destination_agent`, []),
         pool.query(`select execution_id, task->>'objective' as objective, status, persisted_at,
           case when result is null then null else result->'output'->>'text' end as summary
         from runtime.agent_executions
