@@ -47,6 +47,7 @@ import { createSalesIntakeControlPlaneRequestHandler } from './sales-intake-cont
 import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
+import { createPilotLeadWorker } from './services/pilot-lead-worker.js';
 import { createSalesInboundModelClassificationService } from './services/sales-inbound-model-classification-service.js';
 import { createPersistedSalesInboundReplyRuntime } from './services/sales-inbound-reply-runtime.js';
 import { createSalesIntegrationEmailTransport } from './services/sales-integration-email-transport.js';
@@ -157,6 +158,37 @@ const leadLiveResearchRuntime = createLeadLiveResearchRuntime({
   knowledgeContext: knowledgeContextService,
   runtimeStore,
 });
+const pilotLeadWorker = createPilotLeadWorker(
+  pilotSystemState,
+  leadLiveResearchRuntime,
+  {
+    intervalMs: 60 * 60 * 1000,
+    geographicFocus: 'South Africa',
+    maxQueries: 1,
+    maxBusinessesPerQuery: 3,
+    maxWebResultsPerBusiness: 3,
+    onCycleCompleted(result) {
+      logEvent('info', 'pilot_lead_worker_cycle_completed', {
+        queries: result.queries,
+        atlasSourcePaths: result.atlasSourcePaths,
+        discovered: result.discovered,
+        enriched: result.enriched.length,
+        ambiguousOrUnresolved: result.proposals.length,
+        reviewExecutionIds: result.enriched.map((lead) => lead.qualificationReviewExecutionId),
+      });
+    },
+    onCycleSkipped(reason) {
+      if (reason === 'pilot_disabled') {
+        logEvent('info', 'pilot_lead_worker_cycle_skipped', { reason });
+      }
+    },
+    onCycleFailed(error) {
+      logEvent('error', 'pilot_lead_worker_cycle_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  },
+);
 const apiRequestHandler = createRequestHandler(
   config,
   () => checkDatabase(databasePool),
@@ -272,6 +304,7 @@ function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
   runtimeRecoveryRunner.stop();
+  pilotLeadWorker.stop();
 
   logEvent('info', 'api_shutdown_started', { signal });
 
@@ -307,6 +340,7 @@ async function start(): Promise<void> {
   const initialPilotState = await pilotSystemState.get();
   await runtimeRecoveryRunner.runOnce();
   runtimeRecoveryRunner.start();
+  pilotLeadWorker.start();
 
   server.listen(config.port, config.host, () => {
     logEvent('info', 'api_started', {
@@ -322,6 +356,9 @@ async function start(): Promise<void> {
       pilotSystemStateControlPlaneConfigured: Boolean(config.controlPlaneToken),
       pilotSystemState: initialPilotState.state,
       pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
+      pilotLeadWorkerConfigured: true,
+      pilotLeadWorkerIntervalMs: 60 * 60 * 1000,
+      pilotLeadWorkerMaxBusinessesPerCycle: 3,
       leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
         && registeredIntegrationIds.includes('research.tavily-web'),
       leadLiveResearchControlPlaneConfigured: Boolean(
