@@ -40,14 +40,16 @@ export function createPilotLeadWorker(
       return null;
     }
 
-    const current = await state.get();
-    if (current.state !== 'PILOT_ACTIVE') {
-      options.onCycleSkipped?.('pilot_disabled');
-      return null;
-    }
-
+    // Reserve the process-local worker synchronously before the first await.
+    // This makes concurrent run-once requests fail closed instead of both
+    // crossing the provider boundary.
     inProgress = true;
     try {
+      const current = await state.get();
+      if (current.state !== 'PILOT_ACTIVE') {
+        options.onCycleSkipped?.('pilot_disabled');
+        return null;
+      }
       // Re-check immediately before external research so a concurrent kill-switch
       // transition fails closed before provider execution begins.
       const confirmed = await state.get();
