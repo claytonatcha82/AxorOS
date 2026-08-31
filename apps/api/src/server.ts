@@ -37,6 +37,7 @@ import { createLeadResearchControlPlaneRequestHandler } from './lead-research-co
 import { logEvent, setExternalLogSink } from './logger.js';
 import { createMarketingControlPlaneRequestHandler } from './marketing-control-plane-request-handler.js';
 import { createPaystackWebhookRequestHandler } from './paystack-webhook-request-handler.js';
+import { createPublicContactRequestHandler } from './public-contact-request-handler.js';
 import { createPilotRuntimeControlPlaneRequestHandler } from './pilot-runtime-control-plane-request-handler.js';
 import { createPilotSystemStateControlPlaneRequestHandler } from './pilot-system-state-control-plane-request-handler.js';
 import { createProductionDeploymentControlPlaneRequestHandler } from './production-deployment-control-plane-request-handler.js';
@@ -255,11 +256,16 @@ const paystackWebhookIngress = config.paymentIntegrationId === 'payment.paystack
       eventWorkflow: financePaymentRuntime.eventWorkflow,
     })
   : undefined;
-const server = createServer(createPaystackWebhookRequestHandler({
+const paystackWebhookRequestHandler = createPaystackWebhookRequestHandler({
   config,
   ...(paystackWebhookIngress ? { ingress: paystackWebhookIngress } : {}),
   fallback: marketingControlPlaneRequestHandler,
-}));
+});
+const publicContactRequestHandler = createPublicContactRequestHandler({
+  repository: operationalRepository,
+  fallback: paystackWebhookRequestHandler,
+});
+const server = createServer(publicContactRequestHandler);
 let shuttingDown = false;
 
 function shutdown(signal: NodeJS.Signals): void {
