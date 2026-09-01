@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLeadAtlasResearchPlanner } from './lead-atlas-research-planner.js';
 
-function package_(title: string, context: string) {
+function package_(title: string, context: string, reference = '[ATLAS-01]', headingPath?: string[]) {
   return {
     query: title,
     context,
-    sources: [{ reference: '[ATLAS-01]', score: 1, citation: { title, path: `Volume 1 - Agency/${title}.md.md` } }],
+    sources: [{ reference, score: 1, citation: { title, path: `Volume 1 - Agency/${title}.md.md`, ...(headingPath ? { headingPath } : {}) } }],
     includedItems: 1,
     truncated: false,
     characterCount: context.length,
@@ -15,7 +15,7 @@ function package_(title: string, context: string) {
 
 function atlas() {
   return {
-    idealClientProfile: package_('Ideal Client Profile', `# Target Industries\n\n- Construction\n- Engineering\n- Manufacturing\n- Healthcare\n- Hospitality\n- Property\n\n# Geographic Focus\nSouth Africa`),
+    idealClientProfile: package_('Ideal Client Profile', '# Target Industries\n\n- Construction\n- Engineering\n- Manufacturing\n- Healthcare\n- Hospitality\n- Property\n\n# Geographic Focus\nSouth Africa'),
     leadGeneration: package_('Lead Generation System', 'Quality over quantity.'),
     leadQualification: package_('Lead Qualification', 'Business fit and project fit.'),
     leadAgentGovernance: package_('Lead Agent', 'Atlas OS remains the single source of truth.'),
@@ -34,6 +34,39 @@ test('derives broad business discovery queries from Atlas target industries', ()
   assert.ok(plan.atlasSourcePaths.some((path) => path.includes('Ideal Client Profile')));
   assert.equal(plan.atlasSourcePaths.some((path) => path.endsWith('.md.md')), false);
   assert.ok(plan.atlasSourcePaths.every((path) => path.endsWith('.md')));
+});
+
+test('extracts industries from structured Atlas reference blocks without regex interpolation', () => {
+  const structuredContext = [
+    '[ATLAS-06] Target Industries',
+    'Source: Ideal Client Profile',
+    'Authority: Atlas OS',
+    '',
+    '- Construction',
+    '- Engineering',
+    '',
+    '[ATLAS-07] Geographic Focus',
+    'Source: Ideal Client Profile',
+    'Authority: Atlas OS',
+    '',
+    '- South Africa',
+  ].join('\n');
+  const structured = {
+    idealClientProfile: package_('Ideal Client Profile', structuredContext, '[ATLAS-06]', ['Target Industries']),
+    leadGeneration: package_('Lead Generation System', 'Quality over quantity.'),
+    leadQualification: package_('Lead Qualification', 'Business fit and project fit.'),
+    leadAgentGovernance: package_('Lead Agent', 'Atlas OS remains the single source of truth.'),
+  } as never;
+
+  const plan = createLeadAtlasResearchPlanner().plan({ atlas: structured, geographicFocus: 'South Africa', maxQueries: 6 });
+  assert.deepEqual(plan.queries, [
+    'Construction businesses in South Africa',
+    'Construction companies in South Africa',
+    'professional Construction firms in South Africa',
+    'Engineering businesses in South Africa',
+    'Engineering companies in South Africa',
+    'professional Engineering firms in South Africa',
+  ]);
 });
 
 test('fails closed when Atlas does not provide target industries', () => {
