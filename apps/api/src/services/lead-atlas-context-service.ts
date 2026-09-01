@@ -12,6 +12,7 @@ interface RequiredAtlasSource {
   key: keyof LeadAtlasContextBundle;
   query: string;
   expectedTitle: string;
+  pathPrefix: string;
 }
 
 const REQUIRED_SOURCES: RequiredAtlasSource[] = [
@@ -19,21 +20,25 @@ const REQUIRED_SOURCES: RequiredAtlasSource[] = [
     key: 'idealClientProfile',
     query: 'Ideal Client Profile',
     expectedTitle: 'Ideal Client Profile',
+    pathPrefix: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile',
   },
   {
     key: 'leadGeneration',
     query: 'Lead Generation System',
     expectedTitle: 'Lead Generation System',
+    pathPrefix: 'Volume 1 - Agency/05 - Client Acquisition/Lead Generation System',
   },
   {
     key: 'leadQualification',
     query: 'Lead Qualification',
     expectedTitle: 'Lead Qualification',
+    pathPrefix: 'Volume 1 - Agency/05 - Client Acquisition/Lead Qualification',
   },
   {
     key: 'leadAgentGovernance',
     query: 'Lead Agent',
     expectedTitle: 'Lead Agent',
+    pathPrefix: 'Volume 1 - Agency/11 - AI Agency Infrastructure/Lead Agent',
   },
 ];
 
@@ -57,7 +62,7 @@ export function createLeadAtlasContextService(
         const package_ = exactSourceContext
           ? await exactSourceContext.assembleExact({
               title: source.expectedTitle,
-              pathPrefix: 'Volume 1 - Agency/',
+              pathPrefix: source.pathPrefix,
               agent: 'lead_agent',
               task: 'lead_research_and_qualification',
               maximumSecurityClassification: 'internal',
