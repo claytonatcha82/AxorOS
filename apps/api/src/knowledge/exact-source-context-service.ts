@@ -44,7 +44,31 @@ export function createExactSourceContextService(pool: Pick<Pool, 'query'>) {
       }
 
       const result = await pool.query(
-        `select
+        `with selected_document as (
+           select d.*
+           from knowledge.documents d
+           where d.status = 'active'
+             and d.title = $1
+             and d.path like $2
+             and (cardinality(d.allowed_agents) = 0 or $3 = any(d.allowed_agents))
+             and (cardinality(d.applicable_tasks) = 0 or $4 = any(d.applicable_tasks))
+             and d.security_classification = any($5::text[])
+           order by
+             case d.authority_level
+               when 'critical_policy' then 6
+               when 'authoritative' then 5
+               when 'recommended' then 4
+               when 'reference' then 3
+               when 'example' then 2
+               when 'historical' then 1
+               else 0
+             end desc,
+             d.priority desc,
+             d.last_modified desc,
+             d.path asc
+           limit 1
+         )
+         select
            c.id as chunk_id,
            d.id as document_id,
            d.document_id as document_key,
@@ -59,14 +83,8 @@ export function createExactSourceContextService(pool: Pick<Pool, 'query'>) {
            d.source_version,
            d.checksum as document_checksum,
            c.checksum as chunk_checksum
-         from knowledge.documents d
+         from selected_document d
          join knowledge.chunks c on c.document_id = d.id
-         where d.status = 'active'
-           and d.title = $1
-           and d.path like $2
-           and (cardinality(d.allowed_agents) = 0 or $3 = any(d.allowed_agents))
-           and (cardinality(d.applicable_tasks) = 0 or $4 = any(d.applicable_tasks))
-           and d.security_classification = any($5::text[])
          order by c.chunk_index asc`,
         [title, `${pathPrefix}%`, agent, task, allowedSecurityLevels(request.maximumSecurityClassification)],
       );
