@@ -29,3 +29,31 @@ test('rejects social and directory results as official websites', () => {
   ] });
   assert.equal(result.status, 'not_found');
 });
+
+
+test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'Acme Engineering',
+    formattedAddress: '12 Example Road, Durban, KwaZulu-Natal, South Africa',
+    results: [
+      { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services based in Durban, KwaZulu-Natal.' },
+      { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services based in Cape Town, Western Cape.' },
+    ],
+  });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') {
+    assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
+  }
+});
+
+test('still fails closed when equal-identity candidates have equal location evidence', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'Acme Engineering',
+    formattedAddress: 'Durban, KwaZulu-Natal, South Africa',
+    results: [
+      { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services in Durban.' },
+      { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services in Durban.' },
+    ],
+  });
+  assert.equal(result.status, 'ambiguous');
+});

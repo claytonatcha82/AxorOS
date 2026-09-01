@@ -134,7 +134,11 @@ export function createLeadResearchWorkflowService(
           continue;
         }
 
-        const selection = selectOfficialWebsite({ businessName: candidate.displayName, results: web.output.results });
+        const selection = selectOfficialWebsite({
+          businessName: candidate.displayName,
+          ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
+          results: web.output.results,
+        });
         if (selection.status !== 'selected') {
           proposals.push({
             leadId,
