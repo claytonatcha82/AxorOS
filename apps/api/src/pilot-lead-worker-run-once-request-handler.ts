@@ -139,6 +139,9 @@ export function createPilotLeadWorkerRunOnceRequestHandler(
             reviewExecutionId: lead.qualificationReviewExecutionId,
           })),
           ambiguousOrUnresolved: result.proposals.length,
+          duplicateSkipped: result.outcomes.duplicateSkipped,
+          webResearchFailed: result.outcomes.webResearchFailed,
+          candidateOutcomes: result.outcomes,
         },
       }, corsHeaders);
     } catch (error) {
