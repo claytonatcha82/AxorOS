@@ -47,6 +47,13 @@ type DashboardSnapshot = {
   agents: Array<{ agentId: AgentId; totalExecutions: number; activeExecutions: number; completedExecutions: number; reviewExecutions: number; failedExecutions: number; latestActivityAt: string | null; latestObjective: string | null }>;
   agentReadiness: AgentReadinessRecord[];
   pilotState: PilotStateRecord;
+  pilotLeadWorker: {
+    inProgress: boolean;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastFailedAt: string | null;
+    lastOutcome: 'completed' | 'failed' | 'skipped' | null;
+  };
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
   recentActivity: Array<{ eventType: string; actorType: string; actorId: string | null; createdAt: string }>;
 };
@@ -128,6 +135,7 @@ function App() {
   const [pilotChanging, setPilotChanging] = useState(false);
   const [pilotReason, setPilotReason] = useState('');
   const [pilotConfirmation, setPilotConfirmation] = useState('');
+  const [leadCycleRunning, setLeadCycleRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const headers = useMemo(() => ({ authorization: `Bearer ${token}` }), [token]);
@@ -158,7 +166,10 @@ function App() {
   }, [headers, token]);
 
   useEffect(() => {
-    if (token) void refresh();
+    if (!token) return;
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 2_000);
+    return () => window.clearInterval(timer);
   }, [refresh, token]);
 
   async function resolveApproval(approval: PendingApproval, decision: 'approved' | 'rejected') {
@@ -192,6 +203,26 @@ function App() {
       setError(actionError instanceof Error ? actionError.message : String(actionError));
     } finally {
       setActioning(null);
+    }
+  }
+
+  async function runLeadCycle() {
+    if (!token || leadCycleRunning) return;
+    setLeadCycleRunning(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/lead-worker/run-once`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmation: 'RUN PILOT LEAD CYCLE' }),
+      });
+      await readJson(response);
+      await refresh();
+    } catch (cycleError) {
+      setError(cycleError instanceof Error ? cycleError.message : String(cycleError));
+      await refresh();
+    } finally {
+      setLeadCycleRunning(false);
     }
   }
 
@@ -368,12 +399,24 @@ function App() {
             <div className="agent-grid">
               {dashboard.agents.map((agent) => {
                 const readiness = readinessByAgent.get(agent.agentId);
+                const activity = agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.inProgress ? 'ACTIVE' : runtimeActivity(agent);
                 return (
                   <article className="agent-card" key={agent.agentId}>
-                    <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>Readiness: {readiness?.status ?? 'NOT_CONFIGURED'} · Activity: {runtimeActivity(agent)}</span></div></div>
+                    <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>Readiness: {readiness?.status ?? 'NOT_CONFIGURED'} · Activity: {activity}</span></div></div>
                     <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
                     <p>{readiness?.blockers.length ? readiness.blockers.join(' · ') : readiness?.notes[0] ?? agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
-                    <small>{formatDate(agent.latestActivityAt)}</small>
+                    <small>{agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastStartedAt
+                      ? `Lead worker last started: ${formatDate(dashboard.pilotLeadWorker.lastStartedAt)} · ${dashboard.pilotLeadWorker.lastOutcome ?? 'running'}`
+                      : formatDate(agent.latestActivityAt)}</small>
+                    {agent.agentId === 'lead_agent' && (
+                      <button
+                        className="secondary-button agent-run-button"
+                        disabled={dashboard.pilotState.state !== 'PILOT_ACTIVE' || leadCycleRunning || dashboard.pilotLeadWorker.inProgress}
+                        onClick={() => void runLeadCycle()}
+                      >
+                        {leadCycleRunning || dashboard.pilotLeadWorker.inProgress ? 'Lead cycle running…' : 'Run Lead Cycle'}
+                      </button>
+                    )}
                   </article>
                 );
               })}
