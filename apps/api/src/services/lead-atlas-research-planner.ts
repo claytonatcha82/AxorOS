@@ -40,6 +40,22 @@ function bulletsFromText(text: string): string[] {
   return [...text.matchAll(BULLET)].map((item) => item[1]!.replace(/\*\*/g, '').trim());
 }
 
+function atlasReferenceSection(context: string, reference: string): string {
+  // Atlas context is already structured as reference/source/authority blocks.
+  // Split on the static block boundary instead of interpolating a dynamic
+  // reference into RegExp. This avoids runtime regex failures for references
+  // such as [ATLAS-06].
+  const block = context
+    .split(/\n\n(?=\[ATLAS-)/)
+    .find((candidate) => candidate.split('\n', 1)[0]?.trim() === reference.trim());
+
+  if (!block) return '';
+
+  const lines = block.split('\n');
+  const authorityIndex = lines.findIndex((line) => /^Authority:\s*/i.test(line.trim()));
+  return authorityIndex >= 0 ? lines.slice(authorityIndex + 1).join('\n') : '';
+}
+
 function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
   const industrySources = atlas.idealClientProfile.sources.filter((source) => {
     const headings = source.citation.headingPath;
@@ -48,13 +64,9 @@ function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
   });
 
   if (industrySources.length > 0) {
-    const industries = industrySources.flatMap((source) => {
-      const reference = source.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const section = atlas.idealClientProfile.context.match(
-        new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\[ATLAS-|$)`),
-      )?.[1] ?? '';
-      return bulletsFromText(section);
-    });
+    const industries = industrySources.flatMap((source) =>
+      bulletsFromText(atlasReferenceSection(atlas.idealClientProfile.context, source.reference))
+    );
     if (industries.length > 0) return unique(industries);
   }
 
