@@ -1,1 +1,9 @@
 import { logEvent } from './logger.js';
+import { createConfig } from './config.js';
+import { createDatabasePool } from './db.js';
+import { createIntegrations } from './integrations.js';
+import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
+import { createKnowledgeRetrievalService } from './knowledge/knowledge-retrieval-service.js';
+import { createKnowledgeContextService } from './knowledge/knowledge-context-service.js';
+import { createLeadLiveResearchRuntime } from './services/lead-live-research-runtime.js';
+import { createPilotLeadWorker } from './services/pilot-lead-worker.js';
