@@ -35,6 +35,8 @@ export interface LeadResearchOutcomeCounts {
   duplicateSkipped: number;
   webResearchFailed: number;
   unresolved: number;
+  ambiguous: number;
+  notFound: number;
 }
 
 export interface LeadResearchWorkflowOutput {
@@ -90,6 +92,8 @@ export function createLeadResearchWorkflowService(
         duplicateSkipped: 0,
         webResearchFailed: 0,
         unresolved: 0,
+        ambiguous: 0,
+        notFound: 0,
       };
       let actionableDiscovered = 0;
       for (const candidate of discovery.output.candidates) {
@@ -140,6 +144,8 @@ export function createLeadResearchWorkflowService(
             publicWebResults: web.output.results,
           });
           outcomes.unresolved += 1;
+          if (selection.status === 'ambiguous') outcomes.ambiguous += 1;
+          if (selection.status === 'not_found') outcomes.notFound += 1;
           if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
