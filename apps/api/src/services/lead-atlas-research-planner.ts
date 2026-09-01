@@ -1,5 +1,6 @@
 import type { KnowledgeContextPackage } from '../knowledge/knowledge-context-service.js';
 import type { LeadAtlasContextBundle } from './lead-atlas-context-service.js';
+import { logEvent } from '../logger.js';
 import { createLeadDiscoveryQueryPlanner } from './lead-discovery-query-planner.js';
 
 export interface LeadResearchPlanInput {
@@ -62,6 +63,21 @@ function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
     const headings = source.citation.headingPath;
     return Array.isArray(headings)
       && headings.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()));
+  });
+
+  logEvent('info', 'lead_atlas_planner_runtime_fingerprint', {
+    plannerContract: 'structured-atlas-industries-v2',
+    runtimeCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? '(unknown)',
+    runtimeDeployment: process.env.RAILWAY_DEPLOYMENT_ID ?? '(unknown)',
+    idealClientProfileSources: atlas.idealClientProfile.sources.map((source) => ({
+      reference: source.reference,
+      title: source.citation.title,
+      path: source.citation.path,
+      headingPath: source.citation.headingPath,
+    })),
+    idealClientProfileIncludedItems: atlas.idealClientProfile.includedItems,
+    idealClientProfileTruncated: atlas.idealClientProfile.truncated,
+    targetIndustriesSourceCount: industrySources.length,
   });
 
   if (industrySources.length > 0) {
