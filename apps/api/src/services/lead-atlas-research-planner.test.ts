@@ -36,23 +36,22 @@ test('derives bounded breadth-first discovery queries from Atlas target industri
   assert.ok(plan.atlasSourcePaths.every((path) => path.endsWith('.md')));
 });
 
-test('extracts industries from structured Atlas reference blocks without regex interpolation', () => {
+test('extracts industries from the exact Atlas chunk rendering used in production', () => {
   const structuredContext = [
-    '[ATLAS-06] Target Industries',
-    'Source: Ideal Client Profile',
-    'Authority: Atlas OS',
-    '',
+    '[ATLAS-06] Ideal Client Profile > Industries',
+    'Source: Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+    'Authority: authoritative',
     '- Construction',
     '- Engineering',
+    '- Manufacturing',
     '',
-    '[ATLAS-07] Geographic Focus',
-    'Source: Ideal Client Profile',
-    'Authority: Atlas OS',
-    '',
-    '- South Africa',
-  ].join('\n');
+    '[ATLAS-07] Ideal Client Profile > Geographic Focus',
+    'Source: Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+    'Authority: authoritative',
+    'South Africa',
+  ].join('\r\n');
   const structured = {
-    idealClientProfile: package_('Ideal Client Profile', structuredContext, '[ATLAS-06]', ['Target Industries']),
+    idealClientProfile: package_('Ideal Client Profile', structuredContext, '[ATLAS-06]', ['Industries']),
     leadGeneration: package_('Lead Generation System', 'Quality over quantity.'),
     leadQualification: package_('Lead Qualification', 'Business fit and project fit.'),
     leadAgentGovernance: package_('Lead Agent', 'Atlas OS remains the single source of truth.'),
