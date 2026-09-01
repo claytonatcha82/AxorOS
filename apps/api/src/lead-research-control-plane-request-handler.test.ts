@@ -28,6 +28,8 @@ async function withServer(run: (baseUrl: string, calls: Array<Record<string, unk
             duplicateSkipped: 2,
             webResearchFailed: 0,
             unresolved: 0,
+            ambiguous: 0,
+            notFound: 0,
           },
         };
       },
