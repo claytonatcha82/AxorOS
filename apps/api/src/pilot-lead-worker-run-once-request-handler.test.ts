@@ -76,6 +76,7 @@ test('executes the bounded worker and returns Atlas/review evidence', async () =
       qualificationReviewExecutionId: 'review-1',
     }],
     proposals: [],
+    outcomes: { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0 },
   } as any;
   const handler = createPilotLeadWorkerRunOnceRequestHandler({
     config, fallback,
@@ -87,6 +88,7 @@ test('executes the bounded worker and returns Atlas/review evidence', async () =
     assert.equal(response.body.data.discovered, 1);
     assert.deepEqual(response.body.data.atlasSourcePaths, ['Volume 1/Ideal Client.md']);
     assert.equal(response.body.data.enriched[0].reviewExecutionId, 'review-1');
+    assert.deepEqual(response.body.data.candidateOutcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0 });
   });
 });
 
