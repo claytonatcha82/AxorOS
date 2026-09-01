@@ -29,9 +29,9 @@ test('PILOT_DISABLED prevents all Lead research execution', async () => {
   assert.equal(calls, 0);
 });
 
-test('PILOT_ACTIVE executes one bounded South Africa research cycle', async () => {
+test('PILOT_ACTIVE allows the bounded expanded discovery plan to reach the orchestrator', async () => {
   const inputs: unknown[] = [];
-  const output = { queries: ['q'], atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const output = { queries: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     { async research(input) { inputs.push(input); return output; } },
@@ -40,20 +40,21 @@ test('PILOT_ACTIVE executes one bounded South Africa research cycle', async () =
 
   assert.equal(await worker.runOnce(), output);
   assert.equal(inputs.length, 1);
-  assert.deepEqual(
-    {
-      geographicFocus: (inputs[0] as any).geographicFocus,
-      maxQueries: (inputs[0] as any).maxQueries,
-      maxBusinessesPerQuery: (inputs[0] as any).maxBusinessesPerQuery,
-      maxWebResultsPerBusiness: (inputs[0] as any).maxWebResultsPerBusiness,
-    },
-    {
-      geographicFocus: 'South Africa',
-      maxQueries: 1,
-      maxBusinessesPerQuery: 3,
-      maxWebResultsPerBusiness: 3,
-    },
+  assert.equal((inputs[0] as any).maxQueries, 6);
+  assert.equal((inputs[0] as any).maxBusinessesPerQuery, 3);
+  assert.equal((inputs[0] as any).maxWebResultsPerBusiness, 3);
+});
+
+test('explicit maxQueries overrides the bounded default', async () => {
+  let captured: any;
+  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const worker = createPilotLeadWorker(
+    { async get() { return active; } },
+    { async research(input) { captured = input; return output; } },
+    { intervalMs: 60_000, maxQueries: 2 },
   );
+  await worker.runOnce();
+  assert.equal(captured.maxQueries, 2);
 });
 
 test('second state check prevents execution if pilot is disabled before provider boundary', async () => {
@@ -99,7 +100,6 @@ test('concurrent runOnce calls do not overlap research cycles', async () => {
   release();
   assert.equal(await first, output);
 });
-
 
 test('exposes live worker activity and completion timestamps', async () => {
   let release!: () => void;
