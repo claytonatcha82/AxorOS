@@ -32,6 +32,8 @@ test('derives broad business discovery queries from Atlas target industries', ()
   ]);
   assert.equal(plan.queries.some((query) => /web design|website developer/i.test(query)), false);
   assert.ok(plan.atlasSourcePaths.some((path) => path.includes('Ideal Client Profile')));
+  assert.equal(plan.atlasSourcePaths.some((path) => path.endsWith('.md.md')), false);
+  assert.ok(plan.atlasSourcePaths.every((path) => path.endsWith('.md')));
 });
 
 test('fails closed when Atlas does not provide target industries', () => {
