@@ -18,6 +18,13 @@ export interface ExecutiveDashboardRequestHandlerDependencies {
     lastCompletedAt: string | null;
     lastFailedAt: string | null;
     lastOutcome: 'completed' | 'failed' | 'skipped' | null;
+    lastSummary: {
+      discovered: number;
+      enriched: number;
+      duplicateSkipped: number;
+      webResearchFailed: number;
+      unresolved: number;
+    } | null;
   };
   fallback: RequestListener;
 }
@@ -90,7 +97,7 @@ export function createExecutiveDashboardRequestHandler(dependencies: ExecutiveDa
           };
       const pilotLeadWorker = dependencies.pilotLeadWorkerStatus
         ? dependencies.pilotLeadWorkerStatus()
-        : { inProgress: false, lastStartedAt: null, lastCompletedAt: null, lastFailedAt: null, lastOutcome: null };
+        : { inProgress: false, lastStartedAt: null, lastCompletedAt: null, lastFailedAt: null, lastOutcome: null, lastSummary: null };
       sendJson(response, 200, { ok: true, data: { ...snapshot, agentReadiness: readiness, pilotState, pilotLeadWorker } }, corsHeaders);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Executive dashboard snapshot failed.';
