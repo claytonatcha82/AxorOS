@@ -33,6 +33,10 @@ export function createPilotLeadWorker(
 
   let timer: NodeJS.Timeout | undefined;
   let inProgress = false;
+  let lastStartedAt: string | null = null;
+  let lastCompletedAt: string | null = null;
+  let lastFailedAt: string | null = null;
+  let lastOutcome: 'completed' | 'failed' | 'skipped' | null = null;
 
   async function runOnce(): Promise<AtlasLeadResearchOutput | null> {
     if (inProgress) {
@@ -44,9 +48,12 @@ export function createPilotLeadWorker(
     // This makes concurrent run-once requests fail closed instead of both
     // crossing the provider boundary.
     inProgress = true;
+    lastStartedAt = new Date().toISOString();
     try {
       const current = await state.get();
       if (current.state !== 'PILOT_ACTIVE') {
+        lastOutcome = 'skipped';
+        lastOutcome = 'skipped';
         options.onCycleSkipped?.('pilot_disabled');
         return null;
       }
@@ -68,9 +75,13 @@ export function createPilotLeadWorker(
         maxBusinessesPerQuery: options.maxBusinessesPerQuery ?? 3,
         maxWebResultsPerBusiness: options.maxWebResultsPerBusiness ?? 3,
       });
+      lastCompletedAt = new Date().toISOString();
+      lastOutcome = 'completed';
       options.onCycleCompleted?.(result);
       return result;
     } catch (error) {
+      lastFailedAt = new Date().toISOString();
+      lastOutcome = 'failed';
       options.onCycleFailed?.(error);
       throw error;
     } finally {
@@ -80,6 +91,9 @@ export function createPilotLeadWorker(
 
   return {
     runOnce,
+    getStatus() {
+      return { inProgress, lastStartedAt, lastCompletedAt, lastFailedAt, lastOutcome };
+    },
     start(): void {
       if (timer) return;
       timer = setInterval(() => {
