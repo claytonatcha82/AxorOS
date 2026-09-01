@@ -275,6 +275,7 @@ const executiveDashboardRequestHandler = createExecutiveDashboardRequestHandler(
   config,
   dashboard: executiveDashboard,
   pilotSystemState,
+  pilotLeadWorkerStatus: () => pilotLeadWorker.getStatus(),
   fallback: pilotSystemStateControlPlaneRequestHandler,
 });
 const leadResearchControlPlaneRequestHandler = createLeadResearchControlPlaneRequestHandler({
