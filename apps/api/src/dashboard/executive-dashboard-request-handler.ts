@@ -24,6 +24,8 @@ export interface ExecutiveDashboardRequestHandlerDependencies {
       duplicateSkipped: number;
       webResearchFailed: number;
       unresolved: number;
+      ambiguous: number;
+      notFound: number;
     } | null;
   };
   fallback: RequestListener;
