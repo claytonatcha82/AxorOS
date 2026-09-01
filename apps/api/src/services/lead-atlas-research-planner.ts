@@ -80,11 +80,12 @@ export function createLeadAtlasResearchPlanner() {
     plan(input: LeadResearchPlanInput): LeadResearchPlan {
       const maxQueries = input.maxQueries ?? 12;
       const industries = industriesFromAtlas(input.atlas);
-      const planned = discoveryQueryPlanner.plan({
+      const plannerInput = {
         industries,
-        geographicFocus: input.geographicFocus,
         maxQueries,
-      });
+        ...(input.geographicFocus?.trim() ? { geographicFocus: input.geographicFocus.trim() } : {}),
+      };
+      const planned = discoveryQueryPlanner.plan(plannerInput);
       return { queries: planned.queries, atlasSourcePaths: atlasPaths(input.atlas) };
     },
   };
