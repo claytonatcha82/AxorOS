@@ -49,7 +49,7 @@ test('deduplicates using normalized provider identity before creating a lead', a
   const mock = createMock('place-123', true);
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.persistDiscovery({ discovery: { query: 'Durban businesses', candidates: [{ providerPlaceId: 'place-123', displayName: 'Example Business', types: [], source: 'google_places' }] } });
-  assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-123', leadId: 'lead-existing' }]);
+  assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-123', leadId: 'lead-existing', enrichmentPending: true }]);
   assert.equal(mock.createdInputs.length, 0);
   assert.equal(mock.events.length, 0);
 });
@@ -58,7 +58,7 @@ test('claims a legacy JSONB-only discovery identity instead of duplicating the l
   const mock = createMock('place-legacy', false);
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.persistDiscovery({ discovery: { query: 'businesses', candidates: [{ providerPlaceId: 'place-legacy', displayName: 'Legacy Business', types: [], source: 'google_places' }] } });
-  assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-legacy', leadId: 'lead-existing' }]);
+  assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-legacy', leadId: 'lead-existing', enrichmentPending: true }]);
   assert.deepEqual(mock.identities, [{ provider: 'google_places', externalId: 'place-legacy', leadId: 'lead-existing' }]);
   assert.equal(mock.createdInputs.length, 0);
 });
