@@ -53,21 +53,15 @@ export function createPilotLeadWorker(
       return null;
     }
 
-    // Reserve the process-local worker synchronously before the first await.
-    // This makes concurrent run-once requests fail closed instead of both
-    // crossing the provider boundary.
     inProgress = true;
     lastStartedAt = new Date().toISOString();
     try {
       const current = await state.get();
       if (current.state !== 'PILOT_ACTIVE') {
         lastOutcome = 'skipped';
-        lastOutcome = 'skipped';
         options.onCycleSkipped?.('pilot_disabled');
         return null;
       }
-      // Re-check immediately before external research so a concurrent kill-switch
-      // transition fails closed before provider execution begins.
       const confirmed = await state.get();
       if (confirmed.state !== 'PILOT_ACTIVE') {
         options.onCycleSkipped?.('pilot_disabled');
@@ -80,7 +74,10 @@ export function createPilotLeadWorker(
         correlationId: `pilot-lead-worker:${runId}`,
         geographicFocus: options.geographicFocus ?? 'South Africa',
         ...(options.country ? { country: options.country } : {}),
-        maxQueries: options.maxQueries ?? 1,
+        // The planner is deliberately bounded at 12 queries. The pilot worker
+        // must allow the planner to exercise that bounded expansion; defaulting
+        // to 1 silently collapsed the new discovery strategy back to one query.
+        maxQueries: options.maxQueries ?? 6,
         maxBusinessesPerQuery: options.maxBusinessesPerQuery ?? 3,
         maxWebResultsPerBusiness: options.maxWebResultsPerBusiness ?? 3,
       });
