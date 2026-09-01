@@ -81,8 +81,14 @@ export function createLeadResearchWorkflowService(
           discovery: { query: discovery.output.query, candidates: [candidate] },
           actorId: 'lead_agent',
         });
-        const leadId = persisted.created[0]?.id ?? persisted.duplicates[0]?.leadId;
+        const duplicate = persisted.duplicates.find((item) => item.providerPlaceId === candidate.providerPlaceId);
+        const leadId = persisted.created[0]?.id ?? duplicate?.leadId;
         if (!leadId) throw new Error(`Lead persistence produced no identity for ${candidate.providerPlaceId}.`);
+        // A provider identity may recur across autonomous cycles. If its lead has
+        // already moved beyond the discovery-only label, do not enrich or qualify
+        // it again. Discovery-only duplicates remain retryable after transient or
+        // ambiguous public-web research outcomes.
+        if (duplicate && !duplicate.enrichmentPending) continue;
 
         const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
           integrationId: 'research.tavily-web',
