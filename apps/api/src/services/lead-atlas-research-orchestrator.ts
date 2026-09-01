@@ -87,6 +87,8 @@ export function createLeadAtlasResearchOrchestrator(
         duplicateSkipped: 0,
         webResearchFailed: 0,
         unresolved: 0,
+        ambiguous: 0,
+        notFound: 0,
       };
       let discovered = 0;
 
@@ -105,6 +107,8 @@ export function createLeadAtlasResearchOrchestrator(
         outcomes.duplicateSkipped += result.outcomes.duplicateSkipped;
         outcomes.webResearchFailed += result.outcomes.webResearchFailed;
         outcomes.unresolved += result.outcomes.unresolved;
+        outcomes.ambiguous += result.outcomes.ambiguous;
+        outcomes.notFound += result.outcomes.notFound;
 
         for (const lead of result.enriched) {
           if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
