@@ -97,7 +97,7 @@ test('skips public-web enrichment for a duplicate lead that has already moved be
   const service = createLeadResearchWorkflowService(registry as never, duplicateDiscovery as never, enrichmentService(enrichments) as never);
   const result = await service.research({ query: 'engineering businesses in Durban', country: 'south africa', executionId: 'exec-duplicate', correlationId: 'corr-duplicate' });
 
-  assert.equal(result.discovered, 1);
+  assert.equal(result.discovered, 0);
   assert.equal(result.enriched.length, 0);
   assert.equal(result.proposals.length, 0);
   assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0 });
@@ -127,4 +127,65 @@ test('retries public-web enrichment for a duplicate that is still discovery-only
   assert.equal(enrichments.length, 1);
   assert.equal(registry.calls.length, 2);
   assert.equal(registry.calls[1]?.integrationId, 'research.tavily-web');
+});
+
+
+test('overscans one Google Places response so processed duplicates do not consume actionable prospect slots', async () => {
+  const registry = new MockRegistry();
+  registry.execute = async function(request: Record<string, any>) {
+    this.calls.push(request);
+    if (request.integrationId === 'research.google-places') {
+      return {
+        status: 'succeeded',
+        output: {
+          query: request.input.query,
+          candidates: [
+            { providerPlaceId: 'dup-1', displayName: 'Duplicate One', types: [], source: 'google_places' },
+            { providerPlaceId: 'dup-2', displayName: 'Duplicate Two', types: [], source: 'google_places' },
+            { providerPlaceId: 'dup-3', displayName: 'Duplicate Three', types: [], source: 'google_places' },
+            { providerPlaceId: 'new-1', displayName: 'New One', types: [], source: 'google_places' },
+            { providerPlaceId: 'new-2', displayName: 'New Two', types: [], source: 'google_places' },
+            { providerPlaceId: 'unused-1', displayName: 'Unused One', types: [], source: 'google_places' },
+          ],
+        },
+      } as any;
+    }
+    const businessName = String(request.input.query).split(' official website')[0] ?? 'Business';
+    return {
+      status: 'succeeded',
+      output: {
+        query: request.input.query,
+        results: [{ title: businessName, url: `https://${businessName.toLowerCase().replaceAll(' ', '')}.co.za/`, content: 'Official website' }],
+      },
+    } as any;
+  };
+
+  const persistedIds: string[] = [];
+  const overscanDiscovery = {
+    async persistDiscovery(input: any) {
+      const providerPlaceId = input.discovery.candidates[0].providerPlaceId as string;
+      persistedIds.push(providerPlaceId);
+      if (providerPlaceId.startsWith('dup-')) {
+        return { created: [], duplicates: [{ providerPlaceId, leadId: `lead-${providerPlaceId}`, enrichmentPending: false }] };
+      }
+      return { created: [{ id: `lead-${providerPlaceId}` }], duplicates: [] };
+    },
+  };
+  const enrichments: unknown[] = [];
+  const service = createLeadResearchWorkflowService(registry as never, overscanDiscovery as never, enrichmentService(enrichments) as never);
+  const result = await service.research({
+    query: 'construction businesses',
+    maxBusinesses: 2,
+    maxWebResultsPerBusiness: 3,
+    executionId: 'exec-overscan',
+    correlationId: 'corr-overscan',
+  });
+
+  assert.equal((registry.calls[0] as any).input.maxResults, 6);
+  assert.deepEqual(persistedIds, ['dup-1', 'dup-2', 'dup-3', 'new-1', 'new-2']);
+  assert.equal(result.discovered, 2);
+  assert.equal(result.enriched.length, 2);
+  assert.deepEqual(result.outcomes, { enriched: 2, duplicateSkipped: 3, webResearchFailed: 0, unresolved: 0 });
+  assert.equal(registry.calls.filter((call) => call.integrationId === 'research.tavily-web').length, 2);
+  assert.equal(enrichments.length, 2);
 });
