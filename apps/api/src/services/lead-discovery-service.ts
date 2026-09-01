@@ -9,7 +9,7 @@ export interface PersistLeadDiscoveryInput {
 
 export interface PersistLeadDiscoveryResult {
   created: LeadRecord[];
-  duplicates: Array<{ providerPlaceId: string; leadId: string }>;
+  duplicates: Array<{ providerPlaceId: string; leadId: string; enrichmentPending: boolean }>;
 }
 
 function requireText(value: string, field: string): string {
@@ -46,7 +46,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
       requireText(input.discovery.query, 'discovery.query');
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       const created: LeadRecord[] = [];
-      const duplicates: Array<{ providerPlaceId: string; leadId: string }> = [];
+      const duplicates: Array<{ providerPlaceId: string; leadId: string; enrichmentPending: boolean }> = [];
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
@@ -93,7 +93,11 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
         });
 
         if (outcome.kind === 'duplicate') {
-          duplicates.push({ providerPlaceId, leadId: outcome.lead.id });
+          duplicates.push({
+            providerPlaceId,
+            leadId: outcome.lead.id,
+            enrichmentPending: outcome.lead.companyName === internalDiscoveryLabel(providerPlaceId),
+          });
         } else {
           created.push(outcome.lead);
         }
