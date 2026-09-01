@@ -42,20 +42,23 @@ function bulletsFromText(text: string): string[] {
 }
 
 function atlasReferenceSection(context: string, reference: string): string {
-  // Atlas context is already structured as reference/source/authority blocks.
-  // Split on the static block boundary instead of interpolating a dynamic
-  // reference into RegExp. This avoids runtime regex failures for references
-  // such as [ATLAS-06].
   const normalizedReference = reference.trim();
-  const block = context
-    .split(/\n\n(?=\[ATLAS-)/)
-    .find((candidate) => candidate.split('\n', 1)[0]?.trim().startsWith(normalizedReference));
+  if (!normalizedReference) return '';
 
-  if (!block) return '';
+  // Exact-source context is rendered as independent Atlas reference blocks.
+  // Identify the block from its first line rather than relying on the exact
+  // amount of whitespace between chunks.
+  const lines = context.replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed === normalizedReference || trimmed.startsWith(`${normalizedReference} `);
+  });
+  if (start < 0) return '';
 
-  const lines = block.split('\n');
-  const authorityIndex = lines.findIndex((line) => /^Authority:\s*/i.test(line.trim()));
-  return authorityIndex >= 0 ? lines.slice(authorityIndex + 1).join('\n') : '';
+  const end = lines.findIndex((line, index) => index > start && /^\[ATLAS-\d+\](?:\s|$)/.test(line.trim()));
+  const block = lines.slice(start, end < 0 ? lines.length : end);
+  const authorityIndex = block.findIndex((line) => /^Authority:\s*/i.test(line.trim()));
+  return authorityIndex >= 0 ? block.slice(authorityIndex + 1).join('\n') : '';
 }
 
 function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
