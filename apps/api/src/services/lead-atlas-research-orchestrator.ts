@@ -34,6 +34,7 @@ export interface AtlasLeadResearchOutput {
   discovered: number;
   enriched: QualifiedEnrichedLead[];
   proposals: LeadResearchWorkflowOutput['proposals'];
+  outcomes: LeadResearchWorkflowOutput['outcomes'];
 }
 
 function required(value: string, field: string): string {
@@ -81,6 +82,12 @@ export function createLeadAtlasResearchOrchestrator(
 
       const enriched: QualifiedEnrichedLead[] = [];
       const proposals: LeadResearchWorkflowOutput['proposals'] = [];
+      const outcomes: LeadResearchWorkflowOutput['outcomes'] = {
+        enriched: 0,
+        duplicateSkipped: 0,
+        webResearchFailed: 0,
+        unresolved: 0,
+      };
       let discovered = 0;
 
       for (const [index, query] of plan.queries.entries()) {
@@ -94,6 +101,10 @@ export function createLeadAtlasResearchOrchestrator(
         });
         discovered += result.discovered;
         proposals.push(...result.proposals);
+        outcomes.enriched += result.outcomes.enriched;
+        outcomes.duplicateSkipped += result.outcomes.duplicateSkipped;
+        outcomes.webResearchFailed += result.outcomes.webResearchFailed;
+        outcomes.unresolved += result.outcomes.unresolved;
 
         for (const lead of result.enriched) {
           if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
@@ -143,7 +154,7 @@ export function createLeadAtlasResearchOrchestrator(
         }
       }
 
-      return { queries: plan.queries, atlasSourcePaths: plan.atlasSourcePaths, discovered, enriched, proposals };
+      return { queries: plan.queries, atlasSourcePaths: plan.atlasSourcePaths, discovered, enriched, proposals, outcomes };
     },
   };
 }
