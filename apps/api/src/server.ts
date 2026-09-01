@@ -173,6 +173,7 @@ const pilotLeadWorker = createPilotLeadWorker(
         queries: result.queries,
         atlasSourcePaths: result.atlasSourcePaths,
         discovered: result.discovered,
+        providerCandidatesExamined: result.discovered + result.outcomes.duplicateSkipped,
         enriched: result.enriched.length,
         ambiguousOrUnresolved: result.proposals.length,
         duplicateSkipped: result.outcomes.duplicateSkipped,
