@@ -4,7 +4,48 @@ import { createLeadResearchQualificationEvidenceService } from './lead-research-
 
 function atlas() {
   return {
-    idealClientProfile: { context: '# Target Industries\n\n- Construction\n- Engineering\n- Healthcare\n\n# Geographic Focus\nSouth Africa' },
+    idealClientProfile: {
+      context: '# Target Industries\n\n- Construction\n- Engineering\n- Healthcare\n\n# Geographic Focus\nSouth Africa',
+      sources: [],
+    },
+  } as never;
+}
+
+function structuredAtlas() {
+  return {
+    idealClientProfile: {
+      context: [
+        '[ATLAS-06] Ideal Client Profile > Industries',
+        'Source: Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+        'Authority: authoritative',
+        '- Construction',
+        '- Engineering',
+        '- Manufacturing',
+        '',
+        '[ATLAS-07] Ideal Client Profile > Geographic Focus',
+        'Source: Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+        'Authority: authoritative',
+        'South Africa',
+      ].join('\r\n'),
+      sources: [
+        {
+          reference: '[ATLAS-06]',
+          citation: {
+            title: 'Ideal Client Profile',
+            path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+            headingPath: ['Industries'],
+          },
+        },
+        {
+          reference: '[ATLAS-07]',
+          citation: {
+            title: 'Ideal Client Profile',
+            path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
+            headingPath: ['Geographic Focus'],
+          },
+        },
+      ],
+    },
   } as never;
 }
 
@@ -26,6 +67,19 @@ test('records target-industry evidence without inventing a numeric business-fit 
   assert.equal(assessments.timeline.score, null);
 });
 
+test('parses target industries from the structured Atlas source chunk', () => {
+  const assessments = createLeadResearchQualificationEvidenceService().build({
+    atlas: structuredAtlas(),
+    companyName: 'Acme Manufacturing',
+    officialWebsiteUrl: 'https://acme.example/',
+    publicWebResults: [{ title: 'Acme Manufacturing | Home', url: 'https://acme.example/', content: 'Manufacturing services for industrial clients.' }],
+  });
+
+  assert.equal(assessments.businessFit.score, null);
+  assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://acme.example/']);
+  assert.match(assessments.businessFit.missingInformation[0]!, /Manufacturing/);
+});
+
 test('does not invent business-fit score when target-industry evidence is absent', () => {
   const assessments = createLeadResearchQualificationEvidenceService().build({
     atlas: atlas(),
@@ -40,7 +94,7 @@ test('does not invent business-fit score when target-industry evidence is absent
 
 test('fails closed when Atlas target industries are unavailable', () => {
   assert.throws(() => createLeadResearchQualificationEvidenceService().build({
-    atlas: { idealClientProfile: { context: '# Purpose\nMissing target industries.' } } as never,
+    atlas: { idealClientProfile: { context: '# Purpose\nMissing target industries.', sources: [] } } as never,
     companyName: 'Example',
     officialWebsiteUrl: 'https://example.test/',
     publicWebResults: [],
