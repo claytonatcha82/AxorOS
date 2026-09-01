@@ -12,6 +12,13 @@ export interface ExecutiveDashboardRequestHandlerDependencies {
   config: DashboardConfig;
   dashboard: Pick<ExecutiveDashboardService, 'snapshot'>;
   pilotSystemState?: Pick<PilotSystemStatePostgresStore, 'get'>;
+  pilotLeadWorkerStatus?: () => {
+    inProgress: boolean;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastFailedAt: string | null;
+    lastOutcome: 'completed' | 'failed' | 'skipped' | null;
+  };
   fallback: RequestListener;
 }
 
@@ -81,7 +88,10 @@ export function createExecutiveDashboardRequestHandler(dependencies: ExecutiveDa
             version: 0,
             changedAt: snapshot.generatedAt,
           };
-      sendJson(response, 200, { ok: true, data: { ...snapshot, agentReadiness: readiness, pilotState } }, corsHeaders);
+      const pilotLeadWorker = dependencies.pilotLeadWorkerStatus
+        ? dependencies.pilotLeadWorkerStatus()
+        : { inProgress: false, lastStartedAt: null, lastCompletedAt: null, lastFailedAt: null, lastOutcome: null };
+      sendJson(response, 200, { ok: true, data: { ...snapshot, agentReadiness: readiness, pilotState, pilotLeadWorker } }, corsHeaders);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Executive dashboard snapshot failed.';
       sendJson(response, 500, { ok: false, error: { code: 'executive_dashboard_failed', message } }, corsHeaders);
