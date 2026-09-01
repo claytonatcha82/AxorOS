@@ -22,13 +22,13 @@ function atlas() {
   } as never;
 }
 
-test('derives broad business discovery queries from Atlas target industries', () => {
+test('derives bounded breadth-first discovery queries from Atlas target industries', () => {
   const plan = createLeadAtlasResearchPlanner().plan({ atlas: atlas(), geographicFocus: 'South Africa', maxQueries: 4 });
   assert.deepEqual(plan.queries, [
     'Construction businesses in South Africa',
+    'Construction companies in South Africa',
+    'professional Construction firms in South Africa',
     'Engineering businesses in South Africa',
-    'Manufacturing businesses in South Africa',
-    'Healthcare businesses in South Africa',
   ]);
   assert.equal(plan.queries.some((query) => /web design|website developer/i.test(query)), false);
   assert.ok(plan.atlasSourcePaths.some((path) => path.includes('Ideal Client Profile')));
