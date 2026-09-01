@@ -59,3 +59,27 @@ test('fails closed when a required Atlas source is not retrieved', async () => {
   const service = createLeadAtlasContextService(contextService as never);
   await assert.rejects(() => service.load(), /Required Atlas OS source was not retrieved/);
 });
+
+
+test('requests the full allowed context window for the Ideal Client Profile exact source', async () => {
+  const exactRequests: Array<Record<string, unknown>> = [];
+  const exactSourceContext = {
+    async assembleExact(request: Record<string, unknown>) {
+      exactRequests.push(request);
+      return packageFor(String(request.title));
+    },
+  };
+  const fallbackContext = {
+    async assemble() {
+      throw new Error('fallback context should not be used when exact source retrieval is configured');
+    },
+  };
+
+  const service = createLeadAtlasContextService(fallbackContext as never, exactSourceContext as never);
+  await service.load();
+
+  const idealRequest = exactRequests.find((request) => request.title === 'Ideal Client Profile');
+  assert.ok(idealRequest);
+  assert.equal(idealRequest.maxCharacters, 40_000);
+  assert.ok(exactRequests.filter((request) => request.title !== 'Ideal Client Profile').every((request) => request.maxCharacters === 14_000));
+});
