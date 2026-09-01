@@ -45,9 +45,10 @@ function atlasReferenceSection(context: string, reference: string): string {
   // Split on the static block boundary instead of interpolating a dynamic
   // reference into RegExp. This avoids runtime regex failures for references
   // such as [ATLAS-06].
+  const normalizedReference = reference.trim();
   const block = context
     .split(/\n\n(?=\[ATLAS-)/)
-    .find((candidate) => candidate.split('\n', 1)[0]?.trim() === reference.trim());
+    .find((candidate) => candidate.split('\n', 1)[0]?.trim().startsWith(normalizedReference));
 
   if (!block) return '';
 
