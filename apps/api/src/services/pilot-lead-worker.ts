@@ -37,6 +37,13 @@ export function createPilotLeadWorker(
   let lastCompletedAt: string | null = null;
   let lastFailedAt: string | null = null;
   let lastOutcome: 'completed' | 'failed' | 'skipped' | null = null;
+  let lastSummary: {
+    discovered: number;
+    enriched: number;
+    duplicateSkipped: number;
+    webResearchFailed: number;
+    unresolved: number;
+  } | null = null;
 
   async function runOnce(): Promise<AtlasLeadResearchOutput | null> {
     if (inProgress) {
@@ -77,6 +84,13 @@ export function createPilotLeadWorker(
       });
       lastCompletedAt = new Date().toISOString();
       lastOutcome = 'completed';
+      lastSummary = {
+        discovered: result.discovered,
+        enriched: result.outcomes.enriched,
+        duplicateSkipped: result.outcomes.duplicateSkipped,
+        webResearchFailed: result.outcomes.webResearchFailed,
+        unresolved: result.outcomes.unresolved,
+      };
       options.onCycleCompleted?.(result);
       return result;
     } catch (error) {
@@ -92,7 +106,7 @@ export function createPilotLeadWorker(
   return {
     runOnce,
     getStatus() {
-      return { inProgress, lastStartedAt, lastCompletedAt, lastFailedAt, lastOutcome };
+      return { inProgress, lastStartedAt, lastCompletedAt, lastFailedAt, lastOutcome, lastSummary };
     },
     start(): void {
       if (timer) return;
