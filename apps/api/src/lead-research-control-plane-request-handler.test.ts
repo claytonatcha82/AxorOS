@@ -23,6 +23,12 @@ async function withServer(run: (baseUrl: string, calls: Array<Record<string, unk
           discovered: 2,
           enriched: [],
           proposals: [],
+          outcomes: {
+            enriched: 0,
+            duplicateSkipped: 2,
+            webResearchFailed: 0,
+            unresolved: 0,
+          },
         };
       },
     },
