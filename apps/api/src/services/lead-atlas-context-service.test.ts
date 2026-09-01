@@ -81,5 +81,18 @@ test('requests the full allowed context window for the Ideal Client Profile exac
   const idealRequest = exactRequests.find((request) => request.title === 'Ideal Client Profile');
   assert.ok(idealRequest);
   assert.equal(idealRequest.maxCharacters, 40_000);
+  assert.equal(idealRequest.pathPrefix, 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile');
+  assert.equal(
+    exactRequests.find((request) => request.title === 'Lead Generation System')?.pathPrefix,
+    'Volume 1 - Agency/05 - Client Acquisition/Lead Generation System',
+  );
+  assert.equal(
+    exactRequests.find((request) => request.title === 'Lead Qualification')?.pathPrefix,
+    'Volume 1 - Agency/05 - Client Acquisition/Lead Qualification',
+  );
+  assert.equal(
+    exactRequests.find((request) => request.title === 'Lead Agent')?.pathPrefix,
+    'Volume 1 - Agency/11 - AI Agency Infrastructure/Lead Agent',
+  );
   assert.ok(exactRequests.filter((request) => request.title !== 'Ideal Client Profile').every((request) => request.maxCharacters === 14_000));
 });
