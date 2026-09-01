@@ -35,6 +35,7 @@ test('discovers, researches, verifies, and enriches a strongly supported busines
   assert.equal(result.discovered, 1);
   assert.equal(result.enriched.length, 1);
   assert.equal(result.proposals.length, 0);
+  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0 });
   assert.equal(result.enriched[0]?.leadId, 'lead-1');
   assert.equal(result.enriched[0]?.companyName, 'Example Business');
   assert.equal(result.enriched[0]?.officialWebsiteUrl, 'https://examplebusiness.co.za/');
@@ -60,6 +61,7 @@ test('keeps ambiguous website identity as an unresolved proposal and does not en
   assert.equal(result.enriched.length, 0);
   assert.equal(result.proposals.length, 1);
   assert.equal(result.proposals[0]?.selectionStatus, 'ambiguous');
+  assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 1 });
   assert.equal(enrichments.length, 0);
 });
 
@@ -76,6 +78,7 @@ test('keeps the durable discovery but does not enrich when public-web research f
   assert.equal(result.discovered, 1);
   assert.equal(result.enriched.length, 0);
   assert.equal(result.proposals.length, 0);
+  assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 0, webResearchFailed: 1, unresolved: 0 });
   assert.equal(enrichments.length, 0);
 });
 
@@ -97,6 +100,7 @@ test('skips public-web enrichment for a duplicate lead that has already moved be
   assert.equal(result.discovered, 1);
   assert.equal(result.enriched.length, 0);
   assert.equal(result.proposals.length, 0);
+  assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0 });
   assert.equal(enrichments.length, 0);
   assert.equal(registry.calls.length, 1);
   assert.equal(registry.calls[0]?.integrationId, 'research.google-places');
@@ -119,6 +123,7 @@ test('retries public-web enrichment for a duplicate that is still discovery-only
   assert.equal(result.discovered, 1);
   assert.equal(result.enriched.length, 1);
   assert.equal(result.enriched[0]?.leadId, 'lead-existing');
+  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0 });
   assert.equal(enrichments.length, 1);
   assert.equal(registry.calls.length, 2);
   assert.equal(registry.calls[1]?.integrationId, 'research.tavily-web');
