@@ -59,6 +59,8 @@ type DashboardSnapshot = {
       duplicateSkipped: number;
       webResearchFailed: number;
       unresolved: number;
+      ambiguous: number;
+      notFound: number;
     } | null;
   };
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
@@ -417,7 +419,7 @@ function App() {
                       : formatDate(agent.latestActivityAt)}</small>
                     {agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastSummary && (
                       <p className="panel-note">
-                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} new/retryable · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved
+                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} new/retryable · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved ({dashboard.pilotLeadWorker.lastSummary.ambiguous} ambiguous · {dashboard.pilotLeadWorker.lastSummary.notFound} not found)
                       </p>
                     )}
                     {agent.agentId === 'lead_agent' && (
