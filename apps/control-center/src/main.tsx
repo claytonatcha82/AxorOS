@@ -417,7 +417,7 @@ function App() {
                       : formatDate(agent.latestActivityAt)}</small>
                     {agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastSummary && (
                       <p className="panel-note">
-                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} discovered · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved
+                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} new/retryable · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved
                       </p>
                     )}
                     {agent.agentId === 'lead_agent' && (
