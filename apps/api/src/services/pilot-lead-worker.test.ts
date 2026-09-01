@@ -99,3 +99,30 @@ test('concurrent runOnce calls do not overlap research cycles', async () => {
   release();
   assert.equal(await first, output);
 });
+
+
+test('exposes live worker activity and completion timestamps', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [] };
+  const worker = createPilotLeadWorker(
+    { async get() { return active; } },
+    { async research() { await gate; return output; } },
+    { intervalMs: 60_000 },
+  );
+
+  const run = worker.runOnce();
+  await new Promise((resolve) => setImmediate(resolve));
+  const activeStatus = worker.getStatus();
+  assert.equal(activeStatus.inProgress, true);
+  assert.ok(activeStatus.lastStartedAt);
+  assert.equal(activeStatus.lastOutcome, null);
+
+  release();
+  await run;
+  const completedStatus = worker.getStatus();
+  assert.equal(completedStatus.inProgress, false);
+  assert.equal(completedStatus.lastOutcome, 'completed');
+  assert.ok(completedStatus.lastCompletedAt);
+  assert.equal(completedStatus.lastFailedAt, null);
+});
