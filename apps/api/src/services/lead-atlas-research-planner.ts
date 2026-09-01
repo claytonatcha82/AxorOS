@@ -19,6 +19,10 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function normalizeAtlasPath(path: string): string {
+  return path.replace(/(?:\.md)+$/i, '.md');
+}
+
 function atlasPaths(atlas: LeadAtlasContextBundle): string[] {
   const packages: KnowledgeContextPackage[] = [
     atlas.idealClientProfile,
@@ -27,7 +31,7 @@ function atlasPaths(atlas: LeadAtlasContextBundle): string[] {
     atlas.leadAgentGovernance,
   ];
   return unique(packages.flatMap((package_) =>
-    package_.sources.map((source) => source.citation.path)
+    package_.sources.map((source) => normalizeAtlasPath(source.citation.path))
   ));
 }
 
