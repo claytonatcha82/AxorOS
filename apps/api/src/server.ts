@@ -165,7 +165,7 @@ const pilotLeadWorker = createPilotLeadWorker(
   {
     intervalMs: 60 * 60 * 1000,
     geographicFocus: 'South Africa',
-    maxQueries: 1,
+    maxQueries: 6,
     maxBusinessesPerQuery: 3,
     maxWebResultsPerBusiness: 3,
     onCycleCompleted(result) {
