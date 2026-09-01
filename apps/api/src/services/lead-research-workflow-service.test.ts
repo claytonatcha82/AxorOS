@@ -78,3 +78,48 @@ test('keeps the durable discovery but does not enrich when public-web research f
   assert.equal(result.proposals.length, 0);
   assert.equal(enrichments.length, 0);
 });
+
+
+test('skips public-web enrichment for a duplicate lead that has already moved beyond discovery', async () => {
+  const registry = new MockRegistry();
+  const enrichments: unknown[] = [];
+  const duplicateDiscovery = {
+    async persistDiscovery() {
+      return {
+        created: [],
+        duplicates: [{ providerPlaceId: 'place-1', leadId: 'lead-existing', enrichmentPending: false }],
+      };
+    },
+  };
+  const service = createLeadResearchWorkflowService(registry as never, duplicateDiscovery as never, enrichmentService(enrichments) as never);
+  const result = await service.research({ query: 'engineering businesses in Durban', country: 'south africa', executionId: 'exec-duplicate', correlationId: 'corr-duplicate' });
+
+  assert.equal(result.discovered, 1);
+  assert.equal(result.enriched.length, 0);
+  assert.equal(result.proposals.length, 0);
+  assert.equal(enrichments.length, 0);
+  assert.equal(registry.calls.length, 1);
+  assert.equal(registry.calls[0]?.integrationId, 'research.google-places');
+});
+
+test('retries public-web enrichment for a duplicate that is still discovery-only', async () => {
+  const registry = new MockRegistry();
+  const enrichments: unknown[] = [];
+  const duplicateDiscovery = {
+    async persistDiscovery() {
+      return {
+        created: [],
+        duplicates: [{ providerPlaceId: 'place-1', leadId: 'lead-existing', enrichmentPending: true }],
+      };
+    },
+  };
+  const service = createLeadResearchWorkflowService(registry as never, duplicateDiscovery as never, enrichmentService(enrichments) as never);
+  const result = await service.research({ query: 'engineering businesses in Durban', country: 'south africa', executionId: 'exec-retry', correlationId: 'corr-retry' });
+
+  assert.equal(result.discovered, 1);
+  assert.equal(result.enriched.length, 1);
+  assert.equal(result.enriched[0]?.leadId, 'lead-existing');
+  assert.equal(enrichments.length, 1);
+  assert.equal(registry.calls.length, 2);
+  assert.equal(registry.calls[1]?.integrationId, 'research.tavily-web');
+});
