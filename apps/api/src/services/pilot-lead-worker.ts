@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PilotSystemStateRecord } from '../data/pilot-system-state-postgres-store.js';
 import type { AtlasLeadResearchOutput, AtlasLeadResearchInput } from './lead-atlas-research-orchestrator.js';
+import { logEvent } from '../logger.js';
 
 export interface PilotLeadWorkerState {
   get(): Promise<PilotSystemStateRecord>;
@@ -97,6 +98,13 @@ export function createPilotLeadWorker(
     } catch (error) {
       lastFailedAt = new Date().toISOString();
       lastOutcome = 'failed';
+      logEvent('error', 'pilot_lead_worker_exception_diagnostic_v1', {
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack ?? '(no stack)' : '(non-Error thrown value)',
+        runtimeCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? '(unknown)',
+        runtimeDeployment: process.env.RAILWAY_DEPLOYMENT_ID ?? '(unknown)',
+      });
       options.onCycleFailed?.(error);
       throw error;
     } finally {
