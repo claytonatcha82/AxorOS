@@ -1,5 +1,6 @@
 import type { KnowledgeContextPackage } from '../knowledge/knowledge-context-service.js';
 import type { LeadAtlasContextBundle } from './lead-atlas-context-service.js';
+import { createLeadDiscoveryQueryPlanner } from './lead-discovery-query-planner.js';
 
 export interface LeadResearchPlanInput {
   atlas: LeadAtlasContextBundle;
@@ -50,7 +51,7 @@ function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
     const industries = industrySources.flatMap((source) => {
       const reference = source.reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const section = atlas.idealClientProfile.context.match(
-        new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\\[ATLAS-|$)`),
+        new RegExp(`${reference}[^\\n]*\\nSource:[^\\n]*\\nAuthority:[^\\n]*\\n([\\s\\S]*?)(?=\\n\\n\[ATLAS-|$)`),
       )?.[1] ?? '';
       return bulletsFromText(section);
     });
@@ -73,18 +74,18 @@ function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
 }
 
 export function createLeadAtlasResearchPlanner() {
+  const discoveryQueryPlanner = createLeadDiscoveryQueryPlanner();
+
   return {
     plan(input: LeadResearchPlanInput): LeadResearchPlan {
       const maxQueries = input.maxQueries ?? 12;
-      if (!Number.isInteger(maxQueries) || maxQueries < 1 || maxQueries > 30) {
-        throw new Error('maxQueries must be an integer between 1 and 30.');
-      }
-      const geographicFocus = input.geographicFocus?.trim();
       const industries = industriesFromAtlas(input.atlas);
-      const queries = industries.slice(0, maxQueries).map((industry) =>
-        geographicFocus ? `${industry} businesses in ${geographicFocus}` : `${industry} businesses`
-      );
-      return { queries, atlasSourcePaths: atlasPaths(input.atlas) };
+      const planned = discoveryQueryPlanner.plan({
+        industries,
+        geographicFocus: input.geographicFocus,
+        maxQueries,
+      });
+      return { queries: planned.queries, atlasSourcePaths: atlasPaths(input.atlas) };
     },
   };
 }
