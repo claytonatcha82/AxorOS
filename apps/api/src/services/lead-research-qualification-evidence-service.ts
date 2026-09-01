@@ -15,6 +15,9 @@ const CATEGORIES: QualificationCategory[] = [
   'businessFit', 'projectFit', 'partnershipPotential', 'decisionMakerAccess', 'commercialFit', 'timeline',
 ];
 
+const LEGACY_INDUSTRY_SECTION = /#\s+(?:Target\s+)?Industries([\s\S]*?)(?=\n#\s+|$)/i;
+const BULLET = /^\s*-\s+(.+?)\s*$/gm;
+
 function emptyAssessment(missing: string): QualificationCategoryAssessment {
   return { score: null, evidenceReferences: [], missingInformation: [missing] };
 }
@@ -23,12 +26,49 @@ function evidenceReferences(results: PublicWebSearchResult[]): string[] {
   return [...new Set(results.map((result) => result.url).filter(Boolean).map((url) => `public-web:${url}`))];
 }
 
+function bulletsFromText(text: string): string[] {
+  return [...text.matchAll(BULLET)].map((match) => match[1]!.replace(/\*\*/g, '').trim()).filter(Boolean);
+}
+
+function atlasReferenceSection(context: string, reference: string): string {
+  const normalizedReference = reference.trim();
+  if (!normalizedReference) return '';
+
+  const lines = context.replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed === normalizedReference || trimmed.startsWith(`${normalizedReference} `);
+  });
+  if (start < 0) return '';
+
+  const end = lines.findIndex((line, index) => index > start && /^\[ATLAS-\d+\](?:\s|$)/.test(line.trim()));
+  const block = lines.slice(start, end < 0 ? lines.length : end);
+  const authorityIndex = block.findIndex((line) => /^Authority:\s*/i.test(line.trim()));
+  return authorityIndex >= 0 ? block.slice(authorityIndex + 1).join('\n') : '';
+}
+
 function targetIndustries(atlas: LeadAtlasContextBundle): string[] {
-  const section = atlas.idealClientProfile.context.match(/# Target Industries([\s\S]*?)(?=\n# |$)/i)?.[1];
-  if (!section) throw new Error('Atlas Ideal Client Profile did not provide a Target Industries section.');
-  const industries = [...section.matchAll(/^\s*-\s+(.+?)\s*$/gm)].map((match) => match[1]!.replace(/\*\*/g, '').trim()).filter(Boolean);
+  const sources = atlas.idealClientProfile.sources ?? [];
+  const industrySources = sources.filter((source) => {
+    const headings = source.citation.headingPath;
+    return Array.isArray(headings)
+      && headings.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()));
+  });
+
+  if (industrySources.length > 0) {
+    const industries = industrySources.flatMap((source) =>
+      bulletsFromText(atlasReferenceSection(atlas.idealClientProfile.context, source.reference)),
+    );
+    if (industries.length > 0) return [...new Set(industries)];
+  }
+
+  const legacyMatch = atlas.idealClientProfile.context.match(LEGACY_INDUSTRY_SECTION);
+  if (!legacyMatch?.[1]) {
+    throw new Error('Atlas Ideal Client Profile did not provide a Target Industries or Industries section.');
+  }
+  const industries = bulletsFromText(legacyMatch[1]);
   if (industries.length === 0) throw new Error('Atlas Ideal Client Profile did not provide target industries.');
-  return industries;
+  return [...new Set(industries)];
 }
 
 function corpus(input: LeadResearchQualificationEvidenceInput): string {
