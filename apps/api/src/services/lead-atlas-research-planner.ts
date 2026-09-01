@@ -64,7 +64,7 @@ function industriesFromAtlas(atlas: LeadAtlasContextBundle): string[] {
     ));
     const paths = unique(atlas.idealClientProfile.sources.map((source) => source.citation.path));
     throw new Error(
-      `Atlas Ideal Client Profile did not provide a Target Industries or Industries section. Retrieved headings: ${headings.length ? headings.join(' | ') : '(none)'}. Source paths: ${paths.length ? paths.join(' | ') : '(none)'}. Truncated: ${atlas.idealClientProfile.truncated}. Included chunks: ${atlas.idealClientProfile.includedItems}.`
+      `Atlas Ideal Client Profile did not provide a Target Industries or Industries section. Retrieved headings: ${headings.length ? headings.join(' | ') : '(none)'}. Source paths: ${paths.length ? paths.join(' | ') : '(none)'}. Truncated: ${atlas.idealClientProfile.truncated}. Included chunks: ${atlas.idealClientProfile.includedItems}. Runtime commit: ${process.env.RAILWAY_GIT_COMMIT_SHA ?? '(unknown)'}. Runtime deployment: ${process.env.RAILWAY_DEPLOYMENT_ID ?? '(unknown)'}.`,
     );
   }
   const legacyIndustries = bulletsFromText(legacyMatch[1]);
