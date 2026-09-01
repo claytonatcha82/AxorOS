@@ -67,6 +67,7 @@ export function createLeadResearchWorkflowService(
       const correlationId = requireText(input.correlationId, 'correlationId');
       const maxBusinesses = input.maxBusinesses ?? 5;
       const maxWebResults = input.maxWebResultsPerBusiness ?? 5;
+      const providerCandidateLimit = Math.min(20, Math.max(maxBusinesses, maxBusinesses * 3));
 
       const discovery = await registry.execute<{ query: string; maxResults: number }, LeadBusinessSearchOutput>({
         integrationId: 'research.google-places',
@@ -76,7 +77,7 @@ export function createLeadResearchWorkflowService(
         correlationId,
         mode: 'live',
         risk: 'low',
-        input: { query, maxResults: maxBusinesses },
+        input: { query, maxResults: providerCandidateLimit },
       });
       if (discovery.status !== 'succeeded') {
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
@@ -90,6 +91,7 @@ export function createLeadResearchWorkflowService(
         webResearchFailed: 0,
         unresolved: 0,
       };
+      let actionableDiscovered = 0;
       for (const candidate of discovery.output.candidates) {
         const persisted = await discoveryService.persistDiscovery({
           discovery: { query: discovery.output.query, candidates: [candidate] },
@@ -107,6 +109,7 @@ export function createLeadResearchWorkflowService(
           continue;
         }
 
+        actionableDiscovered += 1;
         const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
           integrationId: 'research.tavily-web',
           operation: 'search_public_web',
@@ -123,6 +126,7 @@ export function createLeadResearchWorkflowService(
         });
         if (web.status !== 'succeeded') {
           outcomes.webResearchFailed += 1;
+          if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
 
@@ -136,6 +140,7 @@ export function createLeadResearchWorkflowService(
             publicWebResults: web.output.results,
           });
           outcomes.unresolved += 1;
+          if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
 
@@ -154,9 +159,10 @@ export function createLeadResearchWorkflowService(
           publicWebEvidence: selection.evidence,
         });
         outcomes.enriched += 1;
+        if (actionableDiscovered >= maxBusinesses) break;
       }
 
-      return { discovered: discovery.output.candidates.length, enriched, proposals, outcomes };
+      return { discovered: actionableDiscovered, enriched, proposals, outcomes };
     },
   };
 }
