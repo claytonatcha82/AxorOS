@@ -39,5 +39,8 @@ test('derives broad business discovery queries from Atlas target industries', ()
 test('fails closed when Atlas does not provide target industries', () => {
   const missing = atlas() as any;
   missing.idealClientProfile = package_('Ideal Client Profile', '# Purpose\nNo target industry section here.');
-  assert.throws(() => createLeadAtlasResearchPlanner().plan({ atlas: missing }), /Target Industries/);
+  assert.throws(
+    () => createLeadAtlasResearchPlanner().plan({ atlas: missing }),
+    /Target Industries.*Retrieved headings:.*Source paths:.*Truncated:.*Included chunks:/,
+  );
 });
