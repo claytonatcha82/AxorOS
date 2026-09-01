@@ -53,6 +53,13 @@ type DashboardSnapshot = {
     lastCompletedAt: string | null;
     lastFailedAt: string | null;
     lastOutcome: 'completed' | 'failed' | 'skipped' | null;
+    lastSummary: {
+      discovered: number;
+      enriched: number;
+      duplicateSkipped: number;
+      webResearchFailed: number;
+      unresolved: number;
+    } | null;
   };
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
   recentActivity: Array<{ eventType: string; actorType: string; actorId: string | null; createdAt: string }>;
@@ -408,6 +415,11 @@ function App() {
                     <small>{agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastStartedAt
                       ? `Lead worker last started: ${formatDate(dashboard.pilotLeadWorker.lastStartedAt)} · ${dashboard.pilotLeadWorker.lastOutcome ?? 'running'}`
                       : formatDate(agent.latestActivityAt)}</small>
+                    {agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastSummary && (
+                      <p className="panel-note">
+                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} discovered · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved
+                      </p>
+                    )}
                     {agent.agentId === 'lead_agent' && (
                       <button
                         className="secondary-button agent-run-button"
