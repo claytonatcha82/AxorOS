@@ -61,7 +61,7 @@ export function createLeadAtlasContextService(
               agent: 'lead_agent',
               task: 'lead_research_and_qualification',
               maximumSecurityClassification: 'internal',
-              maxCharacters: 14_000,
+              maxCharacters: source.key === 'idealClientProfile' ? 40_000 : 14_000,
             })
           : await contextService.assemble({
               query: source.query,
