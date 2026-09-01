@@ -175,6 +175,9 @@ const pilotLeadWorker = createPilotLeadWorker(
         discovered: result.discovered,
         enriched: result.enriched.length,
         ambiguousOrUnresolved: result.proposals.length,
+        duplicateSkipped: result.outcomes.duplicateSkipped,
+        webResearchFailed: result.outcomes.webResearchFailed,
+        candidateOutcomes: result.outcomes,
         reviewExecutionIds: result.enriched.map((lead) => lead.qualificationReviewExecutionId),
       });
     },
