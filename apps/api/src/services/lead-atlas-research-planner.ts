@@ -1,5 +1,6 @@
 import type { KnowledgeContextPackage } from '../knowledge/knowledge-context-service.js';
 import type { LeadAtlasContextBundle } from './lead-atlas-context-service.js';
+import { logEvent } from '../logger.js';
 import { createLeadDiscoveryQueryPlanner } from './lead-discovery-query-planner.js';
 
 export interface LeadResearchPlanInput {
@@ -91,6 +92,19 @@ export function createLeadAtlasResearchPlanner() {
 
   return {
     plan(input: LeadResearchPlanInput): LeadResearchPlan {
+      logEvent('info', 'lead_atlas_planner_execution_fingerprint_v3', {
+        plannerContract: 'structured-atlas-industries-v3',
+        runtimeCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? '(unknown)',
+        runtimeDeployment: process.env.RAILWAY_DEPLOYMENT_ID ?? '(unknown)',
+        idealClientProfileSourceCount: input.atlas.idealClientProfile.sources.length,
+        idealClientProfileIncludedItems: input.atlas.idealClientProfile.includedItems,
+        idealClientProfileTruncated: input.atlas.idealClientProfile.truncated,
+        industrySourceCount: input.atlas.idealClientProfile.sources.filter((source) =>
+          Array.isArray(source.citation.headingPath)
+          && source.citation.headingPath.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()))
+        ).length,
+      });
+
       const maxQueries = input.maxQueries ?? 12;
       const industries = industriesFromAtlas(input.atlas);
       const plannerInput = {
