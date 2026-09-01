@@ -1,1 +1,1 @@
-PLACEHOLDER
+import { logEvent } from './logger.js';
