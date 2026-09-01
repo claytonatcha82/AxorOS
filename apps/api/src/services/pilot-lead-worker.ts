@@ -43,6 +43,8 @@ export function createPilotLeadWorker(
     duplicateSkipped: number;
     webResearchFailed: number;
     unresolved: number;
+    ambiguous: number;
+    notFound: number;
   } | null = null;
 
   async function runOnce(): Promise<AtlasLeadResearchOutput | null> {
@@ -90,6 +92,8 @@ export function createPilotLeadWorker(
         duplicateSkipped: result.outcomes.duplicateSkipped,
         webResearchFailed: result.outcomes.webResearchFailed,
         unresolved: result.outcomes.unresolved,
+        ambiguous: result.outcomes.ambiguous,
+        notFound: result.outcomes.notFound,
       };
       options.onCycleCompleted?.(result);
       return result;
