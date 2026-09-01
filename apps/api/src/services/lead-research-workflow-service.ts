@@ -30,10 +30,18 @@ export interface EnrichedLeadResearchResult {
   publicWebEvidence: PublicWebSearchResult[];
 }
 
+export interface LeadResearchOutcomeCounts {
+  enriched: number;
+  duplicateSkipped: number;
+  webResearchFailed: number;
+  unresolved: number;
+}
+
 export interface LeadResearchWorkflowOutput {
   discovered: number;
   enriched: EnrichedLeadResearchResult[];
   proposals: LeadResearchProposal[];
+  outcomes: LeadResearchOutcomeCounts;
 }
 
 function requireText(value: string, field: string): string {
@@ -76,6 +84,12 @@ export function createLeadResearchWorkflowService(
 
       const enriched: EnrichedLeadResearchResult[] = [];
       const proposals: LeadResearchProposal[] = [];
+      const outcomes: LeadResearchOutcomeCounts = {
+        enriched: 0,
+        duplicateSkipped: 0,
+        webResearchFailed: 0,
+        unresolved: 0,
+      };
       for (const candidate of discovery.output.candidates) {
         const persisted = await discoveryService.persistDiscovery({
           discovery: { query: discovery.output.query, candidates: [candidate] },
@@ -88,7 +102,10 @@ export function createLeadResearchWorkflowService(
         // already moved beyond the discovery-only label, do not enrich or qualify
         // it again. Discovery-only duplicates remain retryable after transient or
         // ambiguous public-web research outcomes.
-        if (duplicate && !duplicate.enrichmentPending) continue;
+        if (duplicate && !duplicate.enrichmentPending) {
+          outcomes.duplicateSkipped += 1;
+          continue;
+        }
 
         const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
           integrationId: 'research.tavily-web',
@@ -104,7 +121,10 @@ export function createLeadResearchWorkflowService(
             ...(input.country ? { country: input.country } : {}),
           },
         });
-        if (web.status !== 'succeeded') continue;
+        if (web.status !== 'succeeded') {
+          outcomes.webResearchFailed += 1;
+          continue;
+        }
 
         const selection = selectOfficialWebsite({ businessName: candidate.displayName, results: web.output.results });
         if (selection.status !== 'selected') {
@@ -115,6 +135,7 @@ export function createLeadResearchWorkflowService(
             candidateUrls: selection.candidateUrls,
             publicWebResults: web.output.results,
           });
+          outcomes.unresolved += 1;
           continue;
         }
 
@@ -132,9 +153,10 @@ export function createLeadResearchWorkflowService(
           officialWebsiteUrl: selection.websiteUrl,
           publicWebEvidence: selection.evidence,
         });
+        outcomes.enriched += 1;
       }
 
-      return { discovered: discovery.output.candidates.length, enriched, proposals };
+      return { discovered: discovery.output.candidates.length, enriched, proposals, outcomes };
     },
   };
 }
