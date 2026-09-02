@@ -97,13 +97,9 @@ export function createLeadResearchQualificationEvidenceService() {
           }
         : emptyAssessment('Target-industry or broader Ideal Client Profile fit is not yet evidenced.');
 
-      const websiteMissingInformation = input.officialWebsiteUrl
-        ? 'No requested project or service requirement has been evidenced yet.'
-        : 'No official website was verified. Website presence is an acquisition opportunity, not a business disqualifier.';
-
       const assessments: LeadResearchQualificationAssessments = {
         businessFit,
-        projectFit: emptyAssessment(websiteMissingInformation),
+        projectFit: emptyAssessment('No requested project or service requirement has been evidenced yet.'),
         partnershipPotential: emptyAssessment('Long-term partnership, maintenance, growth, or automation potential requires further evidence.'),
         decisionMakerAccess: emptyAssessment('A decision-maker and their authority have not yet been verified.'),
         commercialFit: emptyAssessment('Budget, project value, payment reliability, and profitability are not yet evidenced.'),
