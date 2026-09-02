@@ -112,6 +112,23 @@ test('selects the first-party TFD Manufacturing website over an unknown director
   }
 });
 
+test('does not reject a first-party contact page merely because it contains directions or a map', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'Acme Engineering',
+    results: [
+      {
+        title: 'Contact Acme Engineering | Get Directions',
+        url: 'https://acme-engineering.co.za/contact',
+        content: 'Acme Engineering. Contact us for engineering services. Get directions to our Durban office. View map. +27 31 555 0100. enquiries@acme-engineering.co.za.',
+      },
+    ],
+  });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') {
+    assert.equal(result.websiteUrl, 'https://acme-engineering.co.za/');
+  }
+});
+
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
   const result = selectOfficialWebsite({
     businessName: 'Acme Engineering',
