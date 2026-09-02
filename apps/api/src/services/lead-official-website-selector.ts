@@ -11,9 +11,15 @@ export type OfficialWebsiteSelection =
   | { status: 'ambiguous'; candidateUrls: string[] }
   | { status: 'not_found'; candidateUrls: [] };
 
+// These domains are discovery platforms, social networks, maps, directories, or
+// industry/listing portals. They may contain useful business evidence, but they
+// are never acceptable as the business's official website.
 const THIRD_PARTY_HOSTS = [
   'facebook.com', 'instagram.com', 'linkedin.com', 'x.com', 'twitter.com', 'youtube.com',
   'google.com', 'google.co.za', 'yelp.com', 'tripadvisor.com', 'yellowpages.co.za',
+  'rsa.worldorgs.com', 'waze.com', 'goafricaonline.com', 'sanha.org.za',
+  'cylex.net.za', 'africabizinfo.com', 'steel-technology.com',
+  'hotfrog.com', 'zaubee.com', 'mapquest.com', 'manta.com',
 ];
 
 function normalizedWords(value: string): string[] {
