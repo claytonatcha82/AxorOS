@@ -33,22 +33,38 @@ const PARTNERSHIP_PATTERNS = [
   /ongoing\s+(?:support|service|services|management)/i, /retainer/i,
   /automation/i, /digital\s+transformation/i, /multiple\s+(?:locations|branches)/i,
 ];
-const DECISION_MAKER_PATTERNS = [
-  /\b(?:owner|founder|ceo|chief\s+executive|managing\s+director|director|principal|general\s+manager)\b/i,
+const SENIOR_ROLE_PATTERNS = [
+  /\b(?:owner|founder|ceo|chief\s+executive|managing\s+director|director|principal|general\s+manager|marketing\s+manager|operations\s+manager|practice\s+manager)\b/i,
 ];
-const COMMERCIAL_PATTERNS = [
-  /\b(?:budget|pricing|price|quote|quotation|tender|procurement|rfq|request\s+for\s+quotation)\b/i,
-  /\b(?:project|contract|clients?|customers?|services?|products?)\b/i,
-  /\b(?:revenue|turnover|contract\s+value|project\s+value|payment\s+terms)\b/i,
-  /\b(?:established|operating|operations|head\s+office|branches?)\b/i,
+const NAMED_PERSON_PATTERN = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b/;
+const DIRECT_CONTACT_PATTERNS = [
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  /\b(?:direct|personal)\s+(?:email|phone|line)\b/i,
+  /\b(?:mobile|cell)\s*(?:number|phone|tel|telephone)?\s*[:\-]?\s*\+?\d[\d\s().-]{6,}\b/i,
+];
+const BUSINESS_CONTACT_PATTERNS = [
+  /\b(?:email|e-mail|phone|telephone|tel|contact|call|enquir(?:y|ies)|inquiries)\b/i,
+  /\bcontact\s+(?:us|our|the)\b/i,
+];
+const STRONG_COMMERCIAL_PATTERNS = [
+  /\b(?:budget|tender|procurement|rfq|request\s+for\s+quotation|revenue|turnover|contract\s+value|project\s+value|payment\s+terms)\b/i,
+];
+const ESTABLISHED_OPERATION_PATTERNS = [
+  /\bestablished\b/i, /\boperating\b/i, /\boperations\b/i, /\bhead\s+office\b/i,
+  /\bbranches?\b/i, /\bmultiple\s+(?:locations|sites)\b/i, /\bemployees?\b/i,
+];
+const COMMERCIAL_SUITABILITY_PATTERNS = [
+  /\b(?:commercial|contract|contracts|projects?|clients?|customers?|suppliers?|procurement|tender)\b/i,
 ];
 const URGENT_TIMELINE_PATTERNS = [
   /\b(?:deadline|launch\s+date|delivery\s+date|project\s+date|completion\s+date)\b/i,
   /\b(?:urgent|urgently|immediate|asap|this\s+month|next\s+month)\b/i,
   /\b(?:tender|rfq)\b[\s\S]{0,80}\b(?:closing|closes|closing\s+date)\b/i,
 ];
-const CURRENT_ACTIVITY_PATTERNS = [
-  /current|ongoing|launch|expanding|expansion|new\s+market|tender|rfq|project|contract/i,
+const CURRENT_TIMELINE_PATTERNS = [
+  /\b(?:currently|current|ongoing|in progress|launch(?:ing)?|underway|active)\b/i,
+  /\b(?:this\s+(?:month|quarter|year)|next\s+(?:month|quarter))\b/i,
+  /\b(?:tender|rfq)\b/i,
 ];
 
 function assessment(score: number | null, references: string[], missingInformation: string[] = []): QualificationCategoryAssessment {
@@ -110,40 +126,29 @@ function matchingResults(results: PublicWebSearchResult[], patterns: RegExp[]): 
 function businessFitAssessment(input: LeadResearchQualificationEvidenceInput, text: string, industries: string[]): QualificationCategoryAssessment {
   const lower = text.toLowerCase();
   const matchedIndustry = industries.find((industry) => lower.includes(industry.toLowerCase()));
-  if (!matchedIndustry) {
-    return assessment(null, [], ['Target-industry or broader Ideal Client Profile fit is not yet evidenced.']);
-  }
+  if (!matchedIndustry) return assessment(null, [], ['Target-industry or broader Ideal Client Profile fit is not yet evidenced.']);
   const references = evidenceReferences(input.publicWebResults.filter((result) => [result.title, result.content].filter(Boolean).join(' ').toLowerCase().includes(matchedIndustry.toLowerCase())));
   if (references.length === 0) return assessment(null, [], ['Target-industry match could not be tied to public evidence.']);
-
   const positiveSignals = [
     /established|growing|growth|expanding|expansion|digital\s+transformation/i,
     /\b(?:5|[1-9]\d|1\d\d|2[0-4]\d|250)\s*(?:employees?|staff|people)\b/i,
     /customers?|clients?|projects?|branches?|locations?|operations?/i,
     /modernis|technology|digital|online|brand|market/i,
   ].filter((pattern) => pattern.test(text)).length;
-
-  const score = positiveSignals >= 3 ? 10 : positiveSignals >= 2 ? 8 : positiveSignals >= 1 ? 6 : 5;
-  return assessment(score, references, positiveSignals < 2 ? ['Additional ICP characteristics are not fully evidenced.'] : []);
+  const score = positiveSignals >= 3 ? 10 : positiveSignals >= 2 ? 8 : positiveSignals >= 1 ? 6 : null;
+  return assessment(score, references, score === null ? ['Additional ICP characteristics are not evidenced sufficiently for a numeric score.'] : score < 10 ? ['Some preferred ICP characteristics remain unverified.'] : []);
 }
 
-function projectFitAssessment(input: LeadResearchQualificationEvidenceInput, text: string, businessFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
+function projectFitAssessment(input: LeadResearchQualificationEvidenceInput, businessFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
   const references = evidenceReferences(input.publicWebResults);
   const deficiencyResults = matchingResults(input.publicWebResults, PROJECT_DEFICIENCY_PATTERNS);
   const projectResults = matchingResults(input.publicWebResults, PROJECT_PATTERNS);
-
   if (input.officialWebsiteUrl === null && businessFit.score !== null && businessFit.score >= 6) {
     return assessment(8, references.length > 0 ? references : businessFit.evidenceReferences, ['No verified official website was found during research; this is treated as a website opportunity signal, not a failed lead.']);
   }
-  if (deficiencyResults.length > 0) {
-    return assessment(8, evidenceReferences(deficiencyResults), []);
-  }
-  if (projectResults.length >= 2) {
-    return assessment(7, evidenceReferences(projectResults), ['The business has digital relevance, but a specific active project requirement is not publicly confirmed.']);
-  }
-  if (projectResults.length === 1) {
-    return assessment(6, evidenceReferences(projectResults), ['The agency-service connection is evidenced, but the specific project need is not confirmed.']);
-  }
+  if (deficiencyResults.length > 0) return assessment(8, evidenceReferences(deficiencyResults));
+  if (projectResults.length >= 2) return assessment(7, evidenceReferences(projectResults), ['A specific active agency project is not publicly confirmed.']);
+  if (projectResults.length === 1) return assessment(6, evidenceReferences(projectResults), ['The agency-service connection is evidenced, but the specific project need is not confirmed.']);
   return assessment(null, [], ['No meaningful website, digital, branding, automation, or related agency opportunity is currently evidenced.']);
 }
 
@@ -153,65 +158,62 @@ function partnershipAssessment(input: LeadResearchQualificationEvidenceInput, te
   if (matching.length >= 3) return assessment(10, references);
   if (matching.length >= 2) return assessment(8, references);
   if (matching.length === 1) return assessment(6, references, ['Only one clear long-term or growth signal is evidenced.']);
-  if (/services?|products?|customers?|clients?|projects?|operations?/i.test(text)) {
-    return assessment(4, evidenceReferences(input.publicWebResults), ['Long-term partnership potential is plausible but not specifically evidenced.']);
-  }
+  if (/\b(?:services?|products?|customers?|clients?|projects?|operations?)\b/i.test(text)) return assessment(4, evidenceReferences(input.publicWebResults), ['Long-term partnership potential is plausible but not specifically evidenced.']);
   return assessment(null, [], ['No meaningful growth, recurring service, or long-term partnership signal is currently evidenced.']);
 }
 
 function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
-  const matching = matchingResults(input.publicWebResults, DECISION_MAKER_PATTERNS);
-  const references = evidenceReferences(matching);
-  if (matching.length > 0 && input.publicWebResults.length > 0) return assessment(8, references, ['Direct procurement authority is not independently verified.']);
-  if (input.publicWebResults.length > 0) return assessment(4, evidenceReferences(input.publicWebResults), ['Decision-maker identity and authority remain unverified.']);
+  const roleResults = matchingResults(input.publicWebResults, SENIOR_ROLE_PATTERNS);
+  const roleReferences = evidenceReferences(roleResults);
+  const hasNamedPerson = roleResults.some((result) => NAMED_PERSON_PATTERN.test([result.title, result.content].filter(Boolean).join(' ')));
+  const directContactResults = roleResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), DIRECT_CONTACT_PATTERNS));
+  const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
+  if (hasNamedPerson && directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role and identity are evidenced; procurement authority is not assumed.']);
+  if (hasNamedPerson && businessContactResults.length > 0) return assessment(8, [...roleReferences, ...evidenceReferences(businessContactResults)], ['A credible business contact route exists, but a direct route to the named decision-maker is not confirmed.']);
+  if (roleResults.length > 0) return assessment(6, roleReferences, ['A senior/relevant management role is identified, but named identity and/or direct access is incomplete.']);
+  if (businessContactResults.length > 0) return assessment(4, evidenceReferences(businessContactResults), ['A relevant business contact route exists, but decision-maker authority is unverified.']);
+  if (input.publicWebResults.length > 0) return assessment(2, evidenceReferences(input.publicWebResults), ['Only generic public evidence is available; no credible decision-maker route is established.']);
   return assessment(null, [], ['No public decision-maker or credible business contact evidence is available.']);
 }
 
-function commercialAssessment(input: LeadResearchQualificationEvidenceInput, text: string): QualificationCategoryAssessment {
-  const matching = matchingResults(input.publicWebResults, COMMERCIAL_PATTERNS);
-  const references = evidenceReferences(matching);
-  const strong = matchingResults(input.publicWebResults, [/\b(?:budget|tender|rfq|procurement|revenue|turnover|contract\s+value|project\s+value)\b/i]);
-  if (strong.length >= 2) return assessment(8, evidenceReferences(strong));
-  if (strong.length === 1) return assessment(7, evidenceReferences(strong), ['Budget, value, or payment reliability is not fully verified.']);
-  if (matching.length >= 2) return assessment(6, references, ['Budget, project value, and payment reliability remain unverified.']);
-  if (matching.length === 1) return assessment(4, references, ['Commercial capacity is only partially evidenced.']);
-  return assessment(null, [], ['No meaningful commercial capacity or project-value evidence is currently available.']);
+function commercialAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
+  const strong = matchingResults(input.publicWebResults, STRONG_COMMERCIAL_PATTERNS);
+  const operations = matchingResults(input.publicWebResults, ESTABLISHED_OPERATION_PATTERNS);
+  const suitability = matchingResults(input.publicWebResults, COMMERCIAL_SUITABILITY_PATTERNS);
+  if (strong.length >= 2) return assessment(8, evidenceReferences(strong), ['Low commercial risk and payment reliability are not independently verified.']);
+  if (strong.length === 1) return assessment(7, evidenceReferences(strong), ['Budget/value capacity and payment reliability are only partly verified.']);
+  if (operations.length >= 2 && suitability.length >= 1) return assessment(6, evidenceReferences([...operations, ...suitability]), ['Commercial capacity is reasonably indicated, but budget, project value, and payment reliability remain unverified.']);
+  if (suitability.length >= 1) return assessment(4, evidenceReferences(suitability), ['Some commercial evidence exists, but capacity, budget/value, and payment reliability remain unknown.']);
+  return assessment(null, [], ['No meaningful commercial capacity, value, budget, or payment evidence is currently available.']);
 }
 
-function timelineAssessment(input: LeadResearchQualificationEvidenceInput, text: string, projectFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
+function timelineAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
   const urgent = matchingResults(input.publicWebResults, URGENT_TIMELINE_PATTERNS);
   if (urgent.length > 0) return assessment(10, evidenceReferences(urgent));
-  const current = matchingResults(input.publicWebResults, CURRENT_ACTIVITY_PATTERNS);
-  if (current.length >= 2) return assessment(7, evidenceReferences(current), ['An exact project deadline is not publicly established.']);
-  if (current.length === 1) return assessment(6, evidenceReferences(current), ['An exact project deadline is not publicly established.']);
-  if (projectFit.score !== null) return assessment(4, projectFit.evidenceReferences, ['Actionable timing is unknown; this score reflects a plausible opportunity rather than confirmed urgency.']);
-  return assessment(null, [], ['No meaningful timeline or current activity evidence is available.']);
+  const current = matchingResults(input.publicWebResults, CURRENT_TIMELINE_PATTERNS);
+  if (current.length >= 2) return assessment(8, evidenceReferences(current), ['An exact deadline or actionable delivery date is not publicly established.']);
+  if (current.length === 1) return assessment(6, evidenceReferences(current), ['Timing is indicated but exact urgency/actionability is incomplete.']);
+  return assessment(null, [], ['No meaningful current, near-term, or deadline evidence is available; timing remains unverified.']);
 }
 
 export function createLeadResearchQualificationEvidenceService() {
   return {
     build(input: LeadResearchQualificationEvidenceInput): LeadResearchQualificationAssessments {
       if (!input.companyName.trim()) throw new Error('companyName is required.');
-      if (input.officialWebsiteUrl !== null && input.officialWebsiteUrl !== undefined && !/^https?:\/\//i.test(input.officialWebsiteUrl)) {
-        throw new Error('officialWebsiteUrl must be an HTTP(S) URL when provided.');
-      }
-
+      if (input.officialWebsiteUrl !== null && input.officialWebsiteUrl !== undefined && !/^https?:\/\//i.test(input.officialWebsiteUrl)) throw new Error('officialWebsiteUrl must be an HTTP(S) URL when provided.');
       const text = corpus(input);
       const industries = targetIndustries(input.atlas);
       const businessFit = businessFitAssessment(input, text, industries);
-      const projectFit = projectFitAssessment(input, text, businessFit);
+      const projectFit = projectFitAssessment(input, businessFit);
       const assessments: LeadResearchQualificationAssessments = {
         businessFit,
         projectFit,
         partnershipPotential: partnershipAssessment(input, text),
         decisionMakerAccess: decisionMakerAssessment(input),
-        commercialFit: commercialAssessment(input, text),
-        timeline: timelineAssessment(input, text, projectFit),
+        commercialFit: commercialAssessment(input),
+        timeline: timelineAssessment(input),
       };
-
-      for (const category of CATEGORIES) {
-        if (!assessments[category]) throw new Error(`Qualification assessment builder omitted category: ${category}.`);
-      }
+      for (const category of CATEGORIES) if (!assessments[category]) throw new Error(`Qualification assessment builder omitted category: ${category}.`);
       return assessments;
     },
   };
