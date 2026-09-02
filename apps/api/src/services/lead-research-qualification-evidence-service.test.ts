@@ -91,6 +91,13 @@ test('does not award decision-maker access 8 without a contact route', () => {
   assert.equal(assessments.decisionMakerAccess.score, 6);
 });
 
+test('does not award decision-maker access 10 from company-name false positives', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Our managing director oversees operations. Email info@acme.example.', 'https://research.example/about')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 6);
+});
+
 test('awards decision-maker 8 for named role plus credible business contact route', () => {
   const assessments = build({
     publicWebResults: [result('Leadership', 'Managing Director Jane Doe leads Acme Construction. Contact our office for enquiries.', 'https://research.example/about')],
@@ -127,9 +134,16 @@ test('does not invent timeline from a generic website opportunity', () => {
   assert.equal(assessments.timeline.score, null);
 });
 
-test('scores explicit current timeline evidence', () => {
+test('scores near-term timeline evidence at 8 rather than treating it as current urgency', () => {
   const assessments = build({
     publicWebResults: [result('Acme launch', 'The website launch is scheduled for next month.', 'https://research.example/news')],
+  });
+  assert.equal(assessments.timeline.score, 8);
+});
+
+test('scores explicit urgent current timeline evidence at 10', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme urgent project', 'The website project is urgent and must launch this month.', 'https://research.example/news')],
   });
   assert.equal(assessments.timeline.score, 10);
 });
