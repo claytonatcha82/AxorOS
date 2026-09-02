@@ -21,7 +21,7 @@ function enrichmentService(calls: unknown[]) {
   return {
     async enrich(input: Record<string, unknown>) {
       calls.push(input);
-      return { id: String(input.leadId) };
+      return { id: String(input.leadId), companyName: String(input.companyName) };
     },
   };
 }
@@ -39,6 +39,7 @@ test('discovers, researches, verifies, and enriches a strongly supported busines
   assert.equal(result.enriched[0]?.leadId, 'lead-1');
   assert.equal(result.enriched[0]?.companyName, 'Example Business');
   assert.equal(result.enriched[0]?.officialWebsiteUrl, 'https://examplebusiness.co.za/');
+  assert.equal(result.enriched[0]?.websiteVerificationStatus, 'verified');
   assert.equal(enrichments.length, 1);
   assert.equal((enrichments[0] as any).companyName, 'Example Business');
   assert.equal(registry.calls.length, 2);
@@ -51,8 +52,8 @@ test('keeps ambiguous website identity as an unresolved proposal and does not en
     this.calls.push(request);
     if (request.integrationId === 'research.google-places') return { status: 'succeeded', output: { query: request.input.query, candidates: [{ providerPlaceId: 'place-1', displayName: 'Example Business', types: [], source: 'google_places' }] } } as any;
     return { status: 'succeeded', output: { query: request.input.query, results: [
-      { title: 'Example Business', url: 'https://examplebusiness.co.za/', content: 'Candidate one.' },
-      { title: 'Example Business', url: 'https://examplebusiness.com/', content: 'Candidate two.' },
+      { title: 'Example Business', url: 'https://examplebusiness.co.za/', content: 'Example Business candidate.' },
+      { title: 'Example Business', url: 'https://examplebusiness.com/', content: 'Example Business candidate.' },
     ] } } as any;
   };
   const enrichments: unknown[] = [];
@@ -81,7 +82,6 @@ test('keeps the durable discovery but does not enrich when public-web research f
   assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 0, webResearchFailed: 1, unresolved: 0, ambiguous: 0, notFound: 0 });
   assert.equal(enrichments.length, 0);
 });
-
 
 test('skips public-web enrichment for a duplicate lead that has already moved beyond discovery', async () => {
   const registry = new MockRegistry();
@@ -128,7 +128,6 @@ test('retries public-web enrichment for a duplicate that is still discovery-only
   assert.equal(registry.calls.length, 2);
   assert.equal(registry.calls[1]?.integrationId, 'research.tavily-web');
 });
-
 
 test('overscans one Google Places response so processed duplicates do not consume actionable prospect slots', async () => {
   const registry = new MockRegistry();
@@ -190,25 +189,29 @@ test('overscans one Google Places response so processed duplicates do not consum
   assert.equal(enrichments.length, 2);
 });
 
-
-test('classifies unresolved website identity as not found when no first-party candidate exists', async () => {
+test('retains a business as a website opportunity when no official website is found', async () => {
   const registry = new MockRegistry();
   registry.execute = async function(request: Record<string, any>) {
     this.calls.push(request);
     if (request.integrationId === 'research.google-places') {
-      return { status: 'succeeded', output: { query: request.input.query, candidates: [{ providerPlaceId: 'place-not-found', displayName: 'Example Business', types: [], source: 'google_places' }] } } as any;
+      return { status: 'succeeded', output: { query: request.input.query, candidates: [{ providerPlaceId: 'place-not-found', displayName: 'Example Business', formattedAddress: 'Durban, South Africa', types: [], source: 'google_places' }] } } as any;
     }
     return { status: 'succeeded', output: { query: request.input.query, results: [
-      { title: 'Example Business', url: 'https://facebook.com/examplebusiness', content: 'Social profile.' },
-      { title: 'Example Business', url: 'https://linkedin.com/company/examplebusiness', content: 'Directory profile.' },
+      { title: 'Example Business on Facebook', url: 'https://facebook.com/examplebusiness', content: 'Social profile.' },
+      { title: 'Example Business on LinkedIn', url: 'https://linkedin.com/company/examplebusiness', content: 'Company profile.' },
     ] } } as any;
   };
   const enrichments: unknown[] = [];
   const service = createLeadResearchWorkflowService(registry as never, discoveryService() as never, enrichmentService(enrichments) as never);
   const result = await service.research({ query: 'businesses', executionId: 'exec-not-found', correlationId: 'corr-not-found' });
 
-  assert.equal(result.enriched.length, 0);
-  assert.equal(result.proposals.length, 1);
-  assert.equal(result.proposals[0]?.selectionStatus, 'not_found');
-  assert.deepEqual(result.outcomes, { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 1, ambiguous: 0, notFound: 1 });
+  assert.equal(result.enriched.length, 1);
+  assert.equal(result.proposals.length, 0);
+  assert.equal(result.enriched[0]?.leadId, 'lead-1');
+  assert.equal(result.enriched[0]?.companyName, 'Example Business');
+  assert.equal(result.enriched[0]?.officialWebsiteUrl, null);
+  assert.equal(result.enriched[0]?.websiteVerificationStatus, 'not_found');
+  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 1 });
+  assert.equal((enrichments[0] as any).officialWebsiteUrl, null);
+  assert.equal((enrichments[0] as any).companyName, 'Example Business');
 });
