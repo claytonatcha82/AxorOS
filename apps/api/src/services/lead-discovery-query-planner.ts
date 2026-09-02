@@ -20,6 +20,10 @@ function clean(value: string): string {
  * Builds a bounded, deterministic discovery queue from Atlas-approved industries.
  * It expands each industry into a small set of semantically distinct searches,
  * without inventing new industries or geographic markets.
+ *
+ * Industries are interleaved by variant rather than exhausted one industry at a
+ * time. This prevents a small query cap from repeatedly spending an entire
+ * cycle on the first Atlas industries when provider results heavily overlap.
  */
 export function createLeadDiscoveryQueryPlanner() {
   return {
@@ -30,21 +34,18 @@ export function createLeadDiscoveryQueryPlanner() {
       }
 
       const geographicFocus = input.geographicFocus?.trim();
+      const industries = unique(input.industries).map(clean).filter(Boolean);
+      const suffix = geographicFocus ? ` in ${geographicFocus}` : '';
+      const variants = [
+        (industry: string) => `${industry} businesses${suffix}`,
+        (industry: string) => `${industry} companies${suffix}`,
+        (industry: string) => `professional ${industry} firms${suffix}`,
+      ];
       const queries: string[] = [];
 
-      for (const rawIndustry of unique(input.industries)) {
-        const industry = clean(rawIndustry);
-        if (!industry) continue;
-
-        const suffix = geographicFocus ? ` in ${geographicFocus}` : '';
-        const variants = [
-          `${industry} businesses${suffix}`,
-          `${industry} companies${suffix}`,
-          `professional ${industry} firms${suffix}`,
-        ];
-
-        for (const variant of variants) {
-          const query = clean(variant);
+      for (const variant of variants) {
+        for (const industry of industries) {
+          const query = clean(variant(industry));
           if (!queries.includes(query)) queries.push(query);
           if (queries.length >= maxQueries) return { queries };
         }
