@@ -165,12 +165,15 @@ function partnershipAssessment(input: LeadResearchQualificationEvidenceInput, te
   return assessment(null, [], ['No meaningful growth, recurring service, or long-term partnership signal is currently evidenced.']);
 }
 
-function namedPersonNearRole(text: string): boolean {
+function namedPersonNearRole(text: string, companyName: string): boolean {
   const roleMatch = text.match(SENIOR_ROLE_PATTERNS[0]!);
   if (!roleMatch || roleMatch.index === undefined) return false;
+  const normalizedCompanyName = companyName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const personMatches = [...text.matchAll(NAMED_PERSON_PATTERN)];
   return personMatches.some((personMatch) => {
     if (personMatch.index === undefined) return false;
+    const candidate = personMatch[0]!.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (normalizedCompanyName && (candidate === normalizedCompanyName || candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate))) return false;
     const distance = Math.abs(personMatch.index - roleMatch.index!);
     return distance <= 80;
   });
@@ -179,7 +182,7 @@ function namedPersonNearRole(text: string): boolean {
 function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
   const roleResults = matchingResults(input.publicWebResults, SENIOR_ROLE_PATTERNS);
   const roleReferences = evidenceReferences(roleResults);
-  const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' ')));
+  const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' '), input.companyName));
   const directContactResults = namedRoleResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), DIRECT_CONTACT_PATTERNS));
   const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
   if (directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role, identity, and a direct contact route are evidenced; procurement authority is not assumed.']);
