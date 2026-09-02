@@ -5,7 +5,7 @@ import type { QualificationCategory, QualificationCategoryAssessment } from './l
 export interface LeadResearchQualificationEvidenceInput {
   atlas: LeadAtlasContextBundle;
   companyName: string;
-  officialWebsiteUrl: string;
+  officialWebsiteUrl?: string | null;
   publicWebResults: PublicWebSearchResult[];
 }
 
@@ -79,7 +79,9 @@ export function createLeadResearchQualificationEvidenceService() {
   return {
     build(input: LeadResearchQualificationEvidenceInput): LeadResearchQualificationAssessments {
       if (!input.companyName.trim()) throw new Error('companyName is required.');
-      if (!/^https?:\/\//i.test(input.officialWebsiteUrl)) throw new Error('officialWebsiteUrl must be an HTTP(S) URL.');
+      if (input.officialWebsiteUrl !== null && input.officialWebsiteUrl !== undefined && !/^https?:\/\//i.test(input.officialWebsiteUrl)) {
+        throw new Error('officialWebsiteUrl must be an HTTP(S) URL when provided.');
+      }
       const references = evidenceReferences(input.publicWebResults);
       const text = corpus(input);
       const industries = targetIndustries(input.atlas);

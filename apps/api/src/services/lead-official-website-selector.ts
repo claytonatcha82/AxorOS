@@ -11,9 +11,16 @@ export type OfficialWebsiteSelection =
   | { status: 'ambiguous'; candidateUrls: string[] }
   | { status: 'not_found'; candidateUrls: [] };
 
+// Hosts that are useful as research sources but must never be promoted to an
+// official business website. Keep this list focused on platforms whose primary
+// purpose is hosting listings, maps, social profiles, or third-party directories.
 const THIRD_PARTY_HOSTS = [
   'facebook.com', 'instagram.com', 'linkedin.com', 'x.com', 'twitter.com', 'youtube.com',
   'google.com', 'google.co.za', 'yelp.com', 'tripadvisor.com', 'yellowpages.co.za',
+  'waze.com', 'rsa.worldorgs.com', 'goafricaonline.com', 'cylex.net.za',
+  'africabizinfo.com', 'dnb.com', 'zoominfo.com', 'crunchbase.com', 'mapquest.com',
+  'foursquare.com', 'hotfrog.com', 'kompass.com', 'zaubee.com', 'snupit.co.za',
+  'sanha.org.za',
 ];
 
 function normalizedWords(value: string): string[] {
@@ -47,6 +54,20 @@ function independentlySourcedCompanyName(evidence: PublicWebSearchResult[]): str
   return firstSegment || title;
 }
 
+function hasStrongNameIdentity(businessWords: string[], result: PublicWebSearchResult, hostname: string): boolean {
+  const titleWords = normalizedWords(result.title);
+  const contentWords = normalizedWords(result.content);
+  const titleMatches = businessWords.filter((word) => titleWords.includes(word)).length;
+  const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
+  const hostMatches = businessWords.filter((word) => hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
+
+  // A domain containing the business identity is useful evidence, but it is not
+  // mandatory: legitimate businesses can operate under a brand/domain that does
+  // not contain their legal name. In that case require stronger first-party text.
+  if (hostMatches >= 1 && titleMatches >= 1) return true;
+  return titleMatches === businessWords.length && contentMatches >= Math.min(2, businessWords.length);
+}
+
 export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): OfficialWebsiteSelection {
   const businessName = input.businessName.trim();
   if (!businessName) throw new Error('businessName is required.');
@@ -58,13 +79,16 @@ export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): Off
   for (const result of input.results) {
     const candidate = registrableCandidate(result);
     if (!candidate) continue;
+    if (!hasStrongNameIdentity(words, result, candidate.hostname)) continue;
+
     const haystack = `${result.title} ${candidate.hostname}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
     const matched = words.filter((word) => haystack.includes(word));
-    if (matched.length === 0) continue;
     const titleWords = normalizedWords(result.title);
     const titleMatches = words.filter((word) => titleWords.includes(word)).length;
     const hostMatches = words.filter((word) => candidate.hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
-    const identityScore = matched.length + titleMatches + (hostMatches * 2);
+    const contentWords = normalizedWords(result.content);
+    const contentMatches = words.filter((word) => contentWords.includes(word)).length;
+    const identityScore = matched.length + titleMatches + (hostMatches * 2) + contentMatches;
     const locationHaystack = `${result.title} ${result.content}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
     const locationScore = knownLocationWords.filter((word) => locationHaystack.includes(word)).length;
     const current = byOrigin.get(candidate.origin) ?? { identityScore: 0, locationScore: 0, evidence: [] };

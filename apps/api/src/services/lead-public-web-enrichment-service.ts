@@ -5,7 +5,7 @@ import type { PublicWebSearchResult } from '../integrations/public-web-research-
 export interface EnrichDiscoveredLeadInput {
   leadId: string;
   companyName: string;
-  officialWebsiteUrl: string;
+  officialWebsiteUrl?: string | null;
   supportingResults: PublicWebSearchResult[];
   actorId?: string;
 }
@@ -41,14 +41,17 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
     async enrich(input: EnrichDiscoveredLeadInput): Promise<LeadRecord> {
       const leadId = requireText(input.leadId, 'leadId');
       const companyName = requireText(input.companyName, 'companyName');
-      const officialWebsiteUrl = normalizeWebsite(requireText(input.officialWebsiteUrl, 'officialWebsiteUrl'));
+      const officialWebsiteUrl = input.officialWebsiteUrl ? normalizeWebsite(input.officialWebsiteUrl) : null;
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       if (input.supportingResults.length === 0) throw new Error('At least one public-web supporting result is required.');
 
-      const matching = input.supportingResults.filter((result) => {
-        try { return new URL(result.url).hostname.toLowerCase() === new URL(officialWebsiteUrl).hostname.toLowerCase(); } catch { return false; }
-      });
-      if (matching.length === 0) throw new Error('Official website must be supported by public-web research evidence.');
+      let matching: PublicWebSearchResult[] = [];
+      if (officialWebsiteUrl) {
+        matching = input.supportingResults.filter((result) => {
+          try { return new URL(result.url).hostname.toLowerCase() === new URL(officialWebsiteUrl).hostname.toLowerCase(); } catch { return false; }
+        });
+        if (matching.length === 0) throw new Error('Official website must be supported by public-web research evidence.');
+      }
 
       return runInTransaction(async (tx) => {
         const lead = await tx.getLeadById(leadId);
@@ -63,26 +66,30 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
           {
             kind: 'public_web_enrichment',
             provider: 'tavily',
-            officialWebsiteUrl,
-            evidenceReferences: matching.map((result) => `public-web:${result.url}`),
+            websiteVerificationStatus: officialWebsiteUrl ? 'verified' : 'not_found',
+            ...(officialWebsiteUrl ? { officialWebsiteUrl } : {}),
+            evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         ];
         const enriched = await tx.enrichLead(lead.id, expectedCompanyName, {
           companyName,
-          opportunitySummary: `Official website independently identified: ${officialWebsiteUrl}`,
+          opportunitySummary: officialWebsiteUrl
+            ? `Official website independently identified: ${officialWebsiteUrl}`
+            : 'Business identity independently identified; no official website was verified in public-web research. Website opportunity should be assessed during human review.',
           evidence,
         });
         if (!enriched) throw new Error('Lead enrichment lost its optimistic-concurrency check.');
 
         await tx.createWorkflowEvent({
-          eventType: 'lead_enriched_from_public_web',
+          eventType: officialWebsiteUrl ? 'lead_enriched_from_public_web' : 'lead_enriched_without_verified_website',
           actorType: 'agent',
           actorId,
           payload: {
             leadId: enriched.id,
             providerPlaceId: identity.providerPlaceId,
-            officialWebsiteUrl,
-            evidenceReferences: matching.map((result) => `public-web:${result.url}`),
+            ...(officialWebsiteUrl ? { officialWebsiteUrl } : {}),
+            websiteVerificationStatus: officialWebsiteUrl ? 'verified' : 'not_found',
+            evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         });
         return enriched;
