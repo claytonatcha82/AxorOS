@@ -31,9 +31,19 @@ const LOCATION_STOP_WORDS = new Set([
   'building', 'floor', 'unit', 'postal', 'code',
 ]);
 
+const LEGAL_NAME_STOP_WORDS = new Set([
+  'pty', 'ltd', 'limited', 'inc', 'incorporated', 'cc', 'company', 'companies',
+  'corporation', 'corp', 'llc', 'group', 'services', 'service', 'solutions',
+  'solution', 'engineering', 'engineers', 'manufacturing', 'industries', 'industry',
+]);
+
 function locationWords(value: string | undefined): string[] {
   if (!value?.trim()) return [];
   return [...new Set(normalizedWords(value).filter((word) => !LOCATION_STOP_WORDS.has(word)))];
+}
+
+function businessIdentityWords(value: string): string[] {
+  return [...new Set(normalizedWords(value).filter((word) => !LEGAL_NAME_STOP_WORDS.has(word)))];
 }
 
 function registrableCandidate(result: PublicWebSearchResult): { origin: string; hostname: string } | null {
@@ -53,24 +63,54 @@ function independentlySourcedCompanyName(evidence: PublicWebSearchResult[]): str
   return firstSegment || title;
 }
 
+function firstPartyEvidenceScore(
+  businessWords: string[],
+  result: PublicWebSearchResult,
+  hostname: string,
+): number {
+  const titleWords = normalizedWords(result.title);
+  const contentWords = normalizedWords(result.content);
+  const titleMatches = businessWords.filter((word) => titleWords.includes(word)).length;
+  const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
+  const hostMatches = businessWords.filter((word) => hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
+  const content = result.content.toLowerCase();
+
+  // A domain that contains the business identity is the strongest durable signal.
+  if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
+
+  // Do not promote arbitrary third-party pages simply because their search title
+  // repeats the business name. A domain with no business identity must provide
+  // several independent first-party signals before it can be considered official.
+  const firstPartySignals = [
+    /\babout (us|the company)\b/.test(content),
+    /\bcontact (us|details)\b/.test(content),
+    /\b(enquiries|inquiries)\b/.test(content),
+    /\b\+?\d[\d\s().-]{6,}\b/.test(result.content),
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(result.content),
+    contentMatches >= Math.min(2, businessWords.length),
+  ].filter(Boolean).length;
+
+  if (titleMatches === businessWords.length && firstPartySignals >= 3) {
+    return 2 + firstPartySignals;
+  }
+  return 0;
+}
+
 export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): OfficialWebsiteSelection {
   const businessName = input.businessName.trim();
   if (!businessName) throw new Error('businessName is required.');
   const words = normalizedWords(businessName);
   if (words.length === 0) return { status: 'not_found', candidateUrls: [] };
+  const identityWords = businessIdentityWords(businessName);
   const knownLocationWords = locationWords(input.formattedAddress);
 
   const byOrigin = new Map<string, { identityScore: number; locationScore: number; evidence: PublicWebSearchResult[] }>();
   for (const result of input.results) {
     const candidate = registrableCandidate(result);
     if (!candidate) continue;
-    const haystack = `${result.title} ${candidate.hostname}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-    const matched = words.filter((word) => haystack.includes(word));
-    if (matched.length === 0) continue;
-    const titleWords = normalizedWords(result.title);
-    const titleMatches = words.filter((word) => titleWords.includes(word)).length;
-    const hostMatches = words.filter((word) => candidate.hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
-    const identityScore = matched.length + titleMatches + (hostMatches * 2);
+    const identityScore = firstPartyEvidenceScore(identityWords.length > 0 ? identityWords : words, result, candidate.hostname);
+    if (identityScore === 0) continue;
+
     const locationHaystack = `${result.title} ${result.content}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
     const locationScore = knownLocationWords.filter((word) => locationHaystack.includes(word)).length;
     const current = byOrigin.get(candidate.origin) ?? { identityScore: 0, locationScore: 0, evidence: [] };
