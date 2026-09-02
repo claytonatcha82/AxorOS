@@ -26,8 +26,9 @@ export interface EnrichedLeadResearchResult {
   leadId: string;
   providerPlaceId: string;
   companyName: string;
-  officialWebsiteUrl: string;
+  officialWebsiteUrl: string | null;
   publicWebEvidence: PublicWebSearchResult[];
+  websiteVerificationStatus: 'verified' | 'not_found';
 }
 
 export interface LeadResearchOutcomeCounts {
@@ -104,10 +105,6 @@ export function createLeadResearchWorkflowService(
         const duplicate = persisted.duplicates.find((item) => item.providerPlaceId === candidate.providerPlaceId);
         const leadId = persisted.created[0]?.id ?? duplicate?.leadId;
         if (!leadId) throw new Error(`Lead persistence produced no identity for ${candidate.providerPlaceId}.`);
-        // A provider identity may recur across autonomous cycles. If its lead has
-        // already moved beyond the discovery-only label, do not enrich or qualify
-        // it again. Discovery-only duplicates remain retryable after transient or
-        // ambiguous public-web research outcomes.
         if (duplicate && !duplicate.enrichmentPending) {
           outcomes.duplicateSkipped += 1;
           continue;
@@ -139,7 +136,8 @@ export function createLeadResearchWorkflowService(
           ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
           results: web.output.results,
         });
-        if (selection.status !== 'selected') {
+
+        if (selection.status === 'ambiguous') {
           proposals.push({
             leadId,
             providerPlaceId: candidate.providerPlaceId,
@@ -148,27 +146,31 @@ export function createLeadResearchWorkflowService(
             publicWebResults: web.output.results,
           });
           outcomes.unresolved += 1;
-          if (selection.status === 'ambiguous') outcomes.ambiguous += 1;
-          if (selection.status === 'not_found') outcomes.notFound += 1;
+          outcomes.ambiguous += 1;
           if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
 
+        // No verified website is an opportunity state, not a failed business
+        // identity. Preserve the business and evidence so qualification can assess
+        // the lead and explicitly surface the missing website as an opportunity.
         const lead = await enrichmentService.enrich({
           leadId,
-          companyName: selection.companyName,
-          officialWebsiteUrl: selection.websiteUrl,
-          supportingResults: selection.evidence,
+          companyName: selection.status === 'selected' ? selection.companyName : candidate.displayName,
+          officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
+          supportingResults: web.output.results,
           actorId: 'lead_agent',
         });
         enriched.push({
           leadId: lead.id,
           providerPlaceId: candidate.providerPlaceId,
-          companyName: selection.companyName,
-          officialWebsiteUrl: selection.websiteUrl,
-          publicWebEvidence: selection.evidence,
+          companyName: lead.companyName,
+          officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
+          publicWebEvidence: web.output.results,
+          websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
         });
         outcomes.enriched += 1;
+        if (selection.status === 'not_found') outcomes.notFound += 1;
         if (actionableDiscovered >= maxBusinesses) break;
       }
 
