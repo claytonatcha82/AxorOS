@@ -20,6 +20,7 @@ const THIRD_PARTY_HOSTS = [
   'waze.com', 'rsa.worldorgs.com', 'goafricaonline.com', 'cylex.net.za',
   'africabizinfo.com', 'dnb.com', 'zoominfo.com', 'crunchbase.com', 'mapquest.com',
   'foursquare.com', 'hotfrog.com', 'kompass.com', 'zaubee.com', 'snupit.co.za',
+  'sanha.org.za',
 ];
 
 function normalizedWords(value: string): string[] {
