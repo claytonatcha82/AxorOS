@@ -51,7 +51,7 @@ function build(overrides: Partial<Parameters<ReturnType<typeof createLeadResearc
 
 test('scores a strong ICP-aligned business fit', () => {
   const assessments = build({
-    publicWebResults: [result('Acme Construction', 'Established growing construction company with 120 employees, multiple clients, projects, branches and expansion into new markets.', 'https://research.example/acme')],
+    publicWebResults: [result('Acme Construction', 'Established growing construction company with 120 employees, multiple clients, projects, branches, expansion into new markets, and an outdated website that is hurting online credibility.', 'https://research.example/acme')],
   });
   assert.equal(assessments.businessFit.score, 10);
   assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://research.example/acme']);
@@ -70,8 +70,9 @@ test('parses target industries from structured Atlas source chunks without inven
 test('retains a verified no-website business as a project opportunity', () => {
   const assessments = build({
     officialWebsiteUrl: null,
-    publicWebResults: [result('Acme Construction', 'Established construction company with multiple clients and projects.', 'https://research.example/acme')],
+    publicWebResults: [result('Acme Construction', 'Established growing construction company with 120 employees, multiple clients and projects. The business currently has no website and wants to improve its online credibility.', 'https://research.example/acme')],
   });
+  assert.equal(assessments.businessFit.score, 10);
   assert.equal(assessments.projectFit.score, 8);
   assert.match(assessments.projectFit.missingInformation.join(' '), /No verified official website/i);
 });
