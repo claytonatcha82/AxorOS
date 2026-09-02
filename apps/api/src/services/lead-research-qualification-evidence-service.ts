@@ -36,7 +36,7 @@ const PARTNERSHIP_PATTERNS = [
 const SENIOR_ROLE_PATTERNS = [
   /\b(?:owner|founder|ceo|chief\s+executive|managing\s+director|director|principal|general\s+manager|marketing\s+manager|operations\s+manager|practice\s+manager)\b/i,
 ];
-const NAMED_PERSON_PATTERN = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b/;
+const NAMED_PERSON_PATTERN = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b/g;
 const DIRECT_CONTACT_PATTERNS = [
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
   /\b(?:direct|personal)\s+(?:email|phone|line)\b/i,
@@ -57,14 +57,17 @@ const COMMERCIAL_SUITABILITY_PATTERNS = [
   /\b(?:commercial|contract|contracts|projects?|clients?|customers?|suppliers?|procurement|tender)\b/i,
 ];
 const URGENT_TIMELINE_PATTERNS = [
-  /\b(?:deadline|launch\s+date|delivery\s+date|project\s+date|completion\s+date)\b/i,
-  /\b(?:urgent|urgently|immediate|asap|this\s+month|next\s+month)\b/i,
+  /\b(?:urgent|urgently|immediate|asap)\b/i,
+  /\b(?:deadline|closing\s+date|closing\s+deadline)\b[\s\S]{0,80}\b(?:today|tomorrow|this\s+(?:week|month)|by\s+\w+|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\b/i,
   /\b(?:tender|rfq)\b[\s\S]{0,80}\b(?:closing|closes|closing\s+date)\b/i,
 ];
-const CURRENT_TIMELINE_PATTERNS = [
-  /\b(?:currently|current|ongoing|in progress|launch(?:ing)?|underway|active)\b/i,
+const STRONG_NEAR_TERM_TIMELINE_PATTERNS = [
+  /\b(?:launch\s+date|delivery\s+date|project\s+date|completion\s+date)\b/i,
   /\b(?:this\s+(?:month|quarter|year)|next\s+(?:month|quarter))\b/i,
-  /\b(?:tender|rfq)\b/i,
+  /\b(?:launch(?:ing)?|underway|in\s+progress|ongoing)\b/i,
+];
+const CURRENT_TIMELINE_PATTERNS = [
+  /\b(?:currently|current|active)\b/i,
 ];
 
 function assessment(score: number | null, references: string[], missingInformation: string[] = []): QualificationCategoryAssessment {
@@ -162,14 +165,25 @@ function partnershipAssessment(input: LeadResearchQualificationEvidenceInput, te
   return assessment(null, [], ['No meaningful growth, recurring service, or long-term partnership signal is currently evidenced.']);
 }
 
+function namedPersonNearRole(text: string): boolean {
+  const roleMatches = [...text.matchAll(SENIOR_ROLE_PATTERNS[0]!)];
+  if (roleMatches.length === 0) return false;
+  const personMatches = [...text.matchAll(NAMED_PERSON_PATTERN)];
+  return roleMatches.some((roleMatch) => personMatches.some((personMatch) => {
+    if (personMatch.index === undefined || roleMatch.index === undefined) return false;
+    const distance = Math.abs(personMatch.index - roleMatch.index);
+    return distance <= 80;
+  }));
+}
+
 function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
   const roleResults = matchingResults(input.publicWebResults, SENIOR_ROLE_PATTERNS);
   const roleReferences = evidenceReferences(roleResults);
-  const hasNamedPerson = roleResults.some((result) => NAMED_PERSON_PATTERN.test([result.title, result.content].filter(Boolean).join(' ')));
-  const directContactResults = roleResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), DIRECT_CONTACT_PATTERNS));
+  const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' ')));
+  const directContactResults = namedRoleResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), DIRECT_CONTACT_PATTERNS));
   const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
-  if (hasNamedPerson && directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role and identity are evidenced; procurement authority is not assumed.']);
-  if (hasNamedPerson && businessContactResults.length > 0) return assessment(8, [...roleReferences, ...evidenceReferences(businessContactResults)], ['A credible business contact route exists, but a direct route to the named decision-maker is not confirmed.']);
+  if (directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role, identity, and a direct contact route are evidenced; procurement authority is not assumed.']);
+  if (namedRoleResults.length > 0 && businessContactResults.length > 0) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults)], ['A credible business contact route exists, but a direct route to the named decision-maker is not confirmed.']);
   if (roleResults.length > 0) return assessment(6, roleReferences, ['A senior/relevant management role is identified, but named identity and/or direct access is incomplete.']);
   if (businessContactResults.length > 0) return assessment(4, evidenceReferences(businessContactResults), ['A relevant business contact route exists, but decision-maker authority is unverified.']);
   if (input.publicWebResults.length > 0) return assessment(2, evidenceReferences(input.publicWebResults), ['Only generic public evidence is available; no credible decision-maker route is established.']);
@@ -189,10 +203,11 @@ function commercialAssessment(input: LeadResearchQualificationEvidenceInput): Qu
 
 function timelineAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
   const urgent = matchingResults(input.publicWebResults, URGENT_TIMELINE_PATTERNS);
-  if (urgent.length > 0) return assessment(10, evidenceReferences(urgent));
+  if (urgent.length > 0) return assessment(10, evidenceReferences(urgent), ['The evidence indicates a current actionable deadline/urgency; exact delivery requirements remain subject to human confirmation.']);
+  const nearTerm = matchingResults(input.publicWebResults, STRONG_NEAR_TERM_TIMELINE_PATTERNS);
+  if (nearTerm.length > 0) return assessment(8, evidenceReferences(nearTerm), ['Near-term timing is evidenced, but clear urgency and an actionable current deadline are not fully established.']);
   const current = matchingResults(input.publicWebResults, CURRENT_TIMELINE_PATTERNS);
-  if (current.length >= 2) return assessment(8, evidenceReferences(current), ['An exact deadline or actionable delivery date is not publicly established.']);
-  if (current.length === 1) return assessment(6, evidenceReferences(current), ['Timing is indicated but exact urgency/actionability is incomplete.']);
+  if (current.length > 0) return assessment(6, evidenceReferences(current), ['Timing is indicated but exact timeframe, urgency, and actionability are incomplete.']);
   return assessment(null, [], ['No meaningful current, near-term, or deadline evidence is available; timing remains unverified.']);
 }
 
