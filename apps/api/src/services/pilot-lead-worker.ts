@@ -94,6 +94,23 @@ export function createPilotLeadWorker(
         notFound: result.outcomes.notFound,
       };
       options.onCycleCompleted?.(result);
+      logEvent('info', 'pilot_lead_worker_qualification_summary', {
+        leads: result.enriched.map((lead) => ({
+          companyName: lead.companyName,
+          officialWebsiteUrl: lead.officialWebsiteUrl,
+          websiteStatus: lead.officialWebsiteUrl ? 'verified' : 'no_verified_website',
+          businessFit: lead.preliminaryQualification.assessments.businessFit.score,
+          projectFit: lead.preliminaryQualification.assessments.projectFit.score,
+          partnershipPotential: lead.preliminaryQualification.assessments.partnershipPotential.score,
+          decisionMakerAccess: lead.preliminaryQualification.assessments.decisionMakerAccess.score,
+          commercialFit: lead.preliminaryQualification.assessments.commercialFit.score,
+          timeline: lead.preliminaryQualification.assessments.timeline.score,
+          totalScore: lead.preliminaryQualification.totalScore,
+          suggestedStatus: lead.preliminaryQualification.suggestedStatus,
+          missingInformation: lead.preliminaryQualification.missingInformation,
+          reviewExecutionId: lead.qualificationReviewExecutionId,
+        })),
+      });
       return result;
     } catch (error) {
       lastFailedAt = new Date().toISOString();
