@@ -34,10 +34,12 @@ function assessments(score: number | null) {
 
 test('applies the Atlas 60-point qualification thresholds and always requires human review', () => {
   const service = createLeadPreliminaryQualificationService();
-  const excellent = service.evaluate({ atlas: atlas(), assessments: assessments(9) });
+  const inputAssessments = assessments(9);
+  const excellent = service.evaluate({ atlas: atlas(), assessments: inputAssessments });
   assert.equal(excellent.totalScore, 54);
   assert.equal(excellent.suggestedStatus, 'excellent');
   assert.equal(excellent.humanReviewRequired, true);
+  assert.deepEqual(excellent.assessments, inputAssessments);
 
   const moderateAssessments = assessments(5) as any;
   moderateAssessments.businessFit.score = 6;
