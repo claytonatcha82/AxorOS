@@ -76,6 +76,42 @@ test('rejects domain-mismatch search results that merely repeat the business nam
   }
 });
 
+test('rejects an unknown directory domain even when the listing contains strong business contact evidence', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'TFD Manufacturing',
+    results: [
+      {
+        title: 'TFD Manufacturing - Western Cape Online',
+        url: 'https://www.western-cape.online/item/tfd-manufacturing/',
+        content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.',
+      },
+    ],
+  });
+  assert.equal(result.status, 'not_found');
+});
+
+test('selects the first-party TFD Manufacturing website over an unknown directory result', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'TFD Manufacturing',
+    results: [
+      {
+        title: 'TFD Manufacturing - Western Cape Online',
+        url: 'https://www.western-cape.online/item/tfd-manufacturing/',
+        content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.',
+      },
+      {
+        title: 'Steel Fabrication and Laser Cutting Somerset West | TFD Manufacturing',
+        url: 'https://www.tfdm.co.za/',
+        content: 'TFD Manufacturing and TFDM Laser support metal projects through laser cutting, CNC bending and rolling, welding, fabrication and finishing. Contact the Team. Manufacturing +27 21 852 8777. 24 Delson Close, Somerset West Business Park, Somerset West, South Africa.',
+      },
+    ],
+  });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') {
+    assert.equal(result.websiteUrl, 'https://www.tfdm.co.za/');
+  }
+});
+
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
   const result = selectOfficialWebsite({
     businessName: 'Acme Engineering',
