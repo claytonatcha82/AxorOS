@@ -37,8 +37,8 @@ const SENIOR_ROLE_PATTERNS = [
   /\b(?:owner|founder|ceo|chief\s+executive|managing\s+director|director|principal|general\s+manager|marketing\s+manager|operations\s+manager|practice\s+manager)\b/i,
 ];
 const NAMED_PERSON_PATTERN = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b/g;
+const DIRECT_EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const DIRECT_CONTACT_PATTERNS = [
-  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
   /\b(?:direct|personal)\s+(?:email|phone|line)\b/i,
   /\b(?:mobile|cell)\s*(?:number|phone|tel|telephone)?\s*[:\-]?\s*\+?\d[\d\s().-]{6,}\b/i,
 ];
@@ -130,16 +130,40 @@ function businessFitAssessment(input: LeadResearchQualificationEvidenceInput, te
   const lower = text.toLowerCase();
   const matchedIndustry = industries.find((industry) => lower.includes(industry.toLowerCase()));
   if (!matchedIndustry) return assessment(null, [], ['Target-industry or broader Ideal Client Profile fit is not yet evidenced.']);
-  const references = evidenceReferences(input.publicWebResults.filter((result) => [result.title, result.content].filter(Boolean).join(' ').toLowerCase().includes(matchedIndustry.toLowerCase())));
-  if (references.length === 0) return assessment(null, [], ['Target-industry match could not be tied to public evidence.']);
-  const positiveSignals = [
-    /established|growing|growth|expanding|expansion|digital\s+transformation/i,
+  const industryResults = input.publicWebResults.filter((result) => [result.title, result.content].filter(Boolean).join(' ').toLowerCase().includes(matchedIndustry.toLowerCase()));
+  const stageOrSizeResults = matchingResults(input.publicWebResults, [
+    /\b(?:established|growing)\s+(?:business|company|firm|organisation|organization|enterprise)s?\b/i,
     /\b(?:5|[1-9]\d|1\d\d|2[0-4]\d|250)\s*(?:employees?|staff|people)\b/i,
-    /customers?|clients?|projects?|branches?|locations?|operations?/i,
-    /modernis|technology|digital|online|brand|market/i,
-  ].filter((pattern) => pattern.test(text)).length;
-  const score = positiveSignals >= 3 ? 10 : positiveSignals >= 2 ? 8 : positiveSignals >= 1 ? 6 : null;
-  return assessment(score, references, score === null ? ['Additional ICP characteristics are not evidenced sufficiently for a numeric score.'] : score < 10 ? ['Some preferred ICP characteristics remain unverified.'] : []);
+    /\b(?:small|medium[-\s]?sized|growing)\s+(?:business|company|firm|organisation|organization|enterprise)s?\b/i,
+  ]);
+  const growthTransformResults = matchingResults(input.publicWebResults, [
+    /\bgrowing\b/i, /\bgrowth\b/i, /\bexpanding\b/i, /\bexpansion\b/i,
+    /\bdigital\s+transformation\b/i, /\brefresh(?:ing)?\s+(?:the\s+)?brand\b/i, /\bnew\s+market\b/i,
+  ]);
+  const challengeGoalResults = matchingResults(input.publicWebResults, [
+    /\b(?:outdated|no|without\s+(?:a\s+)?)\s+website\b/i, /\bpoor\s+mobile\b/i, /\bslow\s+(?:website|loading)\b/i,
+    /\bweak\s+branding\b/i, /\blow\s+credibility\b/i, /\bfew\s+online\s+enquir(?:y|ies)\b/i,
+    /\blow\s+lead\s+generation\b/i, /\bweak\s+digital\s+marketing\b/i, /\bpoor\s+search\s+visibility\b/i,
+    /\bdifficulty\s+standing\s+out\b/i, /\bmanual\s+(?:administrative\s+)?processes?\b/i,
+    /\binefficient\s+workflows?\b/i, /\bdisconnected\s+systems?\b/i, /\blimited\s+automation\b/i,
+    /\bdifficulty\s+updating\s+(?:content|the\s+website)\b/i, /\bsecurity\s+concerns?\b/i,
+    /\bpoor\s+hosting\b/i, /\bno\s+ongoing\s+support\b/i, /\b(?:bad|poor)\s+experience(?:s)?\s+with\s+developers?\b/i,
+    /\bbuild\s+trust\b/i, /\bgenerate\s+more\s+enquir(?:y|ies)\b/i, /\bimprove\s+brand\s+perception\b/i,
+    /\bincrease\s+efficiency\b/i, /\bmoderni[sz]e\s+(?:the\s+)?business\b/i, /\bsave\s+time\b/i,
+    /\bgrow\s+sustainably\b/i,
+  ]);
+  const stageOrSize = stageOrSizeResults.length > 0;
+  const growthTransform = growthTransformResults.length > 0;
+  const challengeGoal = challengeGoalResults.length > 0;
+  const supportedResults = [...industryResults, ...stageOrSizeResults, ...growthTransformResults, ...challengeGoalResults];
+  if (supportedResults.length === 0) return assessment(null, [], ['Target-industry match could not be tied to public evidence.']);
+  const additionalSignals = [stageOrSize, growthTransform, challengeGoal].filter(Boolean).length;
+  const score = additionalSignals >= 3 ? 10 : additionalSignals >= 2 ? 8 : additionalSignals >= 1 ? 6 : null;
+  const missing: string[] = [];
+  if (!stageOrSize) missing.push('Preferred business stage or size is not yet evidenced.');
+  if (!growthTransform) missing.push('Growth or digital-transformation characteristics are not yet evidenced.');
+  if (!challengeGoal) missing.push('An ICP-aligned business challenge or goal is not yet evidenced.');
+  return assessment(score, evidenceReferences(supportedResults), score === null ? missing : missing);
 }
 
 function projectFitAssessment(input: LeadResearchQualificationEvidenceInput, businessFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
@@ -165,25 +189,47 @@ function partnershipAssessment(input: LeadResearchQualificationEvidenceInput, te
   return assessment(null, [], ['No meaningful growth, recurring service, or long-term partnership signal is currently evidenced.']);
 }
 
-function namedPersonNearRole(text: string, companyName: string): boolean {
+function namedPersonNearRole(text: string, companyName: string): string[] {
   const roleMatch = text.match(SENIOR_ROLE_PATTERNS[0]!);
-  if (!roleMatch || roleMatch.index === undefined) return false;
+  if (!roleMatch || roleMatch.index === undefined) return [];
   const normalizedCompanyName = companyName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const personMatches = [...text.matchAll(NAMED_PERSON_PATTERN)];
-  return personMatches.some((personMatch) => {
-    if (personMatch.index === undefined) return false;
-    const candidate = personMatch[0]!.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    if (normalizedCompanyName && (candidate === normalizedCompanyName || candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate))) return false;
-    const distance = Math.abs(personMatch.index - roleMatch.index!);
-    return distance <= 80;
+  return personMatches
+    .filter((personMatch) => {
+      if (personMatch.index === undefined) return false;
+      const candidate = personMatch[0]!.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (normalizedCompanyName && (candidate === normalizedCompanyName || candidate.includes(normalizedCompanyName) || normalizedCompanyName.includes(candidate))) return false;
+      return Math.abs(personMatch.index - roleMatch.index!) <= 80;
+    })
+    .map((personMatch) => personMatch[0]!);
+}
+
+function namedPersonWithDirectContact(text: string, companyName: string): boolean {
+  const roleMatch = text.match(SENIOR_ROLE_PATTERNS[0]!);
+  if (!roleMatch || roleMatch.index === undefined) return false;
+  const people = namedPersonNearRole(text, companyName);
+  return people.some((person) => {
+    const personIndex = text.indexOf(person, Math.max(0, roleMatch.index! - 80));
+    if (personIndex < 0) return false;
+    const windowStart = Math.max(0, personIndex - 120);
+    const windowEnd = Math.min(text.length, personIndex + person.length + 160);
+    const window = text.slice(windowStart, windowEnd);
+    if (matches(window, DIRECT_CONTACT_PATTERNS)) return true;
+    const normalizedPersonParts = person.toLowerCase().split(/\s+/).filter(Boolean);
+    const firstName = normalizedPersonParts[0];
+    const lastName = normalizedPersonParts.at(-1);
+    return [...window.matchAll(DIRECT_EMAIL_PATTERN)].some((emailMatch) => {
+      const localPart = emailMatch[0]!.split('@')[0]!.toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return Boolean((firstName && localPart.includes(firstName)) || (lastName && lastName.length >= 3 && localPart.includes(lastName)));
+    });
   });
 }
 
 function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
   const roleResults = matchingResults(input.publicWebResults, SENIOR_ROLE_PATTERNS);
   const roleReferences = evidenceReferences(roleResults);
-  const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' '), input.companyName));
-  const directContactResults = namedRoleResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), DIRECT_CONTACT_PATTERNS));
+  const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' '), input.companyName).length > 0);
+  const directContactResults = namedRoleResults.filter((result) => namedPersonWithDirectContact([result.title, result.content].filter(Boolean).join(' '), input.companyName));
   const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
   if (directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role, identity, and a direct contact route are evidenced; procurement authority is not assumed.']);
   if (namedRoleResults.length > 0 && businessContactResults.length > 0) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults)], ['A credible business contact route exists, but a direct route to the named decision-maker is not confirmed.']);
