@@ -25,6 +25,7 @@ export interface PreliminaryLeadQualificationResult {
   humanReviewRequired: true;
   missingInformation: string[];
   atlasSourcePaths: string[];
+  assessments: Record<QualificationCategory, QualificationCategoryAssessment>;
 }
 
 const CATEGORIES: QualificationCategory[] = [
@@ -80,6 +81,7 @@ export function createLeadPreliminaryQualificationService() {
         humanReviewRequired: true,
         missingInformation: [...new Set(missingInformation)],
         atlasSourcePaths: sourcePaths(input.atlas),
+        assessments: input.assessments,
       };
     },
   };
