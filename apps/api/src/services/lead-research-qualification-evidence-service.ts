@@ -166,14 +166,14 @@ function partnershipAssessment(input: LeadResearchQualificationEvidenceInput, te
 }
 
 function namedPersonNearRole(text: string): boolean {
-  const roleMatches = [...text.matchAll(SENIOR_ROLE_PATTERNS[0]!)];
-  if (roleMatches.length === 0) return false;
+  const roleMatch = text.match(SENIOR_ROLE_PATTERNS[0]!);
+  if (!roleMatch || roleMatch.index === undefined) return false;
   const personMatches = [...text.matchAll(NAMED_PERSON_PATTERN)];
-  return roleMatches.some((roleMatch) => personMatches.some((personMatch) => {
-    if (personMatch.index === undefined || roleMatch.index === undefined) return false;
-    const distance = Math.abs(personMatch.index - roleMatch.index);
+  return personMatches.some((personMatch) => {
+    if (personMatch.index === undefined) return false;
+    const distance = Math.abs(personMatch.index - roleMatch.index!);
     return distance <= 80;
-  }));
+  });
 }
 
 function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput): QualificationCategoryAssessment {
