@@ -33,7 +33,8 @@ const THIRD_PARTY_LISTING_PATTERNS = [
   /\bonline\s+(directory|listing|business)\b/,
   /\bbusiness\s+profile\b/,
   /\bcompany\s+profile\b/,
-  /\b(map|maps|directions|driving\s+directions)\b/,
+  /\b(?:map|maps)\s+(listing|profile|result|provider)\b/,
+  /\bdriving\s+directions\s+(to|for)\b/,
   /\bmarketplace\s+(listing|profile)\b/,
 ];
 
@@ -94,9 +95,9 @@ function firstPartyEvidenceScore(
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
   // A non-matching hostname must not be promoted when the result itself describes
-  // the page as a directory, listing, profile, portal, marketplace, or map result.
-  // Such pages can be excellent discovery evidence but cannot establish ownership
-  // of the hosting domain.
+  // the page as a directory, listing, profile, portal, marketplace, or actual map
+  // result. Generic words such as "map" or "directions" on a normal company page
+  // are not sufficient to reject that page.
   const listingText = `${result.title} ${result.content}`.toLowerCase();
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
