@@ -109,7 +109,7 @@ test('does not infer commercial capacity from generic company operations', () =>
   const assessments = build({
     publicWebResults: [result('Acme Construction', 'Established construction company with clients, customers, projects and services.', 'https://research.example/acme')],
   });
-  assert.equal(assessments.commercialFit.score, 6);
+  assert.equal(assessments.commercialFit.score, 4);
   assert.match(assessments.commercialFit.missingInformation.join(' '), /budget|payment|value/i);
 });
 
