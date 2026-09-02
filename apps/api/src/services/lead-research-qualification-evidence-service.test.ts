@@ -28,120 +28,161 @@ function structuredAtlas() {
         'South Africa',
       ].join('\r\n'),
       sources: [
-        {
-          reference: '[ATLAS-06]',
-          citation: {
-            title: 'Ideal Client Profile',
-            path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
-            headingPath: ['Industries'],
-          },
-        },
-        {
-          reference: '[ATLAS-07]',
-          citation: {
-            title: 'Ideal Client Profile',
-            path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md',
-            headingPath: ['Geographic Focus'],
-          },
-        },
+        { reference: '[ATLAS-06]', citation: { title: 'Ideal Client Profile', path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md', headingPath: ['Industries'] } },
+        { reference: '[ATLAS-07]', citation: { title: 'Ideal Client Profile', path: 'Volume 1 - Agency/02 - Agency Positioning/Ideal Client Profile.md.md', headingPath: ['Geographic Focus'] } },
       ],
     },
   } as never;
 }
 
-test('records target-industry evidence without inventing a numeric business-fit score', () => {
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: atlas(),
-    companyName: 'Acme Engineering',
-    officialWebsiteUrl: 'https://acme.example/',
-    publicWebResults: [{ title: 'Acme Engineering | Home', url: 'https://acme.example/', content: 'Engineering services for industrial clients.' }],
-  });
+function result(title: string, content: string, url: string) {
+  return { title, content, url };
+}
 
+function build(overrides: Partial<Parameters<ReturnType<typeof createLeadResearchQualificationEvidenceService>['build']>[0]> = {}) {
+  return createLeadResearchQualificationEvidenceService().build({
+    atlas: atlas(),
+    companyName: 'Acme Construction',
+    officialWebsiteUrl: 'https://acme.example/',
+    publicWebResults: [result('Acme Construction', 'Construction company.', 'https://research.example/acme')],
+    ...overrides,
+  });
+}
+
+test('scores a strong ICP-aligned business fit', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Established growing construction company with 120 employees, multiple clients, projects, branches, expansion into new markets, and an outdated website that is hurting online credibility.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.businessFit.score, 10);
+  assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://research.example/acme']);
+});
+
+test('parses target industries from structured Atlas source chunks without inventing an ICP score', () => {
+  const assessments = build({
+    atlas: structuredAtlas(),
+    companyName: 'Acme Manufacturing',
+    publicWebResults: [result('Acme Manufacturing', 'Manufacturing company.', 'https://research.example/acme')],
+  });
   assert.equal(assessments.businessFit.score, null);
-  assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://acme.example/']);
-  assert.match(assessments.businessFit.missingInformation[0]!, /does not define a deterministic numeric Business Fit score/i);
+  assert.match(assessments.businessFit.missingInformation.join(' '), /ICP characteristics|evidenced/i);
+});
+
+test('retains a verified no-website business as a project opportunity', () => {
+  const assessments = build({
+    officialWebsiteUrl: null,
+    publicWebResults: [result('Acme Construction', 'Established growing construction company with 120 employees, multiple clients and projects. The business currently has no website and wants to improve its online credibility.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.businessFit.score, 10);
+  assert.equal(assessments.projectFit.score, 8);
+  assert.match(assessments.projectFit.missingInformation.join(' '), /No verified official website/i);
+});
+
+test('uses evidenced digital deficiency for project fit when a website exists', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Construction company with an outdated website and weak mobile experience.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.projectFit.score, 8);
+  assert.deepEqual(assessments.projectFit.evidenceReferences, ['public-web:https://research.example/acme']);
+});
+
+test('does not award decision-maker access 8 without a contact route', () => {
+  const assessments = build({
+    publicWebResults: [result('Leadership', 'Managing Director Jane Doe leads Acme Construction.', 'https://research.example/about')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 6);
+});
+
+test('does not award decision-maker access 10 from company-name false positives', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Our managing director oversees operations. Email info@acme.example.', 'https://research.example/about')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 6);
+});
+
+test('awards decision-maker 8 for named role plus credible business contact route', () => {
+  const assessments = build({
+    publicWebResults: [result('Leadership', 'Managing Director Jane Doe leads Acme Construction. Contact our office for enquiries.', 'https://research.example/about')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 8);
+});
+
+test('awards decision-maker 10 only with named role and direct contact route', () => {
+  const assessments = build({
+    publicWebResults: [result('Leadership', 'Managing Director Jane Doe. Direct email: jane.doe@acme.example.', 'https://research.example/contact')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 10);
+});
+
+test('does not infer commercial capacity from generic company operations', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Established construction company with clients, customers, projects and services.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.commercialFit.score, 4);
+  assert.match(assessments.commercialFit.missingInformation.join(' '), /budget|payment|value/i);
+});
+
+test('commercial evidence can score 7 from one explicit strong signal', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme tender', 'Acme is participating in a procurement tender.', 'https://research.example/tender')],
+  });
+  assert.equal(assessments.commercialFit.score, 7);
+});
+
+test('does not invent timeline from a generic website opportunity', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Construction company with an online presence opportunity.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.timeline.score, null);
+});
+
+test('scores near-term timeline evidence at 8 rather than treating it as current urgency', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme launch', 'The website launch is scheduled for next month.', 'https://research.example/news')],
+  });
+  assert.equal(assessments.timeline.score, 8);
+});
+
+test('scores explicit urgent current timeline evidence at 10', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme urgent project', 'The website project is urgent and must launch this month.', 'https://research.example/news')],
+  });
+  assert.equal(assessments.timeline.score, 10);
+});
+
+test('keeps unsupported categories null rather than converting uncertainty into poor fit', () => {
+  const assessments = build({
+    companyName: 'Unknown Company',
+    officialWebsiteUrl: null,
+    publicWebResults: [result('Unknown Company', 'Company information unavailable.', 'https://research.example/unknown')],
+  });
+  assert.equal(assessments.businessFit.score, null);
   assert.equal(assessments.projectFit.score, null);
-  assert.equal(assessments.partnershipPotential.score, null);
-  assert.equal(assessments.decisionMakerAccess.score, null);
+  assert.equal(assessments.decisionMakerAccess.score, 2);
   assert.equal(assessments.commercialFit.score, null);
   assert.equal(assessments.timeline.score, null);
 });
 
-test('parses target industries from the structured Atlas source chunk', () => {
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: structuredAtlas(),
-    companyName: 'Acme Manufacturing',
-    officialWebsiteUrl: 'https://acme.example/',
-    publicWebResults: [{ title: 'Acme Manufacturing | Home', url: 'https://acme.example/', content: 'Manufacturing services for industrial clients.' }],
-  });
-
-  assert.equal(assessments.businessFit.score, null);
-  assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://acme.example/']);
-  assert.match(assessments.businessFit.missingInformation[0]!, /Manufacturing/);
-});
-
-test('does not invent business-fit score when target-industry evidence is absent', () => {
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: atlas(),
+test('poor-fit scoring is not manufactured from absence of evidence', () => {
+  const assessments = build({
     companyName: 'Example Business',
-    officialWebsiteUrl: 'https://example.test/',
-    publicWebResults: [{ title: 'Example Business', url: 'https://example.test/', content: 'Independent business information.' }],
+    publicWebResults: [result('Example Business', 'General business information.', 'https://research.example/example')],
   });
-  assert.equal(assessments.businessFit.score, null);
-  assert.deepEqual(assessments.businessFit.evidenceReferences, []);
-  assert.match(assessments.businessFit.missingInformation[0]!, /Target-industry/);
+  assert.notEqual(assessments.businessFit.score, 0);
+  assert.notEqual(assessments.projectFit.score, 0);
+  assert.notEqual(assessments.commercialFit.score, 0);
 });
 
-test('captures category-specific public-web evidence without converting qualitative evidence into an invented score', () => {
-  const url = 'https://acme.example/about';
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: atlas(),
-    companyName: 'Acme Engineering',
-    officialWebsiteUrl: 'https://acme.example/',
-    publicWebResults: [{
-      title: 'Acme Engineering leadership and services',
-      url,
-      content: 'The founder and managing director oversee the business. We provide website development and ongoing website maintenance. Contact our director for a quotation. A new website launch is planned for next month.',
-    }],
-  });
-
-  for (const category of ['projectFit', 'partnershipPotential', 'decisionMakerAccess', 'commercialFit', 'timeline'] as const) {
-    assert.equal(assessments[category].score, null);
-    assert.deepEqual(assessments[category].evidenceReferences, [`public-web:${url}`]);
-    assert.match(assessments[category].missingInformation[1]!, /must not manufacture a score/i);
-  }
-});
-
-test('does not treat a missing website as missing qualification evidence by itself', () => {
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: atlas(),
-    companyName: 'Acme Construction',
-    officialWebsiteUrl: null,
-    publicWebResults: [{ title: 'Acme Construction', url: 'https://directory.example/acme', content: 'Construction company. Owner and director listed. Website development services are being considered.' }],
-  });
-
-  assert.equal(assessments.businessFit.score, null);
-  assert.equal(assessments.projectFit.score, null);
-  assert.deepEqual(assessments.projectFit.evidenceReferences, ['public-web:https://directory.example/acme']);
-});
-
-test('only returns supplied public-web URLs as evidence references', () => {
-  const assessments = createLeadResearchQualificationEvidenceService().build({
-    atlas: atlas(),
-    companyName: 'Example Business',
+test('only supplied public-web URLs are emitted as evidence references', () => {
+  const assessments = build({
     officialWebsiteUrl: 'https://official.example/',
-    publicWebResults: [{ title: 'Example Business', url: 'https://research.example/listing', content: 'Construction business with website development requirements.' }],
+    publicWebResults: [result('Acme Construction', 'Construction business with branding requirements.', 'https://research.example/listing')],
   });
-
   assert.deepEqual(assessments.projectFit.evidenceReferences, ['public-web:https://research.example/listing']);
   assert.equal(assessments.projectFit.evidenceReferences.includes('public-web:https://official.example/'), false);
 });
 
 test('fails closed when Atlas target industries are unavailable', () => {
-  assert.throws(() => createLeadResearchQualificationEvidenceService().build({
+  assert.throws(() => build({
     atlas: { idealClientProfile: { context: '# Purpose\nMissing target industries.', sources: [] } } as never,
-    companyName: 'Example',
-    officialWebsiteUrl: 'https://example.test/',
-    publicWebResults: [],
   }), /Target Industries/);
 });
