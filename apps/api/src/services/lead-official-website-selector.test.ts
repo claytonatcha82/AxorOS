@@ -62,6 +62,20 @@ test('returns not_found when only observed third-party hosts remain', () => {
   assert.equal(result.status, 'not_found');
 });
 
+test('rejects domain-mismatch search results that merely repeat the business name', () => {
+  const falsePositiveCases = [
+    { businessName: 'ALENG Engineering Services (Pty) Ltd', title: 'ALENG Engineering Services', url: 'https://magicpin.com/ALENG-engineering', content: 'ALENG Engineering Services. Business listing.' },
+    { businessName: 'Hersol Manufacturing Laboratories', title: 'Hersol Manufacturing Laboratories', url: 'https://pharmaboardroom.com/hersol', content: 'Hersol Manufacturing Laboratories. Industry profile.' },
+    { businessName: 'PARNIS MANUFACTURING - Steel Technology', title: 'PARNIS MANUFACTURING - Steel Technology', url: 'https://www.steel-technology.com/parnis', content: 'PARNIS MANUFACTURING. Industry portal listing.' },
+    { businessName: 'NATCO LOGISTICS', title: 'NATCO LOGISTICS', url: 'https://freightglobal.com/natco-logistics', content: 'NATCO LOGISTICS. Freight marketplace listing.' },
+  ];
+
+  for (const input of falsePositiveCases) {
+    const result = selectOfficialWebsite({ businessName: input.businessName, results: [input] });
+    assert.equal(result.status, 'not_found', `unexpected official site selected for ${input.businessName}`);
+  }
+});
+
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
   const result = selectOfficialWebsite({
     businessName: 'Acme Engineering',
