@@ -9,7 +9,7 @@ function atlas() {
 test('scores an ICP-aligned no-website business as an opportunity', () => {
   const assessments = createLeadResearchQualificationEvidenceService().build({
     atlas: atlas(), companyName: 'Acme Construction', officialWebsiteUrl: null,
-    publicWebResults: [{ title: 'Acme Construction', url: 'https://directory.example/acme', content: 'Established construction company with projects, clients and operations in South Africa.' }],
+    publicWebResults: [{ title: 'Acme Construction', url: 'https://directory.example/acme', content: 'Established growing construction company with 120 employees and expansion into new markets. The business has no website and wants to improve online visibility.' }],
   });
   assert.ok((assessments.businessFit.score ?? 0) >= 6);
   assert.equal(assessments.projectFit.score, 8);
