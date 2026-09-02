@@ -13,6 +13,14 @@ function qualification(
     humanReviewRequired: true,
     missingInformation: [],
     atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
+    assessments: {
+      businessFit: { score: 8, evidenceReferences: ['fixture:business-fit'], missingInformation: [] },
+      projectFit: { score: 8, evidenceReferences: ['fixture:project-fit'], missingInformation: [] },
+      partnershipPotential: { score: 7, evidenceReferences: ['fixture:partnership'], missingInformation: [] },
+      decisionMakerAccess: { score: 7, evidenceReferences: ['fixture:decision-maker'], missingInformation: [] },
+      commercialFit: { score: 8, evidenceReferences: ['fixture:commercial'], missingInformation: [] },
+      timeline: { score: 7, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
+    },
     ...overrides,
   };
 }
