@@ -30,6 +30,37 @@ test('rejects social and directory results as official websites', () => {
   assert.equal(result.status, 'not_found');
 });
 
+test('rejects observed map and directory hosts from the pilot without suppressing first-party candidates', () => {
+  const thirdPartyResults = [
+    { title: 'Rhino Valves (Pty) Ltd', url: 'https://rsa.worldorgs.com/catalog/benoni/valve-supplier/rhino-valves', content: 'Business listing.' },
+    { title: 'South Zambezi Engineering Services (Pty) Ltd', url: 'https://www.waze.com/live-map/directions', content: 'Driving directions.' },
+    { title: 'Fountain Civil Engineering (Pty) Ltd', url: 'https://www.goafricaonline.com/company/fountain-civil-engineering', content: 'Business directory listing.' },
+    { title: 'Hersol Manufacturing Laboratories', url: 'https://sanha.org.za/member/hersol', content: 'Industry directory listing.' },
+    { title: 'Company profile', url: 'https://cylex.net.za/company/acme-engineering', content: 'Business directory listing.' },
+    { title: 'Acme Engineering', url: 'https://www.africabizinfo.com/acme-engineering', content: 'Business directory listing.' },
+    { title: 'Acme Engineering', url: 'https://www.steel-technology.com/acme-engineering', content: 'Industry portal listing.' },
+  ];
+  const result = selectOfficialWebsite({
+    businessName: 'Acme Engineering',
+    results: [
+      ...thirdPartyResults,
+      { title: 'Acme Engineering | Industrial Solutions', url: 'https://acmeengineering.co.za/services', content: 'Official company website.' },
+    ],
+  });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') {
+    assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
+  }
+});
+
+test('returns not_found when only observed third-party hosts remain', () => {
+  const result = selectOfficialWebsite({ businessName: 'Rhino Valves', results: [
+    { title: 'Rhino Valves', url: 'https://rsa.worldorgs.com/catalog/benoni/rhino-valves', content: 'Directory listing.' },
+    { title: 'Rhino Valves', url: 'https://www.waze.com/live-map/directions', content: 'Map listing.' },
+    { title: 'Rhino Valves', url: 'https://www.cylex.net.za/company/rhino-valves', content: 'Directory listing.' },
+  ] });
+  assert.equal(result.status, 'not_found');
+});
 
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
   const result = selectOfficialWebsite({
