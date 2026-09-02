@@ -57,14 +57,14 @@ test('scores a strong ICP-aligned business fit', () => {
   assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://research.example/acme']);
 });
 
-test('parses target industries from structured Atlas source chunks', () => {
+test('parses target industries from structured Atlas source chunks without inventing an ICP score', () => {
   const assessments = build({
     atlas: structuredAtlas(),
     companyName: 'Acme Manufacturing',
     publicWebResults: [result('Acme Manufacturing', 'Manufacturing company.', 'https://research.example/acme')],
   });
-  assert.equal(assessments.businessFit.score, 5);
-  assert.deepEqual(assessments.businessFit.evidenceReferences, ['public-web:https://research.example/acme']);
+  assert.equal(assessments.businessFit.score, null);
+  assert.match(assessments.businessFit.missingInformation.join(' '), /ICP characteristics|evidenced/i);
 });
 
 test('retains a verified no-website business as a project opportunity', () => {
