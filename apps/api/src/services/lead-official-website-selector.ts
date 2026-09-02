@@ -22,6 +22,21 @@ const THIRD_PARTY_HOSTS = [
   'hotfrog.com', 'zaubee.com', 'mapquest.com', 'manta.com',
 ];
 
+// Search results can come from previously unknown directory or listing domains.
+// These pages are evidence about a business, not evidence that the hosting
+// domain belongs to that business. Only apply this guard when the hostname itself
+// does not carry the business identity, so legitimate branded domains remain eligible.
+const THIRD_PARTY_LISTING_PATTERNS = [
+  /\bbusiness\s+(directory|listing)\b/,
+  /\b(directory|listing)\s+(listing|profile)\b/,
+  /\bindustry\s+(directory|portal|profile|listing)\b/,
+  /\bonline\s+(directory|listing|business)\b/,
+  /\bbusiness\s+profile\b/,
+  /\bcompany\s+profile\b/,
+  /\b(map|maps|directions|driving\s+directions)\b/,
+  /\bmarketplace\s+(listing|profile)\b/,
+];
+
 function normalizedWords(value: string): string[] {
   return value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((word) => word.length >= 3);
 }
@@ -77,6 +92,13 @@ function firstPartyEvidenceScore(
 
   // A domain that contains the business identity is the strongest durable signal.
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
+
+  // A non-matching hostname must not be promoted when the result itself describes
+  // the page as a directory, listing, profile, portal, marketplace, or map result.
+  // Such pages can be excellent discovery evidence but cannot establish ownership
+  // of the hosting domain.
+  const listingText = `${result.title} ${result.content}`.toLowerCase();
+  if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
   // Do not promote arbitrary third-party pages simply because their search title
   // repeats the business name. A domain with no business identity must provide
