@@ -35,6 +35,15 @@ test('canonicalizes Google Place ID fallback to an unusable name', () => {
   assert.equal(canonicalizeGooglePlacesBusinessName('ChIJ123abc'), '');
 });
 
+test('canonicalizes a bare Google Place prefix to an unusable name', () => {
+  assert.equal(canonicalizeGooglePlacesBusinessName('Google Place '), '');
+});
+
+test('does not strip legitimate business names containing Google or Place', () => {
+  assert.equal(canonicalizeGooglePlacesBusinessName('Google Workspace Solutions'), 'Google Workspace Solutions');
+  assert.equal(canonicalizeGooglePlacesBusinessName('Place Makers Hardware'), 'Place Makers Hardware');
+});
+
 test('persists the canonicalized Google Places business identity', async () => {
   const mock = createMock();
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
@@ -88,6 +97,16 @@ test('skips a provider-ID-only candidate instead of persisting it as a lead', as
   assert.deepEqual(result.created, []);
   assert.deepEqual(result.duplicates, []);
   assert.deepEqual(result.skipped, [{ providerPlaceId: 'place-123', reason: 'Unusable displayName: provider ID fallback or empty after canonicalization.' }]);
+  assert.equal(mock.createdInputs.length, 0);
+});
+
+test('skips a bare Google Place fallback instead of persisting it as a lead', async () => {
+  const mock = createMock();
+  const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.persistDiscovery({ discovery: { query: 'businesses', candidates: [{ providerPlaceId: 'place-empty', displayName: 'Google Place ', types: [], source: 'google_places' }] } });
+  assert.equal(result.created.length, 0);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0]?.providerPlaceId, 'place-empty');
   assert.equal(mock.createdInputs.length, 0);
 });
 
