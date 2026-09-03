@@ -11,13 +11,21 @@ export interface PilotLeadWorkerResearch {
   research(input: AtlasLeadResearchInput): Promise<AtlasLeadResearchOutput>;
 }
 
+// NEW: Optional store for persisting query exhaustion state across cycles
+export interface PilotLeadWorkerQueryStore {
+  get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string }>>;
+  save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string }>): Promise<void>;
+}
+
 export interface PilotLeadWorkerOptions {
   intervalMs: number;
   geographicFocus?: string;
+  geographicVariants?: string[]; // NEW
   country?: string;
   maxQueries?: number;
   maxBusinessesPerQuery?: number;
   maxWebResultsPerBusiness?: number;
+  pilotAutoAdvanceThreshold?: number; // NEW
   onCycleCompleted?: (result: AtlasLeadResearchOutput) => void;
   onCycleSkipped?: (reason: 'pilot_disabled' | 'cycle_in_progress') => void;
   onCycleFailed?: (error: unknown) => void;
@@ -27,6 +35,7 @@ export function createPilotLeadWorker(
   state: PilotLeadWorkerState,
   research: PilotLeadWorkerResearch,
   options: PilotLeadWorkerOptions,
+  queryStore?: PilotLeadWorkerQueryStore, // NEW: optional but required for exhaustion tracking
 ) {
   if (!Number.isInteger(options.intervalMs) || options.intervalMs < 60_000) {
     throw new Error('Pilot Lead worker interval must be at least 60000ms.');
@@ -46,6 +55,7 @@ export function createPilotLeadWorker(
     unresolved: number;
     ambiguous: number;
     notFound: number;
+    queriesExhausted: number; // NEW
   } | null = null;
 
   async function runOnce(): Promise<AtlasLeadResearchOutput | null> {
@@ -70,18 +80,30 @@ export function createPilotLeadWorker(
       }
 
       const runId = randomUUID();
+      
+      // NEW: Load persisted query state so we skip exhausted queries
+      const queryState = queryStore ? await queryStore.get() : {};
+
       const result = await research.research({
         executionId: `pilot-lead-worker:${runId}`,
         correlationId: `pilot-lead-worker:${runId}`,
         geographicFocus: options.geographicFocus ?? 'South Africa',
+        geographicVariants: options.geographicVariants ?? [
+          'Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape', 
+          'Mpumalanga', 'Limpopo', 'North West', 'Free State', 'Northern Cape', 'Durban', 'Johannesburg', 'Cape Town'
+        ],
         ...(options.country ? { country: options.country } : {}),
-        // The planner is deliberately bounded at 12 queries. The pilot worker
-        // must allow the planner to exercise that bounded expansion; defaulting
-        // to 1 silently collapsed the new discovery strategy back to one query.
-        maxQueries: options.maxQueries ?? 6,
+        maxQueries: options.maxQueries ?? 12, // Bumped default from 6 to 12 for better coverage
         maxBusinessesPerQuery: options.maxBusinessesPerQuery ?? 3,
         maxWebResultsPerBusiness: options.maxWebResultsPerBusiness ?? 3,
+        queryState,
       });
+      
+      // NEW: Save updated query state for next cycle
+      if (queryStore) {
+        await queryStore.save(result.updatedQueryState);
+      }
+
       lastCompletedAt = new Date().toISOString();
       lastOutcome = 'completed';
       lastSummary = {
@@ -92,6 +114,7 @@ export function createPilotLeadWorker(
         unresolved: result.outcomes.unresolved,
         ambiguous: result.outcomes.ambiguous,
         notFound: result.outcomes.notFound,
+        queriesExhausted: Object.values(result.updatedQueryState).filter((s) => s.exhausted).length,
       };
       options.onCycleCompleted?.(result);
       logEvent('info', 'pilot_lead_worker_qualification_summary', {
@@ -109,7 +132,14 @@ export function createPilotLeadWorker(
           suggestedStatus: lead.preliminaryQualification.suggestedStatus,
           missingInformation: lead.preliminaryQualification.missingInformation,
           reviewExecutionId: lead.qualificationReviewExecutionId,
+          disposition: lead.qualificationDisposition.disposition, // NEW
+          humanApprovalRequired: lead.qualificationDisposition.humanApprovalRequired, // NEW
         })),
+        queryMetrics: {
+          queriesRun: result.queries.length,
+          queriesExhausted: lastSummary.queriesExhausted,
+          totalQueryState: Object.keys(result.updatedQueryState).length,
+        },
       });
       return result;
     } catch (error) {
