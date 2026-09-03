@@ -123,8 +123,7 @@ function normalizedTokens(value: string): string[] {
 }
 
 function domainTokens(domain: string): string[] {
-  const withoutTld = domain.split('.').slice(0, -1).join(' ');
-  return normalizedTokens(withoutTld);
+  return normalizedTokens(domain.split('.').slice(0, -1).join(' '));
 }
 
 function containsAllTokens(searchable: string, tokens: string[]): boolean {
@@ -133,7 +132,9 @@ function containsAllTokens(searchable: string, tokens: string[]): boolean {
 }
 
 function domainHasNonIdentityMarker(domain: string): boolean {
-  return domainTokens(domain).some((token) => NON_IDENTITY_DOMAIN_MARKERS.has(token));
+  return domainTokens(domain).some((token) =>
+    [...NON_IDENTITY_DOMAIN_MARKERS].some((marker) => token === marker || token.endsWith(marker)),
+  );
 }
 
 function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, results: PublicWebSearchResult[]): boolean {
@@ -147,15 +148,16 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   if (companyTokens.length === 0) return false;
 
   const domainTokensForIdentity = domainTokens(domain);
-  const domainContainsIdentity = companyTokens.every((token) => domainTokensForIdentity.includes(token));
-  if (!domainContainsIdentity) return false;
+  // The domain must contain at least one distinctive company-name token. Generic
+  // industry/legal/page-title words are removed before this comparison.
+  if (!companyTokens.some((token) => domainTokensForIdentity.includes(token))) return false;
 
   const domainResults = results.filter((result) => {
     try { return registrableDomain(new URL(result.url).hostname) === domain; } catch { return false; }
   });
 
   // A matching domain alone is not enough. At least one result from that domain
-  // must independently identify the same business by its non-generic name tokens.
+  // must independently identify the same business by all distinctive name tokens.
   return domainResults.some((result) => containsAllTokens(`${result.title} ${result.content}`, companyTokens));
 }
 
