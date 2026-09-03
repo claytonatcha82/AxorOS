@@ -43,7 +43,7 @@ const DIRECTORY_DOMAIN_MARKERS = new Set([
 const GENERIC_LISTING_TITLE_PATTERNS = [
   /\bInformation\s*$/i,
   /^\s*Home\s*[-–—:|]\s*/i,
-  /^\s*Contact\s+.+$/i,
+  /^\s*Contact\s+[^|:]+$/i,
   /:\s*Contact\s+Us\s*$/i,
   /\bCompany\s+Information\s*$/i,
   /\bCompany\s+Profile\s*$/i,
@@ -84,6 +84,17 @@ function isDirectoryDomain(hostname: string): boolean {
   return [...DIRECTORY_DOMAIN_MARKERS].some((marker) => lowerBase.includes(marker));
 }
 
+function isReservedExampleDomain(hostname: string): boolean {
+  const normalized = hostname.replace(/^www\./, '').toLowerCase();
+  return normalized === 'example.com'
+    || normalized === 'example.org'
+    || normalized === 'example.net'
+    || normalized.endsWith('.example.com')
+    || normalized.endsWith('.example.org')
+    || normalized.endsWith('.example.net')
+    || normalized.includes('.example.');
+}
+
 function isGenericListingTitle(title: string): boolean {
   return GENERIC_LISTING_TITLE_PATTERNS.some((pattern) => pattern.test(title));
 }
@@ -95,6 +106,7 @@ function registrableCandidate(result: PublicWebSearchResult): { origin: string; 
     const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
     if (THIRD_PARTY_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return null;
     if (isDirectoryDomain(hostname)) return null;
+    if (isReservedExampleDomain(hostname)) return null;
     return { origin: `${url.protocol}//${url.host}/`, hostname };
   } catch { return null; }
 }
@@ -116,12 +128,9 @@ function firstPartyEvidenceScore(
   // generic business term such as "construction" cannot rescue a directory domain.
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
-  // Generic search-result titles such as "Home - Company", "Company Information",
-  // or "Contact Company" are not sufficient first-party identity evidence. They can
-  // occur on directories and SEO landing pages as well as on genuine sites, so the
-  // selector fails closed rather than allowing hostname matching to override them.
-  if (isGenericListingTitle(result.title)) return 0;
-
+  // Generic titles are weak evidence on their own. A genuine first-party hostname
+  // can still establish identity (for example "Home - Acme Engineering" on
+  // acmeengineering.co.za), while reserved/example domains are rejected above.
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
   const firstPartySignals = [
