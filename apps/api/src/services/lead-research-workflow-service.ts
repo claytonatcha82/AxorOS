@@ -58,15 +58,18 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
-// Actively seek evidence that can support agency-opportunity and contact-route
-// qualification instead of limiting public-web research to website discovery.
-function webQueryFor(candidate: LeadBusinessCandidate): string {
-  const parts = [
-    candidate.displayName,
-    candidate.formattedAddress,
-    'official website contact details projects tenders growth expansion hiring digital transformation automation branding enquiries',
-  ].filter(Boolean);
-  return parts.join(' ').slice(0, 400);
+// Use multiple focused public-web searches per business. A single broad search
+// routinely returns generic directory/home-page results and leaves qualification
+// without enough evidence. These searches deliberately target observable agency
+// opportunities and credible contact/decision-maker routes without inventing needs.
+function webQueriesFor(candidate: LeadBusinessCandidate, discoveryQuery: string): string[] {
+  const identity = [candidate.displayName, candidate.formattedAddress, discoveryQuery]
+    .filter(Boolean)
+    .join(' ');
+  return [
+    `${identity} official website projects tenders contracts growth expansion hiring digital transformation automation branding enquiries`,
+    `${identity} contact details email directors owners founders management team leadership LinkedIn projects tenders deadline procurement`,
+  ].map((query) => query.slice(0, 500));
 }
 
 export function createLeadResearchWorkflowService(
@@ -143,29 +146,43 @@ export function createLeadResearchWorkflowService(
       for (const { candidate, leadId } of newCandidates) {
         if (enrichedCount >= maxBusinesses) break;
 
-        const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
-          integrationId: 'research.tavily-web',
-          operation: 'search_public_web',
-          requestedBy: 'lead_agent',
-          executionId: `${executionId}:${candidate.providerPlaceId}`,
-          correlationId,
-          mode: 'live',
-          risk: 'low',
-          input: {
-            query: webQueryFor(candidate),
-            maxResults: maxWebResults,
-            ...(input.country ? { country: input.country } : {}),
-          },
-        });
-        if (web.status !== 'succeeded') {
+        const webResults: PublicWebSearchResult[] = [];
+        let successfulWebSearches = 0;
+        for (const [searchIndex, webQuery] of webQueriesFor(candidate, query).entries()) {
+          const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
+            integrationId: 'research.tavily-web',
+            operation: 'search_public_web',
+            requestedBy: 'lead_agent',
+            executionId: `${executionId}:${candidate.providerPlaceId}:web-${searchIndex + 1}`,
+            correlationId,
+            mode: 'live',
+            risk: 'low',
+            input: {
+              query: webQuery,
+              maxResults: maxWebResults,
+              ...(input.country ? { country: input.country } : {}),
+            },
+          });
+          if (web.status !== 'succeeded') continue;
+          successfulWebSearches += 1;
+          webResults.push(...web.output.results);
+        }
+
+        if (successfulWebSearches === 0) {
           outcomes.webResearchFailed += 1;
           continue;
         }
 
+        const deduplicatedWebResults = [...new Map(
+          webResults
+            .filter((result) => result.url)
+            .map((result) => [result.url, result]),
+        ).values()];
+
         const selection = selectOfficialWebsite({
           businessName: candidate.displayName,
           ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
-          results: web.output.results,
+          results: deduplicatedWebResults,
         });
 
         if (selection.status === 'ambiguous') {
@@ -174,7 +191,7 @@ export function createLeadResearchWorkflowService(
             providerPlaceId: candidate.providerPlaceId,
             selectionStatus: selection.status,
             candidateUrls: selection.candidateUrls,
-            publicWebResults: web.output.results,
+            publicWebResults: deduplicatedWebResults,
           });
           outcomes.unresolved += 1;
           outcomes.ambiguous += 1;
@@ -185,7 +202,7 @@ export function createLeadResearchWorkflowService(
           leadId,
           companyName: selection.status === 'selected' ? selection.companyName : candidate.displayName,
           officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
-          supportingResults: web.output.results,
+          supportingResults: deduplicatedWebResults,
           actorId: 'lead_agent',
         });
         enriched.push({
@@ -193,7 +210,7 @@ export function createLeadResearchWorkflowService(
           providerPlaceId: candidate.providerPlaceId,
           companyName: lead.companyName,
           officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
-          publicWebEvidence: web.output.results,
+          publicWebEvidence: deduplicatedWebResults,
           websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
         });
         outcomes.enriched += 1;
