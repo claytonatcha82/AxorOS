@@ -12,6 +12,7 @@ import type { LeadQualificationRuntimeReviewRegistrationService } from './lead-q
 export interface AtlasLeadResearchQueryState {
   exhausted: boolean;
   lastAttemptedAt?: string;
+  nextPageToken?: string | null; // NEW: string = has next page; null = known no next page; undefined = never fetched
 }
 
 export interface AtlasLeadResearchInput {
@@ -42,7 +43,7 @@ export interface AtlasLeadResearchOutput {
   enriched: QualifiedEnrichedLead[];
   proposals: LeadResearchWorkflowOutput['proposals'];
   outcomes: LeadResearchWorkflowOutput['outcomes'];
-  updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string }>;
+  updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>; // UPDATED
 }
 
 function required(value: string, field: string): string {
@@ -103,11 +104,16 @@ export function createLeadAtlasResearchOrchestrator(
         ambiguous: 0,
         notFound: 0,
       };
-      const updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string }> = {};
+      const updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }> = {};
       let discovered = 0;
 
       for (const [index, query] of plan.queries.entries()) {
         const attemptedAt = new Date().toISOString();
+
+        // NEW: look up persisted page token for this query
+        const queryStateEntry = input.queryState?.[query];
+        const pageToken = queryStateEntry?.nextPageToken ?? undefined;
+
         const result = await workflow.research({
           query,
           executionId: `${executionId}:atlas-query-${index + 1}`,
@@ -115,8 +121,14 @@ export function createLeadAtlasResearchOrchestrator(
           ...(input.country ? { country: input.country } : {}),
           ...(input.maxBusinessesPerQuery !== undefined ? { maxBusinesses: input.maxBusinessesPerQuery } : {}),
           ...(input.maxWebResultsPerBusiness !== undefined ? { maxWebResultsPerBusiness: input.maxWebResultsPerBusiness } : {}),
+          ...(pageToken ? { pageToken } : {}), // NEW: thread pagination token into workflow
         });
-        updatedQueryState[query] = { exhausted: result.exhausted, lastAttemptedAt: attemptedAt };
+        // NEW: persist the returned token (or null if no more pages) for the next cycle
+        updatedQueryState[query] = {
+          exhausted: result.exhausted,
+          lastAttemptedAt: attemptedAt,
+          nextPageToken: result.nextPageToken ?? null,
+        };
         discovered += result.discovered;
         proposals.push(...result.proposals);
         outcomes.enriched += result.outcomes.enriched;
@@ -180,6 +192,7 @@ export function createLeadAtlasResearchOrchestrator(
           .map(([query, state]) => [query, {
             exhausted: state.exhausted,
             lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
+            nextPageToken: state.nextPageToken, // NEW: preserve existing token
           }]),
       );
 
