@@ -56,8 +56,9 @@ test('discovers, researches, verifies, and enriches a strongly supported busines
   assert.equal(result.enriched[0]?.websiteVerificationStatus, 'verified');
   assert.equal(enrichments.length, 1);
   assert.equal((enrichments[0] as any).companyName, 'Example Business');
-  assert.equal(registry.calls.length, 2);
-  assert.match(String((registry.calls[1]?.input as any).query), /contact details projects tenders growth/);
+  assert.equal(registry.calls.length, 3);
+  assert.match(String((registry.calls[1]?.input as any).query), /projects tenders contracts growth/);
+  assert.match(String((registry.calls[2]?.input as any).query), /directors owners founders/);
 });
 
 test('retains a business as a website opportunity when no official website is found', async () => {
@@ -127,13 +128,17 @@ test('returns undefined nextPageToken when Google Places provides none', async (
   assert.equal(result.nextPageToken, undefined);
 });
 
-test('web query includes agency-opportunity keywords', async () => {
+test('web research uses focused agency-opportunity and decision-maker queries', async () => {
   const registry = new MockRegistry();
   const service = createLeadResearchWorkflowService(registry as never, discoveryService() as never, enrichmentService([]) as never);
   await service.research({ query: 'construction businesses', executionId: 'exec-query', correlationId: 'corr-query' });
-  const webQuery = String((registry.calls[1]?.input as any)?.query ?? '');
-  assert.ok(webQuery.includes('official website'), 'query should include official website');
-  assert.ok(webQuery.includes('contact details'), 'query should include contact details');
-  assert.ok(webQuery.includes('projects'), 'query should include projects');
-  assert.ok(webQuery.includes('tenders'), 'query should include tenders');
+  const opportunityQuery = String((registry.calls[1]?.input as any)?.query ?? '');
+  const contactQuery = String((registry.calls[2]?.input as any)?.query ?? '');
+  assert.ok(opportunityQuery.includes('official website'), 'query should include official website');
+  assert.ok(opportunityQuery.includes('projects'), 'query should include projects');
+  assert.ok(opportunityQuery.includes('tenders'), 'query should include tenders');
+  assert.ok(opportunityQuery.includes('digital transformation'), 'query should include digital transformation');
+  assert.ok(contactQuery.includes('contact details'), 'query should include contact details');
+  assert.ok(contactQuery.includes('directors'), 'query should include directors');
+  assert.ok(contactQuery.includes('founders'), 'query should include founders');
 });
