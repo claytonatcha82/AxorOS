@@ -13,8 +13,8 @@ export interface PilotLeadWorkerResearch {
 
 // NEW: Optional store for persisting query exhaustion state across cycles
 export interface PilotLeadWorkerQueryStore {
-  get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string }>>;
-  save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string }>): Promise<void>;
+  get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }>>;
+  save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>): Promise<void>;
 }
 
 export interface PilotLeadWorkerOptions {
@@ -139,6 +139,7 @@ export function createPilotLeadWorker(
           queriesRun: result.queries.length,
           queriesExhausted: lastSummary.queriesExhausted,
           totalQueryState: Object.keys(result.updatedQueryState).length,
+          queriesWithPendingPageTokens: Object.values(result.updatedQueryState).filter((s) => typeof s.nextPageToken === 'string').length,
         },
       });
       return result;
