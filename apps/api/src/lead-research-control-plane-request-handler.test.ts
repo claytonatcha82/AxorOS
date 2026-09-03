@@ -31,6 +31,7 @@ async function withServer(run: (baseUrl: string, calls: Array<Record<string, unk
             ambiguous: 0,
             notFound: 0,
           },
+          updatedQueryState: {},
         };
       },
     },
