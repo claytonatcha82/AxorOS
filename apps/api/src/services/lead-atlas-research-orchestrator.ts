@@ -174,6 +174,15 @@ export function createLeadAtlasResearchOrchestrator(
         }
       }
 
+      const preservedQueryState = Object.fromEntries(
+        Object.entries(input.queryState ?? {})
+          .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query))
+          .map(([query, state]) => [query, {
+            exhausted: state.exhausted,
+            lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
+          }]),
+      );
+
       return {
         queries: plan.queries,
         atlasSourcePaths: plan.atlasSourcePaths,
@@ -182,10 +191,7 @@ export function createLeadAtlasResearchOrchestrator(
         proposals,
         outcomes,
         updatedQueryState: {
-          ...Object.fromEntries(
-            Object.entries(input.queryState ?? {})
-              .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query)),
-          ),
+          ...preservedQueryState,
           ...updatedQueryState,
         },
       };
