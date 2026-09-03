@@ -13,6 +13,7 @@ interface GooglePlacesSearchResponse {
     formattedAddress?: string;
     types?: string[];
   }>;
+  nextPageToken?: string;
   error?: {
     code?: number;
     status?: string;
@@ -26,7 +27,7 @@ export interface GooglePlacesLeadResearchIntegrationOptions {
   baseUrl?: string;
 }
 
-const FIELD_MASK = 'places.id,places.displayName.text,places.formattedAddress,places.types';
+const FIELD_MASK = 'places.id,places.displayName.text,places.formattedAddress,places.types,nextPageToken';
 
 function sanitizeProviderMessage(message: string | undefined, apiKey: string): string | undefined {
   const trimmed = message?.trim();
@@ -84,6 +85,7 @@ export function createGooglePlacesLeadResearchIntegration(
           body: JSON.stringify({
             textQuery: request.input.query.trim(),
             maxResultCount: request.input.maxResults ?? 10,
+            ...(request.input.pageToken ? { pageToken: request.input.pageToken } : {}),
           }),
         });
       } catch {
@@ -204,7 +206,11 @@ export function createGooglePlacesLeadResearchIntegration(
         provider: 'google-places',
         mode: request.mode,
         status: 'succeeded',
-        output: { query: request.input.query.trim(), candidates },
+        output: {
+          query: request.input.query.trim(),
+          candidates,
+          ...(payload.nextPageToken?.trim() ? { nextPageToken: payload.nextPageToken.trim() } : {}),
+        },
         evidenceReferences: candidates.map((candidate) => `google-places:place:${candidate.providerPlaceId}`),
         retryable: false,
       };
