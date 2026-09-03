@@ -30,6 +30,11 @@ test('canonicalizes explicit Google Places UI prefixes without broadly rewriting
   assert.equal(canonicalizeGooglePlacesBusinessName('Example Construction Group'), 'Example Construction Group');
 });
 
+test('canonicalizes Google Place ID fallback to an unusable name', () => {
+  assert.equal(canonicalizeGooglePlacesBusinessName('Google Place ChIJ123abc'), '');
+  assert.equal(canonicalizeGooglePlacesBusinessName('ChIJ123abc'), '');
+});
+
 test('persists the canonicalized Google Places business identity', async () => {
   const mock = createMock();
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
@@ -73,6 +78,16 @@ test('claims a legacy JSONB-only discovery identity instead of duplicating the l
   const result = await service.persistDiscovery({ discovery: { query: 'businesses', candidates: [{ providerPlaceId: 'place-legacy', displayName: 'Legacy Business', types: [], source: 'google_places' }] } });
   assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-legacy', leadId: 'lead-existing', enrichmentPending: true }]);
   assert.deepEqual(mock.identities, [{ provider: 'google_places', externalId: 'place-legacy', leadId: 'lead-existing' }]);
+  assert.equal(mock.createdInputs.length, 0);
+});
+
+test('skips a provider-ID-only candidate instead of persisting it as a lead', async () => {
+  const mock = createMock();
+  const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.persistDiscovery({ discovery: { query: 'businesses', candidates: [{ providerPlaceId: 'place-123', displayName: 'Google Place ChIJ123abc', types: [], source: 'google_places' }] } });
+  assert.deepEqual(result.created, []);
+  assert.deepEqual(result.duplicates, []);
+  assert.deepEqual(result.skipped, [{ providerPlaceId: 'place-123', reason: 'Unusable displayName: provider ID fallback or empty after canonicalization.' }]);
   assert.equal(mock.createdInputs.length, 0);
 });
 
