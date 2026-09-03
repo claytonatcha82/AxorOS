@@ -2,10 +2,14 @@ export interface LeadDiscoveryQueryPlannerInput {
   industries: string[];
   geographicFocus?: string;
   maxQueries?: number;
+  exhaustedQueries?: string[];
+  geographicVariants?: string[];
 }
 
 export interface LeadDiscoveryQueryPlannerOutput {
   queries: string[];
+  exhaustedQueries: string[];
+  geographicVariantUsed?: string;
 }
 
 function unique(values: string[]): string[] {
@@ -18,12 +22,10 @@ function clean(value: string): string {
 
 /**
  * Builds a bounded, deterministic discovery queue from Atlas-approved industries.
- * It expands each industry into a small set of semantically distinct searches,
- * without inventing new industries or geographic markets.
  *
- * Industries are interleaved by variant rather than exhausted one industry at a
- * time. This prevents a small query cap from repeatedly spending an entire
- * cycle on the first Atlas industries when provider results heavily overlap.
+ * It skips exhausted queries, interleaves query variants per industry, and can
+ * fall back to configured geographic sub-regions when the primary region has
+ * been exhausted. Geographic targets remain explicitly bounded by the caller.
  */
 export function createLeadDiscoveryQueryPlanner() {
   return {
@@ -33,25 +35,57 @@ export function createLeadDiscoveryQueryPlanner() {
         throw new Error('maxQueries must be an integer between 1 and 30.');
       }
 
+      const exhausted = new Set((input.exhaustedQueries ?? []).map(clean));
       const geographicFocus = input.geographicFocus?.trim();
-      const industries = unique(input.industries).map(clean).filter(Boolean);
-      const suffix = geographicFocus ? ` in ${geographicFocus}` : '';
-      const variants = [
-        (industry: string) => `${industry} businesses${suffix}`,
-        (industry: string) => `${industry} companies${suffix}`,
-        (industry: string) => `professional ${industry} firms${suffix}`,
-      ];
-      const queries: string[] = [];
+      const geographicVariants = unique(input.geographicVariants ?? []);
 
-      for (const variant of variants) {
-        for (const industry of industries) {
-          const query = clean(variant(industry));
-          if (!queries.includes(query)) queries.push(query);
-          if (queries.length >= maxQueries) return { queries };
+      const geoTargets: string[] = [];
+      if (geographicFocus) geoTargets.push(geographicFocus);
+      for (const variant of geographicVariants) {
+        if (variant.toLowerCase() !== geographicFocus?.toLowerCase()) {
+          geoTargets.push(variant);
+        }
+      }
+      if (geoTargets.length === 0) geoTargets.push('');
+
+      const industries = unique(input.industries).map(clean).filter(Boolean);
+      const variants = [
+        (industry: string, geo: string) => `${industry} businesses${geo ? ` in ${geo}` : ''}`,
+        (industry: string, geo: string) => `${industry} companies${geo ? ` in ${geo}` : ''}`,
+        (industry: string, geo: string) => `professional ${industry} firms${geo ? ` in ${geo}` : ''}`,
+      ];
+
+      const queries: string[] = [];
+      const skippedExhausted: string[] = [];
+      let geographicVariantUsed: string | undefined;
+
+      for (const industry of industries) {
+        if (queries.length >= maxQueries) break;
+
+        for (const variant of variants) {
+          if (queries.length >= maxQueries) break;
+
+          for (const geo of geoTargets) {
+            if (queries.length >= maxQueries) break;
+
+            const query = clean(variant(industry, geo));
+            if (exhausted.has(query)) {
+              skippedExhausted.push(query);
+              continue;
+            }
+            if (!queries.includes(query)) {
+              queries.push(query);
+              if (!geographicVariantUsed && geo) geographicVariantUsed = geo;
+            }
+          }
         }
       }
 
-      return { queries };
+      return {
+        queries,
+        exhaustedQueries: skippedExhausted,
+        geographicVariantUsed,
+      };
     },
   };
 }
