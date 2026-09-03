@@ -103,6 +103,7 @@ export function createLeadAtlasResearchOrchestrator(
         unresolved: 0,
         ambiguous: 0,
         notFound: 0,
+        skipped: 0,
       };
       const updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }> = {};
       let discovered = 0;
@@ -135,6 +136,7 @@ export function createLeadAtlasResearchOrchestrator(
         outcomes.unresolved += result.outcomes.unresolved;
         outcomes.ambiguous += result.outcomes.ambiguous;
         outcomes.notFound += result.outcomes.notFound;
+        outcomes.skipped += result.outcomes.skipped;
 
         for (const lead of result.enriched) {
           if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
