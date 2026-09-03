@@ -2,15 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { selectOfficialWebsite } from './lead-official-website-selector.js';
 
-test('selects a strong first-party website candidate and derives the durable name from public-web evidence', () => {
+test('selects a strong first-party website and preserves the Google Places business name', () => {
   const result = selectOfficialWebsite({ businessName: 'Acme Engineering', results: [
-    { title: 'Acme Engineering | Industrial Solutions', url: 'https://acmeengineering.co.za/services', content: 'Acme Engineering provides industrial engineering services.' },
+    { title: 'Home - Acme Engineering', url: 'https://acmeengineering.co.za/services', content: 'Acme Engineering provides industrial engineering services.' },
     { title: 'Acme Engineering on Facebook', url: 'https://facebook.com/acmeengineering', content: 'Social profile.' },
   ] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') {
     assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
     assert.equal(result.companyName, 'Acme Engineering');
+  }
+});
+
+test('does not derive the canonical name from a polluted first-party search title', () => {
+  const result = selectOfficialWebsite({ businessName: 'Dennes Engineering', results: [
+    { title: 'Dennes Engineering :: Contact Us - Cape Town', url: 'https://dennesengineering.co.za/contact', content: 'Dennes Engineering. Contact us for engineering services. enquiries@dennesengineering.co.za. +27 21 555 0100.' },
+  ] });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') {
+    assert.equal(result.websiteUrl, 'https://dennesengineering.co.za/');
+    assert.equal(result.companyName, 'Dennes Engineering');
   }
 });
 
@@ -48,9 +59,7 @@ test('rejects observed map and directory hosts from the pilot without suppressin
     ],
   });
   assert.equal(result.status, 'selected');
-  if (result.status === 'selected') {
-    assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
-  }
+  if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
 });
 
 test('returns not_found when only observed third-party hosts remain', () => {
@@ -69,7 +78,6 @@ test('rejects domain-mismatch search results that merely repeat the business nam
     { businessName: 'PARNIS MANUFACTURING - Steel Technology', title: 'PARNIS MANUFACTURING - Steel Technology', url: 'https://www.steel-technology.com/parnis', content: 'PARNIS MANUFACTURING. Industry portal listing.' },
     { businessName: 'NATCO LOGISTICS', title: 'NATCO LOGISTICS', url: 'https://freightglobal.com/natco-logistics', content: 'NATCO LOGISTICS. Freight marketplace listing.' },
   ];
-
   for (const input of falsePositiveCases) {
     const result = selectOfficialWebsite({ businessName: input.businessName, results: [input] });
     assert.equal(result.status, 'not_found', `unexpected official site selected for ${input.businessName}`);
@@ -79,13 +87,7 @@ test('rejects domain-mismatch search results that merely repeat the business nam
 test('rejects an unknown directory domain even when the listing contains strong business contact evidence', () => {
   const result = selectOfficialWebsite({
     businessName: 'TFD Manufacturing',
-    results: [
-      {
-        title: 'TFD Manufacturing - Western Cape Online',
-        url: 'https://www.western-cape.online/item/tfd-manufacturing/',
-        content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.',
-      },
-    ],
+    results: [{ title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.' }],
   });
   assert.equal(result.status, 'not_found');
 });
@@ -94,39 +96,21 @@ test('selects the first-party TFD Manufacturing website over an unknown director
   const result = selectOfficialWebsite({
     businessName: 'TFD Manufacturing',
     results: [
-      {
-        title: 'TFD Manufacturing - Western Cape Online',
-        url: 'https://www.western-cape.online/item/tfd-manufacturing/',
-        content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.',
-      },
-      {
-        title: 'Steel Fabrication and Laser Cutting Somerset West | TFD Manufacturing',
-        url: 'https://www.tfdm.co.za/',
-        content: 'TFD Manufacturing and TFDM Laser support metal projects through laser cutting, CNC bending and rolling, welding, fabrication and finishing. Contact the Team. Manufacturing +27 21 852 8777. 24 Delson Close, Somerset West Business Park, Somerset West, South Africa.',
-      },
+      { title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.' },
+      { title: 'Steel Fabrication and Laser Cutting Somerset West | TFD Manufacturing', url: 'https://www.tfdm.co.za/', content: 'TFD Manufacturing and TFDM Laser support metal projects through laser cutting, CNC bending and rolling, welding, fabrication and finishing. Contact the Team. Manufacturing +27 21 852 8777. 24 Delson Close, Somerset West Business Park, Somerset West, South Africa.' },
     ],
   });
   assert.equal(result.status, 'selected');
-  if (result.status === 'selected') {
-    assert.equal(result.websiteUrl, 'https://www.tfdm.co.za/');
-  }
+  if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://www.tfdm.co.za/');
 });
 
 test('does not reject a first-party contact page merely because it contains directions or a map', () => {
   const result = selectOfficialWebsite({
     businessName: 'Acme Engineering',
-    results: [
-      {
-        title: 'Contact Acme Engineering | Get Directions',
-        url: 'https://acme-engineering.co.za/contact',
-        content: 'Acme Engineering. Contact us for engineering services. Get directions to our Durban office. View map. +27 31 555 0100. enquiries@acme-engineering.co.za.',
-      },
-    ],
+    results: [{ title: 'Contact Acme Engineering | Get Directions', url: 'https://acme-engineering.co.za/contact', content: 'Acme Engineering. Contact us for engineering services. Get directions to our Durban office. View map. +27 31 555 0100. enquiries@acme-engineering.co.za.' }],
   });
   assert.equal(result.status, 'selected');
-  if (result.status === 'selected') {
-    assert.equal(result.websiteUrl, 'https://acme-engineering.co.za/');
-  }
+  if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acme-engineering.co.za/');
 });
 
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
@@ -139,9 +123,7 @@ test('uses matching Google Places location evidence only as a tie-breaker betwee
     ],
   });
   assert.equal(result.status, 'selected');
-  if (result.status === 'selected') {
-    assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
-  }
+  if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
 });
 
 test('still fails closed when equal-identity candidates have equal location evidence', () => {
