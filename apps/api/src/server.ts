@@ -49,6 +49,7 @@ import { createLeadLiveResearchRuntime } from './services/lead-live-research-run
 import { createPersistedLeadQualificationRuntimeReview } from './services/lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './services/lead-sales-persisted-intake-runtime.js';
 import { createPilotLeadWorker } from './services/pilot-lead-worker.js';
+import { createPilotLeadWorkerQueryPostgresStore } from './services/pilot-lead-worker-query-store.js';
 import { createSalesInboundModelClassificationService } from './services/sales-inbound-model-classification-service.js';
 import { createPersistedSalesInboundReplyRuntime } from './services/sales-inbound-reply-runtime.js';
 import { createSalesIntegrationEmailTransport } from './services/sales-integration-email-transport.js';
@@ -70,6 +71,10 @@ const { registry: integrationRegistry, registeredIntegrationIds } = createConfig
 const operationalRepository = createOperationalRepository(databasePool);
 const executiveDashboard = createExecutiveDashboardService(databasePool);
 const pilotSystemState = new PilotSystemStatePostgresStore(databasePool);
+const pilotLeadWorkerQueryStore = createPilotLeadWorkerQueryPostgresStore(
+  databasePool,
+  'production',
+);
 integrationRegistry.setLiveExecutionGate(createPilotLiveExecutionGate(pilotSystemState));
 const financeExpenses = new FinanceExpensePostgresStore(databasePool);
 const financeSubscriptions = new FinanceSubscriptionPostgresStore(databasePool);
@@ -164,10 +169,26 @@ const pilotLeadWorker = createPilotLeadWorker(
   leadLiveResearchRuntime,
   {
     intervalMs: 60 * 60 * 1000,
-    geographicFocus: 'South Africa',
-    maxQueries: 6,
-    maxBusinessesPerQuery: 3,
-    maxWebResultsPerBusiness: 3,
+geographicFocus: 'South Africa',
+geographicVariants: [
+  'Gauteng',
+  'Western Cape',
+  'KwaZulu-Natal',
+  'Eastern Cape',
+  'Mpumalanga',
+  'Limpopo',
+  'North West',
+  'Free State',
+  'Northern Cape',
+  'Durban',
+  'Johannesburg',
+  'Cape Town',
+  'Pretoria',
+],
+maxQueries: 12,
+maxBusinessesPerQuery: 3,
+maxWebResultsPerBusiness: 3,
+pilotAutoAdvanceThreshold: 45,
     onCycleCompleted(result) {
       logEvent('info', 'pilot_lead_worker_cycle_completed', {
         queries: result.queries,
@@ -194,6 +215,7 @@ const pilotLeadWorker = createPilotLeadWorker(
       });
     },
   },
+  pilotLeadWorkerQueryStore,
 );
 const apiRequestHandler = createRequestHandler(
   config,
