@@ -25,6 +25,71 @@ const BLOCKED_THIRD_PARTY_DOMAINS = new Set([
   'mapquest.com',
 ]);
 
+const NON_IDENTITY_DOMAIN_MARKERS = new Set([
+  'directory',
+  'directories',
+  'listing',
+  'listings',
+  'jobs',
+  'job',
+  'careers',
+  'career',
+  'recruitment',
+  'recruiting',
+  'vacancies',
+  'vacancy',
+  'hire',
+  'association',
+  'associations',
+  'chamber',
+  'portal',
+  'portals',
+  'marketplace',
+  'companies',
+]);
+
+const NON_IDENTITY_NAME_TOKENS = new Set([
+  'pty',
+  'ltd',
+  'limited',
+  'company',
+  'companies',
+  'inc',
+  'incorporated',
+  'the',
+  'home',
+  'contact',
+  'about',
+  'official',
+  'website',
+  'group',
+  'holdings',
+  'construction',
+  'constructors',
+  'contractor',
+  'contractors',
+  'building',
+  'builders',
+  'engineering',
+  'engineer',
+  'engineers',
+  'projects',
+  'project',
+  'civils',
+  'civil',
+  'consulting',
+  'consultants',
+  'services',
+  'solutions',
+  'systems',
+  'africa',
+  'south',
+  'north',
+  'gauteng',
+  'cape',
+  'town',
+]);
+
 function requireText(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${field} is required.`);
@@ -54,7 +119,21 @@ function normalizedTokens(value: string): string[] {
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
-    .filter((token) => token.length >= 3 && !['pty', 'ltd', 'limited', 'company', 'inc', 'incorporated', 'the'].includes(token));
+    .filter((token) => token.length >= 3 && !NON_IDENTITY_NAME_TOKENS.has(token));
+}
+
+function domainTokens(domain: string): string[] {
+  const withoutTld = domain.split('.').slice(0, -1).join(' ');
+  return normalizedTokens(withoutTld);
+}
+
+function containsAllTokens(searchable: string, tokens: string[]): boolean {
+  const searchableTokens = new Set(normalizedTokens(searchable));
+  return tokens.length > 0 && tokens.every((token) => searchableTokens.has(token));
+}
+
+function domainHasNonIdentityMarker(domain: string): boolean {
+  return domainTokens(domain).some((token) => NON_IDENTITY_DOMAIN_MARKERS.has(token));
 }
 
 function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, results: PublicWebSearchResult[]): boolean {
@@ -62,22 +141,22 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   try { url = new URL(websiteUrl); } catch { return false; }
   const domain = registrableDomain(url.hostname);
   if (BLOCKED_THIRD_PARTY_DOMAINS.has(domain)) return false;
+  if (domainHasNonIdentityMarker(domain)) return false;
 
   const companyTokens = normalizedTokens(companyName);
   if (companyTokens.length === 0) return false;
 
-  const domainTokens = normalizedTokens(domain.replace(/\.[a-z]+$/, ''));
-  if (companyTokens.some((token) => domainTokens.includes(token))) return true;
+  const domainTokensForIdentity = domainTokens(domain);
+  const domainContainsIdentity = companyTokens.every((token) => domainTokensForIdentity.includes(token));
+  if (!domainContainsIdentity) return false;
 
   const domainResults = results.filter((result) => {
     try { return registrableDomain(new URL(result.url).hostname) === domain; } catch { return false; }
   });
-  const companyPhrase = companyTokens.join(' ');
-  return domainResults.some((result) => {
-    const searchable = `${result.title} ${result.content}`.toLowerCase();
-    const tokenMatches = companyTokens.filter((token) => searchable.includes(token)).length;
-    return searchable.includes(companyPhrase) || tokenMatches >= Math.min(3, companyTokens.length);
-  });
+
+  // A matching domain alone is not enough. At least one result from that domain
+  // must independently identify the same business by its non-generic name tokens.
+  return domainResults.some((result) => containsAllTokens(`${result.title} ${result.content}`, companyTokens));
 }
 
 function googleIdentity(lead: LeadRecord): { providerPlaceId: string; evidenceReference: string } | null {
