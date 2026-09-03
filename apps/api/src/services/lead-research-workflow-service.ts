@@ -48,6 +48,7 @@ export interface LeadResearchWorkflowOutput {
   outcomes: LeadResearchOutcomeCounts;
   exhausted: boolean; // NEW: true when no new candidates remain AND no next page
   hasMorePages: boolean; // NEW: true when Google Places returned nextPageToken
+  nextPageToken?: string; // NEW: the raw token to use for the next page call
 }
 
 function requireText(value: string, field: string): string {
@@ -85,7 +86,11 @@ export function createLeadResearchWorkflowService(
         correlationId,
         mode: 'live',
         risk: 'low',
-        input: { query, maxResults: providerCandidateLimit },
+        input: {
+          query,
+          maxResults: providerCandidateLimit,
+          ...(input.pageToken ? { pageToken: input.pageToken } : {}), // NEW
+        },
       });
       if (discovery.status !== 'succeeded') {
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
@@ -204,6 +209,7 @@ export function createLeadResearchWorkflowService(
         outcomes,
         exhausted,
         hasMorePages,
+        nextPageToken: discovery.output.nextPageToken, // NEW
       };
     },
   };
