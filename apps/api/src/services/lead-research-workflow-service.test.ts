@@ -14,7 +14,7 @@ class MockRegistry {
 }
 
 function discoveryService() {
-  return { async persistDiscovery() { return { created: [{ id: 'lead-1' }], duplicates: [] }; } };
+  return { async persistDiscovery() { return { created: [{ id: 'lead-1' }], duplicates: [], skipped: [] }; } };
 }
 
 function enrichmentService(calls: unknown[]) {
@@ -35,7 +35,7 @@ test('discovers, researches, verifies, and enriches a strongly supported busines
   assert.equal(result.discovered, 1);
   assert.equal(result.enriched.length, 1);
   assert.equal(result.proposals.length, 0);
-  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 });
+  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0, skipped: 0 });
   assert.equal(result.enriched[0]?.leadId, 'lead-1');
   assert.equal(result.enriched[0]?.companyName, 'Example Business');
   assert.equal(result.enriched[0]?.officialWebsiteUrl, 'https://examplebusiness.co.za/');
@@ -43,6 +43,7 @@ test('discovers, researches, verifies, and enriches a strongly supported busines
   assert.equal(enrichments.length, 1);
   assert.equal((enrichments[0] as any).companyName, 'Example Business');
   assert.equal(registry.calls.length, 2);
+  assert.match(String((registry.calls[1]?.input as any).query), /contact details projects tenders growth/);
 });
 
 test('retains a business as a website opportunity when no official website is found', async () => {
@@ -67,7 +68,7 @@ test('retains a business as a website opportunity when no official website is fo
   assert.equal(result.enriched[0]?.companyName, 'Example Business');
   assert.equal(result.enriched[0]?.officialWebsiteUrl, null);
   assert.equal(result.enriched[0]?.websiteVerificationStatus, 'not_found');
-  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 1 });
+  assert.deepEqual(result.outcomes, { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 1, skipped: 0 });
   assert.equal((enrichments[0] as any).officialWebsiteUrl, null);
   assert.equal((enrichments[0] as any).companyName, 'Example Business');
 });
