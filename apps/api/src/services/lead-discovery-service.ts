@@ -18,10 +18,6 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
-function internalDiscoveryLabel(providerPlaceId: string): string {
-  return `Google Place ${providerPlaceId}`;
-}
-
 function googlePlaceEvidence(providerPlaceId: string) {
   return {
     kind: 'lead_discovery',
@@ -50,6 +46,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
+        const companyName = requireText(candidate.displayName, 'candidate.displayName');
 
         const outcome = await runInTransaction(async (tx) => {
           await tx.lockLeadSourceIdentity('google_places', providerPlaceId);
@@ -67,8 +64,11 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
             return { kind: 'duplicate' as const, lead: legacy };
           }
 
+          // Google Places supplies the canonical business identity. Store its
+          // display name as the lead company name; web-search titles are evidence
+          // only and must never become the canonical identity.
           const lead = await tx.createLead({
-            companyName: internalDiscoveryLabel(providerPlaceId),
+            companyName,
             source: 'google_places',
             evidence: [googlePlaceEvidence(providerPlaceId)],
           });
