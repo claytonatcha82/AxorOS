@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLeadPublicWebEnrichmentService } from './lead-public-web-enrichment-service.js';
 
-function discoveredLead(enrichmentStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
+function discoveredLead(enrichmentStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending', companyName = 'Google Place place-123') {
   const now = new Date().toISOString();
-  return { id: 'lead-1', clientId: null, companyName: 'Google Place place-123', contactName: null, contactEmail: null, source: 'google_places', opportunitySummary: null, leadScore: null, status: 'new', enrichmentStatus, evidence: [{ kind: 'lead_discovery', provider: 'google_places', providerPlaceId: 'place-123', evidenceReference: 'google-places:place:place-123' }], createdAt: now, updatedAt: now };
+  return { id: 'lead-1', clientId: null, companyName, contactName: null, contactEmail: null, source: 'google_places', opportunitySummary: null, leadScore: null, status: 'new', enrichmentStatus, evidence: [{ kind: 'lead_discovery', provider: 'google_places', providerPlaceId: 'place-123', evidenceReference: 'google-places:place:place-123' }], createdAt: now, updatedAt: now };
 }
 
-function mockRepository(initialStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
+function mockRepository(initialStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending', companyName = 'Google Place place-123') {
   const events: unknown[] = [];
   const enrichments: Array<{ id: string; expectedStatus: string; input: Record<string, unknown>; nextStatus: string }> = [];
   const repository = {
-    async getLeadById() { return discoveredLead(initialStatus); },
+    async getLeadById() { return discoveredLead(initialStatus, companyName); },
     async enrichLead(id: string, expectedStatus: string, input: Record<string, unknown>, nextStatus: string) { enrichments.push({ id, expectedStatus, input, nextStatus }); return { ...discoveredLead(), companyName: String(input.companyName), opportunitySummary: String(input.opportunitySummary), enrichmentStatus: nextStatus, evidence: input.evidence }; },
     async createWorkflowEvent(input: unknown) { events.push(input); return { id: 'event-1' }; },
   };
@@ -22,7 +22,7 @@ test('promotes a pending Google discovery using independently sourced website ev
   const mock = mockRepository();
   const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.enrich({ leadId: 'lead-1', companyName: 'Example Business', officialWebsiteUrl: 'https://example.co.za/', supportingResults: [{ title: 'Example Business', url: 'https://example.co.za/', content: 'Official website for Example Business.' }] });
-  assert.equal(result.companyName, 'Example Business');
+  assert.equal(result.companyName, 'Google Place place-123');
   assert.equal(result.enrichmentStatus, 'verified');
   assert.equal(mock.enrichments.length, 1);
   assert.equal(mock.enrichments[0]?.expectedStatus, 'pending');
@@ -43,6 +43,32 @@ test('rejects an official website that is not supported by research results', as
   const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
   await assert.rejects(() => service.enrich({ leadId: 'lead-1', companyName: 'Example Business', officialWebsiteUrl: 'https://example.co.za/', supportingResults: [{ title: 'Other', url: 'https://other.co.za/', content: 'Other site.' }] }), /must be supported/);
   assert.equal(mock.enrichments.length, 0);
+});
+
+test('rejects a known third-party directory as the official website', async () => {
+  const mock = mockRepository('pending', 'Power Construction (Pty) Ltd');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'Power Construction (Pty) Ltd', officialWebsiteUrl: 'https://rocketreach.co/power-construction-profile', supportingResults: [{ title: 'Power Construction (Pty) Ltd Information', url: 'https://rocketreach.co/power-construction-profile', content: 'Power Construction company profile.' }] });
+  assert.equal(result.enrichmentStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined);
+  assert.equal(mock.enrichments[0]?.input.companyName, 'Power Construction (Pty) Ltd');
+});
+
+test('accepts a matching company domain without replacing the canonical company name with a page title', async () => {
+  const mock = mockRepository('pending', 'Zutari');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'Terms of Use - Zutari', officialWebsiteUrl: 'https://www.zutari.com/', supportingResults: [{ title: 'Terms of Use - Zutari', url: 'https://www.zutari.com/terms-of-use', content: 'Zutari is an engineering and advisory business.' }] });
+  assert.equal(result.companyName, 'Zutari');
+  assert.equal(result.enrichmentStatus, 'verified');
+  assert.equal(mock.enrichments[0]?.input.companyName, 'Zutari');
+});
+
+test('rejects a plausible but unrelated domain when research does not establish company identity', async () => {
+  const mock = mockRepository('pending', 'Tiber Construction (Pty) Ltd');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'Tiber Construction (Pty) Ltd', officialWebsiteUrl: 'https://www.mbanorth.co.za/', supportingResults: [{ title: 'MBA North', url: 'https://www.mbanorth.co.za/', content: 'Master Builders Association North.' }] });
+  assert.equal(result.enrichmentStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined);
 });
 
 test('rejects a lead that is already enriched and requires an explicit requeue', async () => {
