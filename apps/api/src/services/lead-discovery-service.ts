@@ -34,7 +34,11 @@ export function canonicalizeGooglePlacesBusinessName(value: string): string {
   name = name.replace(/^Google Place\s+/i, '');
   name = name.trim();
   if (GOOGLE_PLACE_ID_PATTERN.test(name)) return '';
-  return name || value.trim();
+  // A provider fallback such as "Google Place " becomes empty after stripping.
+  // Never fall back to the original value, because that would reintroduce the
+  // provider-generated identity into the canonical company name.
+  if (!name) return '';
+  return name;
 }
 
 function googlePlaceEvidence(providerPlaceId: string) {
