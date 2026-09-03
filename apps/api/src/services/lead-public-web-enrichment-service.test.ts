@@ -9,7 +9,7 @@ function discoveredLead(enrichmentStatus: 'pending' | 'verified' | 'not_found' |
 
 function mockRepository(initialStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
   const events: unknown[] = [];
-  const enrichments: unknown[] = [];
+  const enrichments: Array<{ id: string; expectedStatus: string; input: Record<string, unknown>; nextStatus: string }> = [];
   const repository = {
     async getLeadById() { return discoveredLead(initialStatus); },
     async enrichLead(id: string, expectedStatus: string, input: Record<string, unknown>, nextStatus: string) { enrichments.push({ id, expectedStatus, input, nextStatus }); return { ...discoveredLead(), companyName: String(input.companyName), opportunitySummary: String(input.opportunitySummary), enrichmentStatus: nextStatus, evidence: input.evidence }; },
@@ -25,8 +25,8 @@ test('promotes a pending Google discovery using independently sourced website ev
   assert.equal(result.companyName, 'Example Business');
   assert.equal(result.enrichmentStatus, 'verified');
   assert.equal(mock.enrichments.length, 1);
-  assert.equal(mock.enrichments[0].expectedStatus, 'pending');
-  assert.equal(mock.enrichments[0].nextStatus, 'verified');
+  assert.equal(mock.enrichments[0]?.expectedStatus, 'pending');
+  assert.equal(mock.enrichments[0]?.nextStatus, 'verified');
   assert.equal(mock.events.length, 1);
 });
 
@@ -35,7 +35,7 @@ test('marks a pending discovery not_found when no official website is verified',
   const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.enrich({ leadId: 'lead-1', companyName: 'Example Business', supportingResults: [{ title: 'Example Business directory', url: 'https://directory.example/results/example', content: 'Example Business listing.' }] });
   assert.equal(result.enrichmentStatus, 'not_found');
-  assert.equal(mock.enrichments[0].nextStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.nextStatus, 'not_found');
 });
 
 test('rejects an official website that is not supported by research results', async () => {
