@@ -64,7 +64,7 @@ test('executes only Atlas-planned discovery queries and records a governed human
   const workflow = {
     async research(input: Record<string, unknown>) {
       calls.push(input);
-      return { discovered: 1, enriched: [{ leadId: `lead-${calls.length}`, providerPlaceId: `place-${calls.length}`, companyName: 'Example Engineering', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [{ title: 'Example Engineering', url: 'https://example.test/', content: 'Engineering services.' }] }], proposals: [], outcomes: { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+      return { discovered: 1, enriched: [{ leadId: `lead-${calls.length}`, providerPlaceId: `place-${calls.length}`, companyName: 'Example Engineering', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [{ title: 'Example Engineering', url: 'https://example.test/', content: 'Engineering services.' }] }], proposals: [], outcomes: { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: true, hasMorePages: false };
     },
   };
   const dependencies = qualificationDependencies();
@@ -120,7 +120,7 @@ test('fails before external research when Atlas context cannot be loaded', async
   let workflowCalled = false;
   const atlasContext = { async load() { throw new Error('Required Atlas OS source was not retrieved: Ideal Client Profile.'); } };
   const planner = { plan() { throw new Error('planner should not run'); } };
-  const workflow = { async research() { workflowCalled = true; return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } }; } };
+  const workflow = { async research() { workflowCalled = true; return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: true, hasMorePages: false }; } };
   const dependencies = qualificationDependencies();
   await assert.rejects(() => createLeadAtlasResearchOrchestrator(
     atlasContext as never,
@@ -140,14 +140,89 @@ test('fails before external research when Atlas context cannot be loaded', async
 test('fails closed if an enriched lead reaches Atlas orchestration without the full governed qualification review pipeline', async () => {
   const atlasContext = { async load() { return atlas; } };
   const planner = { plan() { return { queries: ['Construction businesses'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
-  const workflow = { async research() { return { discovered: 1, enriched: [{ leadId: 'lead-1', providerPlaceId: 'place-1', companyName: 'Example', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [] }], proposals: [], outcomes: { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } }; } };
+  const workflow = { async research() { return { discovered: 1, enriched: [{ leadId: 'lead-1', providerPlaceId: 'place-1', companyName: 'Example', officialWebsiteUrl: 'https://example.test/', publicWebEvidence: [] }], proposals: [], outcomes: { enriched: 1, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: true, hasMorePages: false }; } };
   await assert.rejects(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never).research({ executionId: 'exec-1', correlationId: 'corr-1' }), /without a fully configured governed qualification review pipeline/);
 });
 
 test('rejects partially configured qualification dependencies at construction time', () => {
   const atlasContext = { async load() { return atlas; } };
   const planner = { plan() { return { queries: [], atlasSourcePaths: [] }; } };
-  const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } }; } };
+  const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: true, hasMorePages: false }; } };
   const { evidenceBuilder } = qualificationDependencies();
   assert.throws(() => createLeadAtlasResearchOrchestrator(atlasContext as never, planner as never, workflow as never, evidenceBuilder as never), /requires evidence builder, qualification service, qualification persistence, disposition service, disposition persistence, runtime review service, and runtime review registration together/);
+});
+
+test('passes stored nextPageToken to workflow as pageToken', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const atlasContext = { async load() { return atlas; } };
+  const planner = { plan() { return { queries: ['Construction businesses in South Africa'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
+  const workflow = { async research(input: Record<string, unknown>) {
+    calls.push(input);
+    return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: false, hasMorePages: true, nextPageToken: 'page_3_token' };
+  } };
+  const dependencies = qualificationDependencies();
+  await createLeadAtlasResearchOrchestrator(
+    atlasContext as never, planner as never, workflow as never,
+    dependencies.evidenceBuilder as never, dependencies.qualificationService as never,
+    dependencies.qualificationPersistence as never, dependencies.dispositionService as never,
+    dependencies.dispositionPersistence as never, dependencies.runtimeReviewService as never,
+    dependencies.runtimeReviewRegistration as never,
+  ).research({ executionId: 'exec-token', correlationId: 'corr-token', queryState: { 'Construction businesses in South Africa': { exhausted: false, nextPageToken: 'page_2_token' } } });
+
+  assert.equal(calls[0]?.pageToken, 'page_2_token');
+});
+
+test('persists returned nextPageToken in updatedQueryState', async () => {
+  const atlasContext = { async load() { return atlas; } };
+  const planner = { plan() { return { queries: ['Construction businesses in South Africa'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
+  const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: false, hasMorePages: true, nextPageToken: 'page_3_token' }; } };
+  const dependencies = qualificationDependencies();
+  const result = await createLeadAtlasResearchOrchestrator(
+    atlasContext as never, planner as never, workflow as never,
+    dependencies.evidenceBuilder as never, dependencies.qualificationService as never,
+    dependencies.qualificationPersistence as never, dependencies.dispositionService as never,
+    dependencies.dispositionPersistence as never, dependencies.runtimeReviewService as never,
+    dependencies.runtimeReviewRegistration as never,
+  ).research({ executionId: 'exec-persist', correlationId: 'corr-persist' });
+
+  assert.equal(result.updatedQueryState['Construction businesses in South Africa']?.nextPageToken, 'page_3_token');
+});
+
+test('stores null in updatedQueryState when workflow returns no nextPageToken', async () => {
+  const atlasContext = { async load() { return atlas; } };
+  const planner = { plan() { return { queries: ['Construction businesses in South Africa'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
+  const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: true, hasMorePages: false }; } };
+  const dependencies = qualificationDependencies();
+  const result = await createLeadAtlasResearchOrchestrator(
+    atlasContext as never, planner as never, workflow as never,
+    dependencies.evidenceBuilder as never, dependencies.qualificationService as never,
+    dependencies.qualificationPersistence as never, dependencies.dispositionService as never,
+    dependencies.dispositionPersistence as never, dependencies.runtimeReviewService as never,
+    dependencies.runtimeReviewRegistration as never,
+  ).research({ executionId: 'exec-null', correlationId: 'corr-null' });
+
+  assert.equal(result.updatedQueryState['Construction businesses in South Africa']?.nextPageToken, null);
+});
+
+test('preserves nextPageToken for query state entries not included in the current plan', async () => {
+  const atlasContext = { async load() { return atlas; } };
+  const planner = { plan() { return { queries: ['Construction businesses in South Africa'], atlasSourcePaths: ['Ideal Client Profile'] }; } };
+  const workflow = { async research() { return { discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, exhausted: false, hasMorePages: true, nextPageToken: 'new-token' }; } };
+  const dependencies = qualificationDependencies();
+  const result = await createLeadAtlasResearchOrchestrator(
+    atlasContext as never, planner as never, workflow as never,
+    dependencies.evidenceBuilder as never, dependencies.qualificationService as never,
+    dependencies.qualificationPersistence as never, dependencies.dispositionService as never,
+    dependencies.dispositionPersistence as never, dependencies.runtimeReviewService as never,
+    dependencies.runtimeReviewRegistration as never,
+  ).research({
+    executionId: 'exec-preserve',
+    correlationId: 'corr-preserve',
+    queryState: {
+      'Construction businesses in South Africa': { exhausted: false, nextPageToken: 'old-token' },
+      'Engineering businesses in South Africa': { exhausted: false, nextPageToken: 'page_7_token' },
+    },
+  });
+
+  assert.equal(result.updatedQueryState['Engineering businesses in South Africa']?.nextPageToken, 'page_7_token');
 });
