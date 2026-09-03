@@ -12,7 +12,7 @@ export interface LeadResearchWorkflowInput {
   maxWebResultsPerBusiness?: number;
   executionId: string;
   correlationId: string;
-  pageToken?: string; // NEW: Google Places next_page_token for pagination
+  pageToken?: string;
 }
 
 export interface LeadResearchProposal {
@@ -39,16 +39,17 @@ export interface LeadResearchOutcomeCounts {
   unresolved: number;
   ambiguous: number;
   notFound: number;
+  skipped: number;
 }
 
 export interface LeadResearchWorkflowOutput {
-  discovered: number; // NEW: now means "new non-duplicate candidates found on this page"
+  discovered: number;
   enriched: EnrichedLeadResearchResult[];
   proposals: LeadResearchProposal[];
   outcomes: LeadResearchOutcomeCounts;
-  exhausted: boolean; // NEW: true when no new candidates remain AND no next page
-  hasMorePages: boolean; // NEW: true when Google Places returned nextPageToken
-  nextPageToken?: string; // NEW: the raw token to use for the next page call
+  exhausted: boolean;
+  hasMorePages: boolean;
+  nextPageToken?: string;
 }
 
 function requireText(value: string, field: string): string {
@@ -57,8 +58,14 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
+// Actively seek evidence that can support agency-opportunity and contact-route
+// qualification instead of limiting public-web research to website discovery.
 function webQueryFor(candidate: LeadBusinessCandidate): string {
-  const parts = [candidate.displayName, candidate.formattedAddress, 'official website'].filter(Boolean);
+  const parts = [
+    candidate.displayName,
+    candidate.formattedAddress,
+    'official website contact details projects tenders growth expansion hiring digital transformation automation branding enquiries',
+  ].filter(Boolean);
   return parts.join(' ').slice(0, 400);
 }
 
@@ -74,8 +81,6 @@ export function createLeadResearchWorkflowService(
       const correlationId = requireText(input.correlationId, 'correlationId');
       const maxBusinesses = input.maxBusinesses ?? 5;
       const maxWebResults = input.maxWebResultsPerBusiness ?? 5;
-      // Always fetch the maximum page size (20) so we can deduplicate the entire page
-      // and determine if the query is truly exhausted
       const providerCandidateLimit = 20;
 
       const discovery = await registry.execute<{ query: string; maxResults: number; pageToken?: string }, LeadBusinessSearchOutput>({
@@ -86,11 +91,7 @@ export function createLeadResearchWorkflowService(
         correlationId,
         mode: 'live',
         risk: 'low',
-        input: {
-          query,
-          maxResults: providerCandidateLimit,
-          ...(input.pageToken ? { pageToken: input.pageToken } : {}), // NEW
-        },
+        input: { query, maxResults: providerCandidateLimit, ...(input.pageToken ? { pageToken: input.pageToken } : {}) },
       });
       if (discovery.status !== 'succeeded') {
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
@@ -98,12 +99,23 @@ export function createLeadResearchWorkflowService(
 
       const newCandidates: Array<{ candidate: LeadBusinessCandidate; leadId: string }> = [];
       let duplicateCount = 0;
+      let skippedCount = 0;
 
+      // Deduplicate the entire provider page before enrichment. This preserves
+      // pagination/exhaustion semantics while ensuring enrichment is spent only on
+      // genuinely new candidates.
       for (const candidate of discovery.output.candidates) {
         const persisted = await discoveryService.persistDiscovery({
           discovery: { query: discovery.output.query, candidates: [candidate] },
           actorId: 'lead_agent',
         });
+
+        const skipped = persisted.skipped.find((item) => item.providerPlaceId === candidate.providerPlaceId);
+        if (skipped) {
+          skippedCount += 1;
+          continue;
+        }
+
         const duplicate = persisted.duplicates.find((item) => item.providerPlaceId === candidate.providerPlaceId);
         const leadId = persisted.created[0]?.id ?? duplicate?.leadId;
         if (!leadId) throw new Error(`Lead persistence produced no identity for ${candidate.providerPlaceId}.`);
@@ -124,6 +136,7 @@ export function createLeadResearchWorkflowService(
         unresolved: 0,
         ambiguous: 0,
         notFound: 0,
+        skipped: skippedCount,
       };
 
       let enrichedCount = 0;
