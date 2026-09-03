@@ -11,9 +11,6 @@ export type OfficialWebsiteSelection =
   | { status: 'ambiguous'; candidateUrls: string[] }
   | { status: 'not_found'; candidateUrls: [] };
 
-// These domains are discovery platforms, social networks, maps, directories, or
-// industry/listing portals. They may contain useful business evidence, but they
-// are never acceptable as the business's official website.
 const THIRD_PARTY_HOSTS = [
   'facebook.com', 'instagram.com', 'linkedin.com', 'x.com', 'twitter.com', 'youtube.com',
   'google.com', 'google.co.za', 'yelp.com', 'tripadvisor.com', 'yellowpages.co.za',
@@ -22,10 +19,6 @@ const THIRD_PARTY_HOSTS = [
   'hotfrog.com', 'zaubee.com', 'mapquest.com', 'manta.com',
 ];
 
-// Search results can come from previously unknown directory or listing domains.
-// These pages are evidence about a business, not evidence that the hosting
-// domain belongs to that business. Only apply this guard when the hostname itself
-// does not carry the business identity, so legitimate branded domains remain eligible.
 const THIRD_PARTY_LISTING_PATTERNS = [
   /\bbusiness\s+(directory|listing)\b/,
   /\b(directory|listing)\s+(listing|profile)\b/,
@@ -72,13 +65,6 @@ function registrableCandidate(result: PublicWebSearchResult): { origin: string; 
   } catch { return null; }
 }
 
-function independentlySourcedCompanyName(evidence: PublicWebSearchResult[]): string | null {
-  const title = evidence[0]?.title.trim();
-  if (!title) return null;
-  const firstSegment = title.split(/\s[|–—]\s/)[0]?.trim();
-  return firstSegment || title;
-}
-
 function firstPartyEvidenceScore(
   businessWords: string[],
   result: PublicWebSearchResult,
@@ -91,19 +77,11 @@ function firstPartyEvidenceScore(
   const hostMatches = businessWords.filter((word) => hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
   const content = result.content.toLowerCase();
 
-  // A domain that contains the business identity is the strongest durable signal.
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
-  // A non-matching hostname must not be promoted when the result itself describes
-  // the page as a directory, listing, profile, portal, marketplace, or actual map
-  // result. Generic words such as "map" or "directions" on a normal company page
-  // are not sufficient to reject that page.
   const listingText = `${result.title} ${result.content}`.toLowerCase();
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
-  // Do not promote arbitrary third-party pages simply because their search title
-  // repeats the business name. A domain with no business identity must provide
-  // several independent first-party signals before it can be considered official.
   const firstPartySignals = [
     /\babout (us|the company)\b/.test(content),
     /\bcontact (us|details)\b/.test(content),
@@ -113,9 +91,7 @@ function firstPartyEvidenceScore(
     contentMatches >= Math.min(2, businessWords.length),
   ].filter(Boolean).length;
 
-  if (titleMatches === businessWords.length && firstPartySignals >= 3) {
-    return 2 + firstPartySignals;
-  }
+  if (titleMatches === businessWords.length && firstPartySignals >= 3) return 2 + firstPartySignals;
   return 0;
 }
 
@@ -160,7 +136,14 @@ export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): Off
   ) {
     return { status: 'ambiguous', candidateUrls: ranked.map(([origin]) => origin) };
   }
-  const companyName = independentlySourcedCompanyName(best.evidence);
-  if (!companyName) return { status: 'ambiguous', candidateUrls: ranked.map(([origin]) => origin) };
-  return { status: 'selected', websiteUrl: bestOrigin, companyName, evidence: best.evidence };
+
+  // Google Places is the authoritative business identity. Public-web search
+  // evidence verifies the website; it must never replace the canonical business
+  // name with a search-result title such as "Company :: Contact Us" or "Home - Company".
+  return {
+    status: 'selected',
+    websiteUrl: bestOrigin,
+    companyName: businessName,
+    evidence: best.evidence,
+  };
 }
