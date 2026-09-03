@@ -215,3 +215,39 @@ test('retains a business as a website opportunity when no official website is fo
   assert.equal((enrichments[0] as any).officialWebsiteUrl, null);
   assert.equal((enrichments[0] as any).companyName, 'Example Business');
 });
+
+test('passes pageToken through to the Google Places integration', async () => {
+  const registry = new MockRegistry();
+  const service = createLeadResearchWorkflowService(registry as never, discoveryService() as never, enrichmentService([]) as never);
+
+  await service.research({ query: 'construction businesses', executionId: 'exec-page-token', correlationId: 'corr-page-token', pageToken: 'token_abc' });
+
+  assert.equal(registry.calls[0]?.integrationId, 'research.google-places');
+  assert.equal((registry.calls[0]?.input as any).pageToken, 'token_abc');
+});
+
+test('returns nextPageToken when Google Places provides one', async () => {
+  const registry = new MockRegistry();
+  const originalExecute = registry.execute.bind(registry);
+  registry.execute = async function(request: Record<string, any>) {
+    const result = await originalExecute(request);
+    if (request.integrationId === 'research.google-places') {
+      return { ...result, output: { ...result.output, nextPageToken: 'token_xyz' } };
+    }
+    return result;
+  };
+  const service = createLeadResearchWorkflowService(registry as never, discoveryService() as never, enrichmentService([]) as never);
+
+  const result = await service.research({ query: 'construction businesses', executionId: 'exec-next-token', correlationId: 'corr-next-token' });
+
+  assert.equal(result.nextPageToken, 'token_xyz');
+});
+
+test('returns undefined nextPageToken when Google Places provides none', async () => {
+  const registry = new MockRegistry();
+  const service = createLeadResearchWorkflowService(registry as never, discoveryService() as never, enrichmentService([]) as never);
+
+  const result = await service.research({ query: 'construction businesses', executionId: 'exec-no-next-token', correlationId: 'corr-no-next-token' });
+
+  assert.equal(result.nextPageToken, undefined);
+});
