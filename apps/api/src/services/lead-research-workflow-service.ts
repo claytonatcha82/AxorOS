@@ -41,10 +41,12 @@ export interface LeadResearchOutcomeCounts {
 }
 
 export interface LeadResearchWorkflowOutput {
-  discovered: number;
+  discovered: number; // NEW: now means "new non-duplicate candidates found on this page"
   enriched: EnrichedLeadResearchResult[];
   proposals: LeadResearchProposal[];
   outcomes: LeadResearchOutcomeCounts;
+  exhausted: boolean; // NEW: true when no new candidates remain AND no next page
+  hasMorePages: boolean; // NEW: true when Google Places returned nextPageToken
 }
 
 function requireText(value: string, field: string): string {
@@ -70,9 +72,11 @@ export function createLeadResearchWorkflowService(
       const correlationId = requireText(input.correlationId, 'correlationId');
       const maxBusinesses = input.maxBusinesses ?? 5;
       const maxWebResults = input.maxWebResultsPerBusiness ?? 5;
-      const providerCandidateLimit = Math.min(20, Math.max(maxBusinesses, maxBusinesses * 3));
+      // Always fetch the maximum page size (20) so we can deduplicate the entire page
+      // and determine if the query is truly exhausted
+      const providerCandidateLimit = 20;
 
-      const discovery = await registry.execute<{ query: string; maxResults: number }, LeadBusinessSearchOutput>({
+      const discovery = await registry.execute<{ query: string; maxResults: number; pageToken?: string }, LeadBusinessSearchOutput>({
         integrationId: 'research.google-places',
         operation: 'search_businesses',
         requestedBy: 'lead_agent',
@@ -86,17 +90,12 @@ export function createLeadResearchWorkflowService(
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
       }
 
-      const enriched: EnrichedLeadResearchResult[] = [];
-      const proposals: LeadResearchProposal[] = [];
-      const outcomes: LeadResearchOutcomeCounts = {
-        enriched: 0,
-        duplicateSkipped: 0,
-        webResearchFailed: 0,
-        unresolved: 0,
-        ambiguous: 0,
-        notFound: 0,
-      };
-      let actionableDiscovered = 0;
+      // ── PHASE 1: Deduplicate the ENTIRE page before enriching ──
+      // This is critical: we must know if ANY candidate on this page is new
+      // before we can declare the query exhausted.
+      const newCandidates: Array<{ candidate: LeadBusinessCandidate; leadId: string }> = [];
+      let duplicateCount = 0;
+
       for (const candidate of discovery.output.candidates) {
         const persisted = await discoveryService.persistDiscovery({
           discovery: { query: discovery.output.query, candidates: [candidate] },
@@ -105,12 +104,30 @@ export function createLeadResearchWorkflowService(
         const duplicate = persisted.duplicates.find((item) => item.providerPlaceId === candidate.providerPlaceId);
         const leadId = persisted.created[0]?.id ?? duplicate?.leadId;
         if (!leadId) throw new Error(`Lead persistence produced no identity for ${candidate.providerPlaceId}.`);
-        if (duplicate && !duplicate.enrichmentPending) {
-          outcomes.duplicateSkipped += 1;
-          continue;
-        }
 
-        actionableDiscovered += 1;
+        if (duplicate && !duplicate.enrichmentPending) {
+          duplicateCount += 1;
+        } else {
+          newCandidates.push({ candidate, leadId });
+        }
+      }
+
+      // ── PHASE 2: Enrich up to maxBusinesses new candidates ──
+      const enriched: EnrichedLeadResearchResult[] = [];
+      const proposals: LeadResearchProposal[] = [];
+      const outcomes: LeadResearchOutcomeCounts = {
+        enriched: 0,
+        duplicateSkipped: duplicateCount,
+        webResearchFailed: 0,
+        unresolved: 0,
+        ambiguous: 0,
+        notFound: 0,
+      };
+
+      let enrichedCount = 0;
+      for (const { candidate, leadId } of newCandidates) {
+        if (enrichedCount >= maxBusinesses) break;
+
         const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
           integrationId: 'research.tavily-web',
           operation: 'search_public_web',
@@ -127,7 +144,6 @@ export function createLeadResearchWorkflowService(
         });
         if (web.status !== 'succeeded') {
           outcomes.webResearchFailed += 1;
-          if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
 
@@ -147,13 +163,9 @@ export function createLeadResearchWorkflowService(
           });
           outcomes.unresolved += 1;
           outcomes.ambiguous += 1;
-          if (actionableDiscovered >= maxBusinesses) break;
           continue;
         }
 
-        // No verified website is an opportunity state, not a failed business
-        // identity. Preserve the business and evidence so qualification can assess
-        // the lead and explicitly surface the missing website as an opportunity.
         const lead = await enrichmentService.enrich({
           leadId,
           companyName: selection.status === 'selected' ? selection.companyName : candidate.displayName,
@@ -170,11 +182,28 @@ export function createLeadResearchWorkflowService(
           websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
         });
         outcomes.enriched += 1;
+        enrichedCount++;
         if (selection.status === 'not_found') outcomes.notFound += 1;
-        if (actionableDiscovered >= maxBusinesses) break;
       }
 
-      return { discovered: actionableDiscovered, enriched, proposals, outcomes };
+      // ── PHASE 3: Determine exhaustion ──
+      // A query is exhausted only when:
+      // 1. We found zero new candidates on this page, AND
+      // 2. Google Places says there are no more pages.
+      //
+      // If there are more pages, we do NOT mark exhausted — the orchestrator
+      // may choose to revisit this query in a future cycle.
+      const hasMorePages = Boolean(discovery.output.nextPageToken);
+      const exhausted = newCandidates.length === 0 && !hasMorePages;
+
+      return {
+        discovered: newCandidates.length,
+        enriched,
+        proposals,
+        outcomes,
+        exhausted,
+        hasMorePages,
+      };
     },
   };
 }
