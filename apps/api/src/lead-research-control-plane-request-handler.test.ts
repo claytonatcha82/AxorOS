@@ -30,6 +30,7 @@ async function withServer(run: (baseUrl: string, calls: Array<Record<string, unk
             unresolved: 0,
             ambiguous: 0,
             notFound: 0,
+            skipped: 0,
           },
           updatedQueryState: {},
         };
