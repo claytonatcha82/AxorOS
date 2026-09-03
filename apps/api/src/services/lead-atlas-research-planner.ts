@@ -6,12 +6,15 @@ import { createLeadDiscoveryQueryPlanner } from './lead-discovery-query-planner.
 export interface LeadResearchPlanInput {
   atlas: LeadAtlasContextBundle;
   geographicFocus?: string;
+  geographicVariants?: string[];
   maxQueries?: number;
+  exhaustedQueries?: string[];
 }
 
 export interface LeadResearchPlan {
   queries: string[];
   atlasSourcePaths: string[];
+  geographicVariantUsed?: string;
 }
 
 const LEGACY_INDUSTRY_SECTION = /#\s+(?:Target\s+)?Industries([\s\S]*?)(?=\n#\s+|$)/i;
@@ -92,8 +95,8 @@ export function createLeadAtlasResearchPlanner() {
 
   return {
     plan(input: LeadResearchPlanInput): LeadResearchPlan {
-      logEvent('info', 'lead_atlas_planner_execution_fingerprint_v3', {
-        plannerContract: 'structured-atlas-industries-v3',
+      logEvent('info', 'lead_atlas_planner_execution_fingerprint_v4', {
+        plannerContract: 'structured-atlas-industries-v4',
         runtimeCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? '(unknown)',
         runtimeDeployment: process.env.RAILWAY_DEPLOYMENT_ID ?? '(unknown)',
         idealClientProfileSourceCount: input.atlas.idealClientProfile.sources.length,
@@ -103,6 +106,8 @@ export function createLeadAtlasResearchPlanner() {
           Array.isArray(source.citation.headingPath)
           && source.citation.headingPath.some((heading) => /^(target\s+)?industries$/i.test(heading.trim()))
         ).length,
+        exhaustedQueryCount: input.exhaustedQueries?.length ?? 0,
+        geographicVariantCount: input.geographicVariants?.length ?? 0,
       });
 
       const maxQueries = input.maxQueries ?? 12;
@@ -111,9 +116,15 @@ export function createLeadAtlasResearchPlanner() {
         industries,
         maxQueries,
         ...(input.geographicFocus?.trim() ? { geographicFocus: input.geographicFocus.trim() } : {}),
+        ...(input.geographicVariants?.length ? { geographicVariants: input.geographicVariants } : {}),
+        ...(input.exhaustedQueries?.length ? { exhaustedQueries: input.exhaustedQueries } : {}),
       };
       const planned = discoveryQueryPlanner.plan(plannerInput);
-      return { queries: planned.queries, atlasSourcePaths: atlasPaths(input.atlas) };
+      return {
+        queries: planned.queries,
+        atlasSourcePaths: atlasPaths(input.atlas),
+        geographicVariantUsed: planned.geographicVariantUsed,
+      };
     },
   };
 }
