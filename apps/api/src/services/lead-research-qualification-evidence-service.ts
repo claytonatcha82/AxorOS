@@ -28,6 +28,15 @@ const PROJECT_DEFICIENCY_PATTERNS = [
   /poor\s+(?:website|mobile|online)/i, /slow\s+(?:website|site|loading)/i,
   /weak\s+(?:branding|online\s+presence|search\s+visibility)/i,
 ];
+const STRONG_PROJECT_OPPORTUNITY_PATTERNS = [
+  /digital\s+transformation/i,
+  /implementing\s+(?:a\s+)?(?:new\s+)?(?:erp|crm)\b/i,
+  /(?:erp|crm)\s+(?:implementation|implementation\s+project|rollout)/i,
+  /(?:manual|inefficient|disconnected)\s+(?:processes?|workflows?|systems?)/i,
+  /limited\s+automation/i,
+  /automation\s+(?:initiative|project|programme|program)/i,
+  /new\s+digital\s+(?:platform|system|portal)/i,
+];
 const PARTNERSHIP_PATTERNS = [
   /growth/i, /expanding|expansion/i, /new\s+market/i, /maintenance/i,
   /ongoing\s+(?:support|service|services|management)/i, /retainer/i,
@@ -65,6 +74,8 @@ const STRONG_NEAR_TERM_TIMELINE_PATTERNS = [
   /\b(?:launch\s+date|delivery\s+date|project\s+date|completion\s+date)\b/i,
   /\b(?:this\s+(?:month|quarter|year)|next\s+(?:month|quarter))\b/i,
   /\b(?:launch(?:ing)?|underway|in\s+progress|ongoing)\b/i,
+  /\b(?:deadline|closing\s+date|closing\s+deadline)\b[\s\S]{0,80}\b\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i,
+  /\b(?:deadline|closing\s+date|closing\s+deadline)\b[\s\S]{0,80}\b\d{1,2}[\/-]\d{1,2}[\/-]20\d{2}\b/i,
 ];
 const CURRENT_TIMELINE_PATTERNS = [
   /\b(?:currently|current|active)\b/i,
@@ -163,17 +174,19 @@ function businessFitAssessment(input: LeadResearchQualificationEvidenceInput, te
   if (!stageOrSize) missing.push('Preferred business stage or size is not yet evidenced.');
   if (!growthTransform) missing.push('Growth or digital-transformation characteristics are not yet evidenced.');
   if (!challengeGoal) missing.push('An ICP-aligned business challenge or goal is not yet evidenced.');
-  return assessment(score, evidenceReferences(supportedResults), score === null ? missing : missing);
+  return assessment(score, evidenceReferences(supportedResults), missing);
 }
 
 function projectFitAssessment(input: LeadResearchQualificationEvidenceInput, businessFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
   const references = evidenceReferences(input.publicWebResults);
   const deficiencyResults = matchingResults(input.publicWebResults, PROJECT_DEFICIENCY_PATTERNS);
+  const strongOpportunityResults = matchingResults(input.publicWebResults, STRONG_PROJECT_OPPORTUNITY_PATTERNS);
   const projectResults = matchingResults(input.publicWebResults, PROJECT_PATTERNS);
   if (input.officialWebsiteUrl === null && businessFit.score !== null && businessFit.score >= 6) {
     return assessment(8, references.length > 0 ? references : businessFit.evidenceReferences, ['No verified official website was found during research; this is treated as a website opportunity signal, not a failed lead.']);
   }
   if (deficiencyResults.length > 0) return assessment(8, evidenceReferences(deficiencyResults));
+  if (strongOpportunityResults.length > 0) return assessment(8, evidenceReferences(strongOpportunityResults));
   if (projectResults.length >= 2) return assessment(7, evidenceReferences(projectResults), ['A specific active agency project is not publicly confirmed.']);
   if (projectResults.length === 1) return assessment(6, evidenceReferences(projectResults), ['The agency-service connection is evidenced, but the specific project need is not confirmed.']);
   return assessment(null, [], ['No meaningful website, digital, branding, automation, or related agency opportunity is currently evidenced.']);
@@ -231,8 +244,9 @@ function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput):
   const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' '), input.companyName).length > 0);
   const directContactResults = namedRoleResults.filter((result) => namedPersonWithDirectContact([result.title, result.content].filter(Boolean).join(' '), input.companyName));
   const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
+  const leadershipPageResults = namedRoleResults.filter((result) => /\b(?:team|leadership|management|directors?)\b/i.test(result.title));
   if (directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role, identity, and a direct contact route are evidenced; procurement authority is not assumed.']);
-  if (namedRoleResults.length > 0 && businessContactResults.length > 0) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults)], ['A credible business contact route exists, but a direct route to the named decision-maker is not confirmed.']);
+  if (namedRoleResults.length > 0 && (businessContactResults.length > 0 || leadershipPageResults.length > 0)) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults), ...evidenceReferences(leadershipPageResults)], ['A named senior role and a credible business/leadership route are evidenced, but direct access to the decision-maker is not confirmed.']);
   if (roleResults.length > 0) return assessment(6, roleReferences, ['A senior/relevant management role is identified, but named identity and/or direct access is incomplete.']);
   if (businessContactResults.length > 0) return assessment(4, evidenceReferences(businessContactResults), ['A relevant business contact route exists, but decision-maker authority is unverified.']);
   if (input.publicWebResults.length > 0) return assessment(2, evidenceReferences(input.publicWebResults), ['Only generic public evidence is available; no credible decision-maker route is established.']);
