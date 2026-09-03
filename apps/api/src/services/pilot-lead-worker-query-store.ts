@@ -1,8 +1,8 @@
 import type { Database } from '../database.js';
 
 export interface PilotLeadWorkerQueryStore {
-  get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string }>>;
-  save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string }>): Promise<void>;
+  get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }>>;
+  save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>): Promise<void>;
 }
 
 /**
@@ -23,17 +23,17 @@ export function createPilotLeadWorkerQueryPostgresStore(
   stateKey: string = 'default',
 ): PilotLeadWorkerQueryStore {
   return {
-    async get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string }>> {
+    async get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }>> {
       const result = await db.query<{ query_state: unknown }>(
         `SELECT query_state FROM pilot_lead_worker_query_state WHERE state_key = $1`,
         [stateKey],
       );
       const queryState = result.rows[0]?.query_state;
       if (!queryState) return {};
-      return queryState as Record<string, { exhausted: boolean; lastAttemptedAt?: string }>;
+      return queryState as Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }>;
     },
 
-    async save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string }>): Promise<void> {
+    async save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>): Promise<void> {
       await db.query(
         `INSERT INTO pilot_lead_worker_query_state (state_key, query_state, updated_at)
          VALUES ($1, $2, NOW())
@@ -47,7 +47,7 @@ export function createPilotLeadWorkerQueryPostgresStore(
 
 // In-memory fallback for testing
 export function createPilotLeadWorkerQueryMemoryStore(
-  initial: Record<string, { exhausted: boolean; lastAttemptedAt?: string }> = {},
+  initial: Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }> = {},
 ): PilotLeadWorkerQueryStore {
   let state = { ...initial };
   return {
