@@ -127,5 +127,51 @@ test('exposes live worker activity and completion timestamps', async () => {
   assert.equal(completedStatus.lastOutcome, 'completed');
   assert.ok(completedStatus.lastCompletedAt);
   assert.equal(completedStatus.lastFailedAt, null);
-  assert.deepEqual(completedStatus.lastSummary, { discovered: 0, enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 });
+  assert.deepEqual(completedStatus.lastSummary, { discovered: 0, enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0, queriesExhausted: 0 });
+});
+
+test('preserves nextPageToken across query state load and save', async () => {
+  const loadedState = {
+    query: {
+      exhausted: false,
+      lastAttemptedAt: '2026-09-03T16:00:00.000Z',
+      nextPageToken: 'token_123',
+    },
+  };
+  let savedState: any;
+  const queryStore = {
+    async get() {
+      return loadedState;
+    },
+    async save(state: any) {
+      savedState = state;
+    },
+  };
+  const output = {
+    queries: ['query'],
+    atlasSourcePaths: ['atlas.md'],
+    discovered: 0,
+    enriched: [],
+    proposals: [],
+    outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 },
+    updatedQueryState: {
+      query: {
+        exhausted: false,
+        lastAttemptedAt: '2026-09-03T17:00:00.000Z',
+        nextPageToken: 'token_456',
+      },
+    },
+  };
+  const inputs: any[] = [];
+  const worker = createPilotLeadWorker(
+    { async get() { return active; } },
+    { async research(input) { inputs.push(input); return output; } },
+    { intervalMs: 60_000 },
+    queryStore,
+  );
+
+  await worker.runOnce();
+
+  assert.equal(inputs[0]?.queryState.query.nextPageToken, 'token_123');
+  assert.equal(savedState.query.nextPageToken, 'token_456');
 });
