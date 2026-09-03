@@ -58,26 +58,28 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
         if (!lead) throw new Error(`Lead ${leadId} was not found.`);
         const identity = googleIdentity(lead);
         if (!identity) throw new Error('Lead is not an eligible Google Places discovery record.');
-        const expectedCompanyName = `Google Place ${identity.providerPlaceId}`;
-        if (lead.companyName !== expectedCompanyName) throw new Error('Lead has already been enriched or its discovery identity changed.');
+        if (lead.enrichmentStatus !== 'pending') {
+          throw new Error(`Lead ${leadId} enrichment_status is '${lead.enrichmentStatus}' and requires an explicit requeue before enrichment.`);
+        }
 
+        const enrichmentStatus = officialWebsiteUrl ? 'verified' : 'not_found';
         const evidence = [
           ...(Array.isArray(lead.evidence) ? lead.evidence : []),
           {
             kind: 'public_web_enrichment',
             provider: 'tavily',
-            websiteVerificationStatus: officialWebsiteUrl ? 'verified' : 'not_found',
+            websiteVerificationStatus: enrichmentStatus,
             ...(officialWebsiteUrl ? { officialWebsiteUrl } : {}),
             evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         ];
-        const enriched = await tx.enrichLead(lead.id, expectedCompanyName, {
+        const enriched = await tx.enrichLead(lead.id, 'pending', {
           companyName,
           opportunitySummary: officialWebsiteUrl
             ? `Official website independently identified: ${officialWebsiteUrl}`
             : 'Business identity independently identified; no official website was verified in public-web research. Website opportunity should be assessed during human review.',
           evidence,
-        });
+        }, enrichmentStatus);
         if (!enriched) throw new Error('Lead enrichment lost its optimistic-concurrency check.');
 
         await tx.createWorkflowEvent({
@@ -88,7 +90,8 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
             leadId: enriched.id,
             providerPlaceId: identity.providerPlaceId,
             ...(officialWebsiteUrl ? { officialWebsiteUrl } : {}),
-            websiteVerificationStatus: officialWebsiteUrl ? 'verified' : 'not_found',
+            websiteVerificationStatus: enrichmentStatus,
+            enrichmentStatus,
             evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         });
