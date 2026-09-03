@@ -43,7 +43,7 @@ export interface AtlasLeadResearchOutput {
   enriched: QualifiedEnrichedLead[];
   proposals: LeadResearchWorkflowOutput['proposals'];
   outcomes: LeadResearchWorkflowOutput['outcomes'];
-  updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>; // UPDATED
+  updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>;
 }
 
 function required(value: string, field: string): string {
@@ -110,7 +110,6 @@ export function createLeadAtlasResearchOrchestrator(
       for (const [index, query] of plan.queries.entries()) {
         const attemptedAt = new Date().toISOString();
 
-        // NEW: look up persisted page token for this query
         const queryStateEntry = input.queryState?.[query];
         const pageToken = queryStateEntry?.nextPageToken ?? undefined;
 
@@ -121,9 +120,8 @@ export function createLeadAtlasResearchOrchestrator(
           ...(input.country ? { country: input.country } : {}),
           ...(input.maxBusinessesPerQuery !== undefined ? { maxBusinesses: input.maxBusinessesPerQuery } : {}),
           ...(input.maxWebResultsPerBusiness !== undefined ? { maxWebResultsPerBusiness: input.maxWebResultsPerBusiness } : {}),
-          ...(pageToken ? { pageToken } : {}), // NEW: thread pagination token into workflow
+          ...(pageToken ? { pageToken } : {}),
         });
-        // NEW: persist the returned token (or null if no more pages) for the next cycle
         updatedQueryState[query] = {
           exhausted: result.exhausted,
           lastAttemptedAt: attemptedAt,
@@ -189,11 +187,14 @@ export function createLeadAtlasResearchOrchestrator(
       const preservedQueryState = Object.fromEntries(
         Object.entries(input.queryState ?? {})
           .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query))
-          .map(([query, state]) => [query, {
-            exhausted: state.exhausted,
-            lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
-            nextPageToken: state.nextPageToken, // NEW: preserve existing token
-          }]),
+          .map(([query, state]) => [
+            query,
+            {
+              exhausted: state.exhausted,
+              lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
+              ...(state.nextPageToken !== undefined ? { nextPageToken: state.nextPageToken } : {}),
+            },
+          ]),
       );
 
       return {
