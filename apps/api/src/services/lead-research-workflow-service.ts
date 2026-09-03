@@ -12,6 +12,7 @@ export interface LeadResearchWorkflowInput {
   maxWebResultsPerBusiness?: number;
   executionId: string;
   correlationId: string;
+  pageToken?: string; // NEW: Google Places next_page_token for pagination
 }
 
 export interface LeadResearchProposal {
