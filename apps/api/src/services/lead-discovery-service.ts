@@ -52,8 +52,6 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
 
         const outcome = await runInTransaction(async (tx) => {
-          // Serialize workers competing for the same provider identity. The database
-          // primary key remains the final uniqueness boundary.
           await tx.lockLeadSourceIdentity('google_places', providerPlaceId);
 
           const identity = await tx.findLeadSourceIdentity('google_places', providerPlaceId);
@@ -63,8 +61,6 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
             return { kind: 'duplicate' as const, lead: existing };
           }
 
-          // Backward-compatibility path for pre-migration discovery records. If one
-          // exists, claim it in the normalized identity table rather than duplicating it.
           const legacy = await tx.findLeadByGooglePlaceId(providerPlaceId);
           if (legacy) {
             await tx.createLeadSourceIdentity('google_places', providerPlaceId, legacy.id);
@@ -96,7 +92,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
           duplicates.push({
             providerPlaceId,
             leadId: outcome.lead.id,
-            enrichmentPending: outcome.lead.companyName === internalDiscoveryLabel(providerPlaceId),
+            enrichmentPending: outcome.lead.enrichmentStatus === 'pending',
           });
         } else {
           created.push(outcome.lead);
