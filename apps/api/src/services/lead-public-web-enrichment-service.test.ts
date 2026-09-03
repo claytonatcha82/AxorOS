@@ -54,6 +54,30 @@ test('rejects a known third-party directory as the official website', async () =
   assert.equal(mock.enrichments[0]?.input.companyName, 'Power Construction (Pty) Ltd');
 });
 
+test('rejects an industry directory domain even when the company name appears in the listing', async () => {
+  const mock = mockRepository('pending', 'Dennes Engineering');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'Dennes Engineering', officialWebsiteUrl: 'https://www.engnet.co.za/', supportingResults: [{ title: 'Dennes Engineering :: Contact Us - Cape Town', url: 'https://www.engnet.co.za/', content: 'Dennes Engineering profile on EngNet.' }] });
+  assert.equal(result.enrichmentStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined);
+});
+
+test('rejects a jobs portal domain even when the company name appears in the listing', async () => {
+  const mock = mockRepository('pending', 'GVK Siya-Zama Building Contractors Gauteng (Pty) Ltd');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'GVK Siya-Zama Building Contractors Gauteng (Pty) Ltd', officialWebsiteUrl: 'https://gvkjobs.mcidirecthire.com/', supportingResults: [{ title: 'GVK Siya-Zama Building Contractors Gauteng', url: 'https://gvkjobs.mcidirecthire.com/', content: 'GVK Siya-Zama Building Contractors job vacancies.' }] });
+  assert.equal(result.enrichmentStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined);
+});
+
+test('rejects an industry aggregation domain when only a generic company token matches', async () => {
+  const mock = mockRepository('pending', 'Motheo Construction Group');
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({ leadId: 'lead-1', companyName: 'Motheo Construction Group', officialWebsiteUrl: 'https://constructioncompanies.co.za/', supportingResults: [{ title: 'Construction Companies South Africa', url: 'https://constructioncompanies.co.za/', content: 'Construction companies directory.' }] });
+  assert.equal(result.enrichmentStatus, 'not_found');
+  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined);
+});
+
 test('accepts a matching company domain without replacing the canonical company name with a page title', async () => {
   const mock = mockRepository('pending', 'Zutari');
   const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
