@@ -18,6 +18,18 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
+/**
+ * Google Places is the authoritative identity source, but provider display names
+ * can occasionally contain website/UI text (for example "Contact our Office - X").
+ * Strip only explicit UI prefixes/suffixes; do not broadly rewrite business names.
+ */
+export function canonicalizeGooglePlacesBusinessName(value: string): string {
+  let name = value.trim().replace(/\s+/g, ' ');
+  name = name.replace(/^(?:contact\s+(?:our|the)\s+office|contact\s+us|home|welcome)\s*[-–—:|]\s*/i, '');
+  name = name.replace(/\s*[-–—:|]\s*(?:home|contact\s+us|contact\s+(?:our|the)\s+office)\s*$/i, '');
+  return name.trim() || value.trim();
+}
+
 function googlePlaceEvidence(providerPlaceId: string) {
   return {
     kind: 'lead_discovery',
@@ -46,7 +58,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
-        const companyName = requireText(candidate.displayName, 'candidate.displayName');
+        const companyName = requireText(canonicalizeGooglePlacesBusinessName(candidate.displayName), 'candidate.displayName');
 
         const outcome = await runInTransaction(async (tx) => {
           await tx.lockLeadSourceIdentity('google_places', providerPlaceId);
@@ -64,9 +76,8 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
             return { kind: 'duplicate' as const, lead: legacy };
           }
 
-          // Google Places supplies the canonical business identity. Store its
-          // display name as the lead company name; web-search titles are evidence
-          // only and must never become the canonical identity.
+          // Google Places supplies the canonical business identity. Public-web
+          // search titles are evidence only and must never become the canonical identity.
           const lead = await tx.createLead({
             companyName,
             source: 'google_places',
