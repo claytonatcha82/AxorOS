@@ -186,3 +186,63 @@ test('fails closed when Atlas target industries are unavailable', () => {
     atlas: { idealClientProfile: { context: '# Purpose\nMissing target industries.', sources: [] } } as never,
   }), /Target Industries/);
 });
+
+test('detects outdated website as agency opportunity evidence', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Acme Construction has an outdated website design and poor mobile experience.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.projectFit.score, 8);
+  assert.ok(assessments.projectFit.evidenceReferences.includes('public-web:https://research.example/acme'));
+});
+
+test('detects no website as strong project opportunity', () => {
+  const assessments = build({
+    officialWebsiteUrl: null,
+    publicWebResults: [result('Acme Construction', 'Acme Construction has no online presence and no website.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.projectFit.score, 8);
+});
+
+test('detects digital transformation signals for project fit', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction', 'Acme Construction is undergoing digital transformation and implementing new ERP and CRM systems.', 'https://research.example/acme')],
+  });
+  assert.equal(assessments.projectFit.score, 8);
+});
+
+test('detects tender announcement as commercial and timeline evidence', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme tender', 'Acme Construction tender closing date is 15 October 2026. RFP for website development services.', 'https://research.example/tender')],
+  });
+  assert.equal(assessments.commercialFit.score, 7);
+  assert.equal(assessments.timeline.score, 8);
+});
+
+test('awards higher decision-maker score for named director with direct email', () => {
+  const assessments = build({
+    publicWebResults: [result('About Us', 'John Smith, Managing Director. Email: john.smith@acme.example. Phone: +27 11 555 0100.', 'https://research.example/about')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 10);
+});
+
+test('awards decision-maker score for team page with senior roles', () => {
+  const assessments = build({
+    publicWebResults: [result('Our Team', 'Meet the leadership team. John Smith, Managing Director. Jane Doe, Operations Director.', 'https://research.example/team')],
+  });
+  assert.ok(assessments.decisionMakerAccess.score >= 8);
+});
+
+test('distinguishes generic contact from named decision-maker', () => {
+  const assessments = build({
+    publicWebResults: [result('Contact', 'Contact us for enquiries. info@acme.example.', 'https://research.example/contact')],
+  });
+  assert.equal(assessments.decisionMakerAccess.score, 4);
+  assert.match(assessments.decisionMakerAccess.missingInformation.join(' '), /generic company contact|named decision-maker/i);
+});
+
+test('awards decision-maker score for LinkedIn company evidence', () => {
+  const assessments = build({
+    publicWebResults: [result('Acme Construction LinkedIn', 'Acme Construction company page. Leadership: John Smith, Managing Director.', 'https://linkedin.com/company/acme-construction')],
+  });
+  assert.ok(assessments.decisionMakerAccess.score >= 6);
+});
