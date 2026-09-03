@@ -96,9 +96,6 @@ export function createLeadResearchWorkflowService(
         throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
       }
 
-      // ── PHASE 1: Deduplicate the ENTIRE page before enriching ──
-      // This is critical: we must know if ANY candidate on this page is new
-      // before we can declare the query exhausted.
       const newCandidates: Array<{ candidate: LeadBusinessCandidate; leadId: string }> = [];
       let duplicateCount = 0;
 
@@ -118,7 +115,6 @@ export function createLeadResearchWorkflowService(
         }
       }
 
-      // ── PHASE 2: Enrich up to maxBusinesses new candidates ──
       const enriched: EnrichedLeadResearchResult[] = [];
       const proposals: LeadResearchProposal[] = [];
       const outcomes: LeadResearchOutcomeCounts = {
@@ -192,13 +188,6 @@ export function createLeadResearchWorkflowService(
         if (selection.status === 'not_found') outcomes.notFound += 1;
       }
 
-      // ── PHASE 3: Determine exhaustion ──
-      // A query is exhausted only when:
-      // 1. We found zero new candidates on this page, AND
-      // 2. Google Places says there are no more pages.
-      //
-      // If there are more pages, we do NOT mark exhausted — the orchestrator
-      // may choose to revisit this query in a future cycle.
       const hasMorePages = Boolean(discovery.output.nextPageToken);
       const exhausted = newCandidates.length === 0 && !hasMorePages;
 
@@ -209,7 +198,7 @@ export function createLeadResearchWorkflowService(
         outcomes,
         exhausted,
         hasMorePages,
-        nextPageToken: discovery.output.nextPageToken, // NEW
+        ...(discovery.output.nextPageToken !== undefined ? { nextPageToken: discovery.output.nextPageToken } : {}),
       };
     },
   };
