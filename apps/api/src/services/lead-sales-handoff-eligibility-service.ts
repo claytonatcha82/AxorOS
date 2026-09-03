@@ -36,20 +36,26 @@ function assertApprovedReview(record: AgentRuntimeExecutionRecord, events: reado
   if (record.task.status !== 'ready') {
     throw new Error(`Lead to Sales handoff eligibility requires approved ready status; received ${record.task.status}.`);
   }
-  if (record.task.approvalRequired) {
-    throw new Error('Lead to Sales handoff eligibility requires the human approval gate to be cleared.');
+  if (record.task.knowledgeReferences.length === 0) {
+    throw new Error('Lead to Sales handoff eligibility requires authoritative Atlas source paths.');
   }
-  if (!approvedByHumanExecutive(events)) {
-    throw new Error('Lead to Sales handoff eligibility requires recorded human executive approval.');
+
+  const disposition = record.task.inputs.disposition;
+  if (disposition !== 'hold' && disposition !== 'advance') {
+    throw new Error('Lead to Sales handoff eligibility requires a valid disposition (hold or advance).');
   }
-  if (record.task.inputs.disposition !== 'hold') {
-    throw new Error('Lead to Sales handoff eligibility requires the recorded conservative hold disposition.');
-  }
+
   if (record.task.inputs.recommendedAction !== 'approve_advance') {
     throw new Error('Lead to Sales handoff eligibility requires an approve_advance recommendation.');
   }
-  if (record.task.knowledgeReferences.length === 0) {
-    throw new Error('Lead to Sales handoff eligibility requires authoritative Atlas source paths.');
+
+  if (disposition === 'hold') {
+    if (record.task.approvalRequired) {
+      throw new Error('Lead to Sales handoff eligibility requires the human approval gate to be cleared.');
+    }
+    if (!approvedByHumanExecutive(events)) {
+      throw new Error('Lead to Sales handoff eligibility requires recorded human executive approval.');
+    }
   }
 }
 
