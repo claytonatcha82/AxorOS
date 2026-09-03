@@ -141,6 +141,15 @@ function businessFitAssessment(input: LeadResearchQualificationEvidenceInput, te
   const lower = text.toLowerCase();
   const matchedIndustry = industries.find((industry) => lower.includes(industry.toLowerCase()));
   if (!matchedIndustry) return assessment(null, [], ['Target-industry or broader Ideal Client Profile fit is not yet evidenced.']);
+
+  // The canonical Google Places business name is already part of the evidence
+  // corpus. When that canonical identity contains an Atlas target industry, a
+  // verified first-party website supplies the public-web reference needed to
+  // score the identity/industry match without relying on a search-result title.
+  const canonicalNameMatchesIndustry = input.companyName.toLowerCase().includes(matchedIndustry.toLowerCase());
+  const canonicalIdentityReferences = canonicalNameMatchesIndustry && input.officialWebsiteUrl
+    ? [`public-web:${input.officialWebsiteUrl}`]
+    : [];
   const industryResults = input.publicWebResults.filter((result) => [result.title, result.content].filter(Boolean).join(' ').toLowerCase().includes(matchedIndustry.toLowerCase()));
   const stageOrSizeResults = matchingResults(input.publicWebResults, [
     /\b(?:established|growing)\s+(?:business|company|firm|organisation|organization|enterprise)s?\b/i,
@@ -167,14 +176,15 @@ function businessFitAssessment(input: LeadResearchQualificationEvidenceInput, te
   const growthTransform = growthTransformResults.length > 0;
   const challengeGoal = challengeGoalResults.length > 0;
   const supportedResults = [...industryResults, ...stageOrSizeResults, ...growthTransformResults, ...challengeGoalResults];
-  if (supportedResults.length === 0) return assessment(null, [], ['Target-industry match could not be tied to public evidence.']);
+  const hasIndustryEvidence = industryResults.length > 0 || canonicalIdentityReferences.length > 0;
+  if (supportedResults.length === 0 && canonicalIdentityReferences.length === 0) return assessment(null, [], ['Target-industry match could not be tied to public evidence.']);
   const additionalSignals = [stageOrSize, growthTransform, challengeGoal].filter(Boolean).length;
-  const score = additionalSignals >= 3 ? 10 : additionalSignals >= 2 ? 8 : additionalSignals >= 1 ? 6 : null;
+  const score = additionalSignals >= 3 ? 10 : additionalSignals >= 2 ? 8 : additionalSignals >= 1 ? 6 : hasIndustryEvidence ? 6 : null;
   const missing: string[] = [];
   if (!stageOrSize) missing.push('Preferred business stage or size is not yet evidenced.');
   if (!growthTransform) missing.push('Growth or digital-transformation characteristics are not yet evidenced.');
   if (!challengeGoal) missing.push('An ICP-aligned business challenge or goal is not yet evidenced.');
-  return assessment(score, evidenceReferences(supportedResults), missing);
+  return assessment(score, [...evidenceReferences(supportedResults), ...canonicalIdentityReferences], missing);
 }
 
 function projectFitAssessment(input: LeadResearchQualificationEvidenceInput, businessFit: QualificationCategoryAssessment): QualificationCategoryAssessment {
