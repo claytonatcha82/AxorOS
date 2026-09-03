@@ -24,13 +24,13 @@ export function createPilotLeadWorkerQueryPostgresStore(
 ): PilotLeadWorkerQueryStore {
   return {
     async get(): Promise<Record<string, { exhausted: boolean; lastAttemptedAt?: string }>> {
-      const row = await db.query<{ query_state: unknown }>(
+      const result = await db.query<{ query_state: unknown }>(
         `SELECT query_state FROM pilot_lead_worker_query_state WHERE state_key = $1`,
         [stateKey],
       );
-      if (!row || !row.query_state) return {};
-      const parsed = row.query_state as Record<string, { exhausted: boolean; lastAttemptedAt?: string }>;
-      return parsed;
+      const queryState = result.rows[0]?.query_state;
+      if (!queryState) return {};
+      return queryState as Record<string, { exhausted: boolean; lastAttemptedAt?: string }>;
     },
 
     async save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string }>): Promise<void> {
