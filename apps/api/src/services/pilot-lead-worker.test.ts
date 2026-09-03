@@ -16,6 +16,8 @@ const active = {
   version: 2,
 };
 
+const queryState = {};
+
 test('PILOT_DISABLED prevents all Lead research execution', async () => {
   let calls = 0;
   const worker = createPilotLeadWorker(
@@ -31,7 +33,7 @@ test('PILOT_DISABLED prevents all Lead research execution', async () => {
 
 test('PILOT_ACTIVE allows the bounded expanded discovery plan to reach the orchestrator', async () => {
   const inputs: unknown[] = [];
-  const output = { queries: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const output = { queries: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 1, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, updatedQueryState: queryState };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     { async research(input) { inputs.push(input); return output; } },
@@ -47,7 +49,7 @@ test('PILOT_ACTIVE allows the bounded expanded discovery plan to reach the orche
 
 test('explicit maxQueries overrides the bounded default', async () => {
   let captured: any;
-  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, updatedQueryState: queryState };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     { async research(input) { captured = input; return output; } },
@@ -79,7 +81,7 @@ test('concurrent runOnce calls do not overlap research cycles', async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let calls = 0;
-  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, updatedQueryState: queryState };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     {
@@ -104,7 +106,7 @@ test('concurrent runOnce calls do not overlap research cycles', async () => {
 test('exposes live worker activity and completion timestamps', async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 } };
+  const output = { queries: [], atlasSourcePaths: [], discovered: 0, enriched: [], proposals: [], outcomes: { enriched: 0, duplicateSkipped: 0, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0 }, updatedQueryState: queryState };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     { async research() { await gate; return output; } },
