@@ -9,12 +9,19 @@ import type { LeadQualificationDispositionPersistenceService } from './lead-qual
 import type { LeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import type { LeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
 
+export interface AtlasLeadResearchQueryState {
+  exhausted: boolean;
+  lastAttemptedAt?: string;
+}
+
 export interface AtlasLeadResearchInput {
   geographicFocus?: string;
+  geographicVariants?: string[];
   country?: string;
   maxQueries?: number;
   maxBusinessesPerQuery?: number;
   maxWebResultsPerBusiness?: number;
+  queryState?: Record<string, AtlasLeadResearchQueryState>;
   executionId: string;
   correlationId: string;
 }
@@ -35,6 +42,7 @@ export interface AtlasLeadResearchOutput {
   enriched: QualifiedEnrichedLead[];
   proposals: LeadResearchWorkflowOutput['proposals'];
   outcomes: LeadResearchWorkflowOutput['outcomes'];
+  updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string }>;
 }
 
 function required(value: string, field: string): string {
@@ -74,10 +82,15 @@ export function createLeadAtlasResearchOrchestrator(
       const executionId = required(input.executionId, 'executionId');
       const correlationId = required(input.correlationId, 'correlationId');
       const atlas = await atlasContext.load();
+      const exhaustedQueries = Object.entries(input.queryState ?? {})
+        .filter(([, state]) => state.exhausted)
+        .map(([query]) => query);
       const plan = planner.plan({
         atlas,
         ...(input.geographicFocus ? { geographicFocus: input.geographicFocus } : {}),
+        ...(input.geographicVariants ? { geographicVariants: input.geographicVariants } : {}),
         ...(input.maxQueries !== undefined ? { maxQueries: input.maxQueries } : {}),
+        ...(exhaustedQueries.length ? { exhaustedQueries } : {}),
       });
 
       const enriched: QualifiedEnrichedLead[] = [];
@@ -90,9 +103,11 @@ export function createLeadAtlasResearchOrchestrator(
         ambiguous: 0,
         notFound: 0,
       };
+      const updatedQueryState: Record<string, { exhausted: boolean; lastAttemptedAt: string }> = {};
       let discovered = 0;
 
       for (const [index, query] of plan.queries.entries()) {
+        const attemptedAt = new Date().toISOString();
         const result = await workflow.research({
           query,
           executionId: `${executionId}:atlas-query-${index + 1}`,
@@ -101,6 +116,7 @@ export function createLeadAtlasResearchOrchestrator(
           ...(input.maxBusinessesPerQuery !== undefined ? { maxBusinesses: input.maxBusinessesPerQuery } : {}),
           ...(input.maxWebResultsPerBusiness !== undefined ? { maxWebResultsPerBusiness: input.maxWebResultsPerBusiness } : {}),
         });
+        updatedQueryState[query] = { exhausted: result.exhausted, lastAttemptedAt: attemptedAt };
         discovered += result.discovered;
         proposals.push(...result.proposals);
         outcomes.enriched += result.outcomes.enriched;
@@ -158,7 +174,21 @@ export function createLeadAtlasResearchOrchestrator(
         }
       }
 
-      return { queries: plan.queries, atlasSourcePaths: plan.atlasSourcePaths, discovered, enriched, proposals, outcomes };
+      return {
+        queries: plan.queries,
+        atlasSourcePaths: plan.atlasSourcePaths,
+        discovered,
+        enriched,
+        proposals,
+        outcomes,
+        updatedQueryState: {
+          ...Object.fromEntries(
+            Object.entries(input.queryState ?? {})
+              .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query)),
+          ),
+          ...updatedQueryState,
+        },
+      };
     },
   };
 }
