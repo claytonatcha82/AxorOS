@@ -123,7 +123,7 @@ export function createLeadAtlasResearchPlanner() {
       return {
         queries: planned.queries,
         atlasSourcePaths: atlasPaths(input.atlas),
-        geographicVariantUsed: planned.geographicVariantUsed,
+        ...(planned.geographicVariantUsed ? { geographicVariantUsed: planned.geographicVariantUsed } : {}),
       };
     },
   };
