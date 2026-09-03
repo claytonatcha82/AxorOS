@@ -10,6 +10,7 @@ export interface PersistLeadDiscoveryInput {
 export interface PersistLeadDiscoveryResult {
   created: LeadRecord[];
   duplicates: Array<{ providerPlaceId: string; leadId: string; enrichmentPending: boolean }>;
+  skipped: Array<{ providerPlaceId: string; reason: string }>;
 }
 
 function requireText(value: string, field: string): string {
@@ -18,16 +19,22 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
+const GOOGLE_PLACE_ID_PATTERN = /^ChIJ[A-Za-z0-9_-]+$/;
+
 /**
- * Google Places is the authoritative identity source, but provider display names
+ * Google Places is the authoritative business identity, but provider display names
  * can occasionally contain website/UI text (for example "Contact our Office - X").
  * Strip only explicit UI prefixes/suffixes; do not broadly rewrite business names.
+ * Also strip "Google Place " provider-ID fallbacks so place IDs never become canonical names.
  */
 export function canonicalizeGooglePlacesBusinessName(value: string): string {
   let name = value.trim().replace(/\s+/g, ' ');
   name = name.replace(/^(?:contact\s+(?:our|the)\s+office|contact\s+us|home|welcome)\s*[-–—:|]\s*/i, '');
   name = name.replace(/\s*[-–—:|]\s*(?:home|contact\s+us|contact\s+(?:our|the)\s+office)\s*$/i, '');
-  return name.trim() || value.trim();
+  name = name.replace(/^Google Place\s+/i, '');
+  name = name.trim();
+  if (GOOGLE_PLACE_ID_PATTERN.test(name)) return '';
+  return name || value.trim();
 }
 
 function googlePlaceEvidence(providerPlaceId: string) {
@@ -55,10 +62,22 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       const created: LeadRecord[] = [];
       const duplicates: Array<{ providerPlaceId: string; leadId: string; enrichmentPending: boolean }> = [];
+      const skipped: Array<{ providerPlaceId: string; reason: string }> = [];
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
-        const companyName = requireText(canonicalizeGooglePlacesBusinessName(candidate.displayName), 'candidate.displayName');
+        const canonicalName = canonicalizeGooglePlacesBusinessName(candidate.displayName);
+
+        // Reject provider-ID fallbacks or empty display names rather than persisting
+        // a non-business identifier as the canonical company name.
+        if (!canonicalName || GOOGLE_PLACE_ID_PATTERN.test(canonicalName)) {
+          skipped.push({
+            providerPlaceId,
+            reason: 'Unusable displayName: provider ID fallback or empty after canonicalization.',
+          });
+          continue;
+        }
+        const companyName = requireText(canonicalName, 'candidate.displayName');
 
         const outcome = await runInTransaction(async (tx) => {
           await tx.lockLeadSourceIdentity('google_places', providerPlaceId);
@@ -110,7 +129,7 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
         }
       }
 
-      return { created, duplicates };
+      return { created, duplicates, skipped };
     },
 
     isGooglePlaceLead(lead: LeadRecord, providerPlaceId: string): boolean {
