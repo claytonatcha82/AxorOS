@@ -43,7 +43,7 @@ const DIRECTORY_DOMAIN_MARKERS = new Set([
 const GENERIC_LISTING_TITLE_PATTERNS = [
   /\bInformation\s*$/i,
   /^\s*Home\s*[-–—:|]\s*/i,
-  /^\s*Contact\s*[^:]+:\s*$/i,
+  /^\s*Contact\s+.+$/i,
   /:\s*Contact\s+Us\s*$/i,
   /\bCompany\s+Information\s*$/i,
   /\bCompany\s+Profile\s*$/i,
@@ -112,9 +112,15 @@ function firstPartyEvidenceScore(
   const content = result.content.toLowerCase();
   const listingText = `${result.title} ${result.content}`.toLowerCase();
 
-  // Listing/aggregator evidence must be rejected before hostname scoring so a
+  // Listing/aggregator evidence must be rejected before any identity scoring so a
   // generic business term such as "construction" cannot rescue a directory domain.
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
+
+  // Generic search-result titles such as "Home - Company", "Company Information",
+  // or "Contact Company" are not sufficient first-party identity evidence. They can
+  // occur on directories and SEO landing pages as well as on genuine sites, so the
+  // selector fails closed rather than allowing hostname matching to override them.
+  if (isGenericListingTitle(result.title)) return 0;
 
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
