@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLeadDiscoveryService } from './lead-discovery-service.js';
 
-function lead(id: string, placeId: string) {
+function lead(id: string, placeId: string, enrichmentStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
   const now = new Date().toISOString();
-  return { id, clientId: null, companyName: `Google Place ${placeId}`, contactName: null, contactEmail: null, source: 'google_places', opportunitySummary: null, leadScore: null, status: 'new', evidence: [{ provider: 'google_places', providerPlaceId: placeId }], createdAt: now, updatedAt: now };
+  return { id, clientId: null, companyName: `Google Place ${placeId}`, contactName: null, contactEmail: null, source: 'google_places', opportunitySummary: null, leadScore: null, status: 'new', enrichmentStatus, evidence: [{ provider: 'google_places', providerPlaceId: placeId }], createdAt: now, updatedAt: now };
 }
 
-function createMock(existingPlaceId?: string, normalizedIdentity = false) {
+function createMock(existingPlaceId?: string, normalizedIdentity = false, existingEnrichmentStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
   const events: unknown[] = [];
   const createdInputs: unknown[] = [];
   const identities: Array<{ provider: string; externalId: string; leadId: string }> = normalizedIdentity && existingPlaceId ? [{ provider: 'google_places', externalId: existingPlaceId, leadId: 'lead-existing' }] : [];
@@ -16,8 +16,8 @@ function createMock(existingPlaceId?: string, normalizedIdentity = false) {
     async lockLeadSourceIdentity(provider: string, externalId: string) { locks.push(`${provider}:${externalId}`); },
     async findLeadSourceIdentity(provider: string, externalId: string) { return identities.find((item) => item.provider === provider && item.externalId === externalId) ?? null; },
     async createLeadSourceIdentity(provider: string, externalId: string, leadId: string) { const identity = { provider, externalId, leadId }; identities.push(identity); return identity; },
-    async getLeadById(id: string) { return id === 'lead-existing' ? lead(id, existingPlaceId ?? 'unknown') : null; },
-    async findLeadByGooglePlaceId(placeId: string) { return !normalizedIdentity && existingPlaceId === placeId ? lead('lead-existing', placeId) : null; },
+    async getLeadById(id: string) { return id === 'lead-existing' ? lead(id, existingPlaceId ?? 'unknown', existingEnrichmentStatus) : null; },
+    async findLeadByGooglePlaceId(placeId: string) { return !normalizedIdentity && existingPlaceId === placeId ? lead('lead-existing', placeId, existingEnrichmentStatus) : null; },
     async createLead(input: Record<string, unknown>) { createdInputs.push(input); const evidence = input.evidence as Array<{ providerPlaceId: string }>; return { ...lead('lead-new', evidence[0]?.providerPlaceId ?? 'unknown'), companyName: String(input.companyName), evidence: input.evidence }; },
     async createWorkflowEvent(input: unknown) { events.push(input); return { id: 'event-1' }; },
   };
@@ -46,7 +46,7 @@ test('does not persist Google display name, address, types, or search query', as
 });
 
 test('deduplicates using normalized provider identity before creating a lead', async () => {
-  const mock = createMock('place-123', true);
+  const mock = createMock('place-123', true, 'pending');
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.persistDiscovery({ discovery: { query: 'Durban businesses', candidates: [{ providerPlaceId: 'place-123', displayName: 'Example Business', types: [], source: 'google_places' }] } });
   assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-123', leadId: 'lead-existing', enrichmentPending: true }]);
@@ -54,8 +54,15 @@ test('deduplicates using normalized provider identity before creating a lead', a
   assert.equal(mock.events.length, 0);
 });
 
+test('does not treat an already enriched lead as enrichment-pending', async () => {
+  const mock = createMock('place-123', true, 'not_found');
+  const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.persistDiscovery({ discovery: { query: 'Durban businesses', candidates: [{ providerPlaceId: 'place-123', displayName: 'Example Business', types: [], source: 'google_places' }] } });
+  assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-123', leadId: 'lead-existing', enrichmentPending: false }]);
+});
+
 test('claims a legacy JSONB-only discovery identity instead of duplicating the lead', async () => {
-  const mock = createMock('place-legacy', false);
+  const mock = createMock('place-legacy', false, 'pending');
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
   const result = await service.persistDiscovery({ discovery: { query: 'businesses', candidates: [{ providerPlaceId: 'place-legacy', displayName: 'Legacy Business', types: [], source: 'google_places' }] } });
   assert.deepEqual(result.duplicates, [{ providerPlaceId: 'place-legacy', leadId: 'lead-existing', enrichmentPending: true }]);
