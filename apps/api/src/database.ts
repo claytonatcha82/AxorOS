@@ -1,5 +1,7 @@
 import { Pool } from 'pg';
 
+export type Database = Pool;
+
 export interface DatabaseHealth {
   ok: boolean;
   latencyMs: number;
