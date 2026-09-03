@@ -98,7 +98,29 @@ test('Google Places lead research passes pagination token and returns next page 
   });
 });
 
-test('Google Places lead research blocks pagination tokens longer than 200 characters', async () => {
+test('Google Places lead research accepts long pagination tokens from the provider', async () => {
+  let calls = 0;
+  const longToken = 'x'.repeat(201);
+  const integration = createGooglePlacesLeadResearchIntegration({
+    apiKey: 'test-key',
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ places: [] }), { status: 200 });
+    },
+  });
+
+  const result = await integration.execute(request({
+    input: {
+      query: 'businesses in Durban',
+      pageToken: longToken,
+    },
+  }));
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(calls, 1);
+});
+
+test('Google Places lead research blocks excessively large pagination tokens', async () => {
   let calls = 0;
   const integration = createGooglePlacesLeadResearchIntegration({
     apiKey: 'test-key',
@@ -108,7 +130,7 @@ test('Google Places lead research blocks pagination tokens longer than 200 chara
   const result = await integration.execute(request({
     input: {
       query: 'businesses in Durban',
-      pageToken: 'x'.repeat(201),
+      pageToken: 'x'.repeat(4097),
     },
   }));
 
