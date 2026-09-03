@@ -31,6 +31,29 @@ const THIRD_PARTY_LISTING_PATTERNS = [
   /\bmarketplace\s+(listing|profile)\b/,
 ];
 
+const DIRECTORY_DOMAIN_MARKERS = new Set([
+  'directory', 'directories', 'listing', 'listings',
+  'companies', 'company',
+  'portal', 'portals', 'guide', 'guides',
+  'database', 'yellowpages', 'whitepages', 'classifieds', 'marketplace',
+  'southafrica',
+  'organisations', 'organizations', 'orgs',
+]);
+
+const GENERIC_LISTING_TITLE_PATTERNS = [
+  /\bInformation\s*$/i,
+  /^\s*Home\s*[-–—:|]\s*/i,
+  /^\s*Contact\s*[^:]+:\s*$/i,
+  /:\s*Contact\s+Us\s*$/i,
+  /\bCompany\s+Information\s*$/i,
+  /\bCompany\s+Profile\s*$/i,
+  /^\s*[^:]+:\s*Profile\s*$/i,
+  /\bBusiness\s+Listing\s*$/i,
+  /\bDirectory\s+Listing\s*$/i,
+  /\bCompany\s+Information\s*$/i,
+  /^\s*(?:Home|Contact)\s*[-–—:|]\s*Company\s*$/i,
+];
+
 function normalizedWords(value: string): string[] {
   return value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((word) => word.length >= 3);
 }
@@ -55,12 +78,23 @@ function businessIdentityWords(value: string): string[] {
   return [...new Set(normalizedWords(value).filter((word) => !LEGAL_NAME_STOP_WORDS.has(word)))];
 }
 
+function isDirectoryDomain(hostname: string): boolean {
+  const domainBase = hostname.replace(/^www\./, '').split('.')[0] ?? '';
+  const lowerBase = domainBase.toLowerCase();
+  return [...DIRECTORY_DOMAIN_MARKERS].some((marker) => lowerBase.includes(marker));
+}
+
+function isGenericListingTitle(title: string): boolean {
+  return GENERIC_LISTING_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
 function registrableCandidate(result: PublicWebSearchResult): { origin: string; hostname: string } | null {
   try {
     const url = new URL(result.url);
     if (!['http:', 'https:'].includes(url.protocol)) return null;
     const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
     if (THIRD_PARTY_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return null;
+    if (isDirectoryDomain(hostname)) return null;
     return { origin: `${url.protocol}//${url.host}/`, hostname };
   } catch { return null; }
 }
@@ -76,11 +110,13 @@ function firstPartyEvidenceScore(
   const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
   const hostMatches = businessWords.filter((word) => hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
   const content = result.content.toLowerCase();
+  const listingText = `${result.title} ${result.content}`.toLowerCase();
+
+  // Listing/aggregator evidence must be rejected before hostname scoring so a
+  // generic business term such as "construction" cannot rescue a directory domain.
+  if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
-
-  const listingText = `${result.title} ${result.content}`.toLowerCase();
-  if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
   const firstPartySignals = [
     /\babout (us|the company)\b/.test(content),
@@ -91,7 +127,10 @@ function firstPartyEvidenceScore(
     contentMatches >= Math.min(2, businessWords.length),
   ].filter(Boolean).length;
 
-  if (titleMatches === businessWords.length && firstPartySignals >= 3) return 2 + firstPartySignals;
+  if (titleMatches === businessWords.length && firstPartySignals >= 3) {
+    const score = 2 + firstPartySignals;
+    return isGenericListingTitle(result.title) ? Math.min(score, 3) : score;
+  }
   return 0;
 }
 
