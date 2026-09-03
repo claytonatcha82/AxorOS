@@ -28,8 +28,8 @@ export function validateLeadBusinessSearchInput(input: LeadBusinessSearchInput):
   if (input.maxResults !== undefined && (!Number.isInteger(input.maxResults) || input.maxResults < 1 || input.maxResults > 20)) {
     errors.push('maxResults must be an integer between 1 and 20.');
   }
-  if (input.pageToken !== undefined && (typeof input.pageToken !== 'string' || input.pageToken.length > 200)) {
-    errors.push('pageToken must be a string of 200 characters or fewer.');
+  if (input.pageToken !== undefined && (typeof input.pageToken !== 'string' || input.pageToken.length > 4096)) {
+    errors.push('pageToken must be a string of 4096 characters or fewer.');
   }
   return errors;
 }
