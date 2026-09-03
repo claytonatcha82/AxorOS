@@ -84,7 +84,7 @@ export function createLeadDiscoveryQueryPlanner() {
       return {
         queries,
         exhaustedQueries: skippedExhausted,
-        geographicVariantUsed,
+        ...(geographicVariantUsed ? { geographicVariantUsed } : {}),
       };
     },
   };
