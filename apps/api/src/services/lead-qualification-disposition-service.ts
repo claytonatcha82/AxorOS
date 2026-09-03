@@ -7,9 +7,9 @@ export type LeadQualificationRecommendedAction =
   | 'approve_reject';
 
 export interface LeadQualificationDisposition {
-  disposition: 'hold';
+  disposition: 'hold' | 'advance';
   recommendedAction: LeadQualificationRecommendedAction;
-  humanApprovalRequired: true;
+  humanApprovalRequired: boolean;
   reasons: string[];
   atlasSourcePaths: string[];
 }
@@ -53,7 +53,11 @@ function reasonsFor(result: PreliminaryLeadQualificationResult): string[] {
   }
 }
 
-export function createLeadQualificationDispositionService() {
+export interface LeadQualificationDispositionServiceOptions {
+  pilotAutoAdvanceThreshold?: number;
+}
+
+export function createLeadQualificationDispositionService(options?: LeadQualificationDispositionServiceOptions) {
   return {
     evaluate(result: PreliminaryLeadQualificationResult): LeadQualificationDisposition {
       if (result.humanReviewRequired !== true) {
@@ -63,10 +67,16 @@ export function createLeadQualificationDispositionService() {
         throw new Error('Lead disposition requires authoritative Atlas source paths.');
       }
 
+      const meetsAutoAdvanceThreshold =
+        options?.pilotAutoAdvanceThreshold !== undefined &&
+        result.totalScore !== null &&
+        result.totalScore >= options.pilotAutoAdvanceThreshold &&
+        (result.suggestedStatus === 'excellent' || result.suggestedStatus === 'good');
+
       return {
-        disposition: 'hold',
+        disposition: meetsAutoAdvanceThreshold ? 'advance' : 'hold',
         recommendedAction: recommendedActionFor(result.suggestedStatus),
-        humanApprovalRequired: true,
+        humanApprovalRequired: !meetsAutoAdvanceThreshold,
         reasons: [...new Set(reasonsFor(result))],
         atlasSourcePaths: [...new Set(result.atlasSourcePaths)],
       };
