@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLeadDiscoveryService } from './lead-discovery-service.js';
+import { canonicalizeGooglePlacesBusinessName, createLeadDiscoveryService } from './lead-discovery-service.js';
 
 function lead(id: string, placeId: string, enrichmentStatus: 'pending' | 'verified' | 'not_found' | 'ambiguous' | 'not_applicable' = 'pending') {
   const now = new Date().toISOString();
@@ -24,10 +24,16 @@ function createMock(existingPlaceId?: string, normalizedIdentity = false, existi
   return { repository, events, createdInputs, identities, locks, runInTransaction: async (work: (tx: typeof repository) => Promise<unknown>) => work(repository) };
 }
 
-test('persists Google Places display name as the canonical business identity', async () => {
+test('canonicalizes explicit Google Places UI prefixes without broadly rewriting names', () => {
+  assert.equal(canonicalizeGooglePlacesBusinessName('Contact our Office - Sebedisan Construction'), 'Sebedisan Construction');
+  assert.equal(canonicalizeGooglePlacesBusinessName('Home - GIBB'), 'GIBB');
+  assert.equal(canonicalizeGooglePlacesBusinessName('Example Construction Group'), 'Example Construction Group');
+});
+
+test('persists the canonicalized Google Places business identity', async () => {
   const mock = createMock();
   const service = createLeadDiscoveryService(mock.repository as never, mock.runInTransaction as never);
-  const result = await service.persistDiscovery({ discovery: { query: 'businesses in Durban, South Africa', candidates: [{ providerPlaceId: 'place-123', displayName: 'Example Business', formattedAddress: 'Durban', types: ['establishment'], source: 'google_places' }] } });
+  const result = await service.persistDiscovery({ discovery: { query: 'businesses in Durban, South Africa', candidates: [{ providerPlaceId: 'place-123', displayName: 'Contact our Office - Example Business', formattedAddress: 'Durban', types: ['establishment'], source: 'google_places' }] } });
   assert.equal(result.created.length, 1);
   assert.equal(result.created[0]?.companyName, 'Example Business');
   assert.deepEqual(mock.identities, [{ provider: 'google_places', externalId: 'place-123', leadId: 'lead-new' }]);
