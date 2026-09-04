@@ -133,6 +133,10 @@ function firstPartyEvidenceScore(
   // acmeengineering.co.za), while reserved/example domains are rejected above.
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
+  // A single identity word is too thin to establish first-party ownership through
+  // content signals alone. Require the durable hostname identity match above.
+  if (businessWords.length <= 1) return 0;
+
   const firstPartySignals = [
     /\babout (us|the company)\b/.test(content),
     /\bcontact (us|details)\b/.test(content),
