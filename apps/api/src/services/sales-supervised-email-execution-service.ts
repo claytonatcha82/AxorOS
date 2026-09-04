@@ -74,11 +74,13 @@ export function createSalesSupervisedEmailExecutionService(
         throw new Error('Sales send gate is not authorised for email execution.');
       }
       if (
-        gate.pricingAuthorised !== false
+        gate.outreachAuthorised !== true
+        || gate.dispatchAuthorised !== false
+        || gate.sendAuthorised !== true
+        || gate.pricingAuthorised !== false
         || gate.commercialCommitmentAuthorised !== false
-        || (gate.outreachAuthorised !== false && gate.outreachAuthorised !== true)
       ) {
-        throw new Error('Supervised email execution must not inherit invalid commercial authority.');
+        throw new Error('Supervised email execution must have explicit outreach authority without dispatch or commercial authority.');
       }
 
       const draftRecordId = requiredString(gate.draftRecordId, 'draftRecordId');
