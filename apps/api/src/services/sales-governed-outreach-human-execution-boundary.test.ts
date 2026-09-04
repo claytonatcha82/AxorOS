@@ -6,6 +6,7 @@ import { createSalesGovernedOutreachHumanExecutionService } from './sales-govern
 function repository(events: Record<string, any>) {
   return {
     async getWorkflowEventById(id: string) { return events[id] ?? null; },
+    async findWorkflowEventByTypeAndPayloadField() { return null; },
     async createWorkflowEvent(input: any) { return { id: 'created', ...input }; },
   };
 }
@@ -13,11 +14,12 @@ function repository(events: Record<string, any>) {
 const preparation = {
   id: 'preparation-1', eventType: 'sales_governed_outreach_prepared', actorType: 'agent', actorId: 'sales_agent',
   payload: { leadId: 'lead-1', status: 'prepared_for_human_review', preparationOnly: true, outreachAuthorised: true,
-    dispatchAuthorised: false, sendAuthorised: false, pricingAuthorised: false, commercialCommitmentAuthorised: false }
+    dispatchAuthorised: false, sendAuthorised: false, pricingAuthorised: false, commercialCommitmentAuthorised: false,
+    humanReviewRequired: true }
 };
 const gate = {
   id: 'gate-1', eventType: 'sales_governed_outreach_supervised_send_gate_prepared', actorType: 'agent', actorId: 'sales_agent',
-  payload: { preparationRecordId: 'preparation-1', leadId: 'lead-1', status: 'ready_for_supervised_send', preparationOnly: true,
+  payload: { preparationRecordId: 'preparation-1', humanReviewResolutionRecordId: 'review-resolution-1', leadId: 'lead-1', status: 'ready_for_supervised_send', preparationOnly: true,
     outreachAuthorised: true, dispatchAuthorised: false, sendAuthorised: false, pricingAuthorised: false,
     commercialCommitmentAuthorised: false, humanExecutionRequired: true, nextAction: 'await_manual_send_execution' }
 };
