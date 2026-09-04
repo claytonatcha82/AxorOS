@@ -186,6 +186,23 @@ function App() {
     setActioning(approval.executionId);
     setError(null);
     try {
+      if (approval.destinationAgent === 'lead_agent') {
+        const response = await fetch(`${API_BASE_URL}/api/v1/control/lead-qualification-review/resolve`, {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            executionId: approval.executionId,
+            decision,
+            reason: decision === 'approved'
+              ? 'Approved by Human Executive through AxorOS Control Center.'
+              : 'Held by Human Executive through AxorOS Control Center.',
+          }),
+        });
+        await readJson(response);
+        await refresh();
+        return;
+      }
+
       const approvalResponse = await fetch(`${API_BASE_URL}/api/v1/control/runtime/approval/resolve`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
