@@ -84,15 +84,16 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
           createdAt: new Date().toISOString(),
         });
 
+        const intakeRecord = intake.intakeExecution.record;
         logEvent('info', 'lead_sales_auto_advance_handoff_completed', {
           leadId: lead.leadId,
           companyName: lead.companyName,
           qualificationRecordId: lead.preliminaryQualificationRecordId,
           dispositionRecordId: lead.qualificationDispositionRecordId,
-          salesIntakeExecutionId: intake.intakeExecution.task.executionId,
-          salesIntakeStatus: intake.intakeExecution.task.status,
-          salesDispatchAuthorised: intake.intakeExecution.task.inputs.salesDispatchAuthorised,
-          outreachAuthorised: intake.intakeExecution.task.inputs.outreachAuthorised,
+          salesIntakeExecutionId: intakeRecord.task.executionId,
+          salesIntakeStatus: intakeRecord.task.status,
+          salesDispatchAuthorised: intakeRecord.task.inputs.salesDispatchAuthorised,
+          outreachAuthorised: intakeRecord.task.inputs.outreachAuthorised,
         });
       }
 
