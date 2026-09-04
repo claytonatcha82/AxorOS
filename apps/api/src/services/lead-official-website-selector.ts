@@ -153,24 +153,16 @@ function firstPartyEvidenceScore(
 
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
-  // For multi-word names, require the hostname to carry enough of the
-  // distinctive business identity to distinguish a first-party site from an
-  // unrelated site that merely repeats the company name in search text.
-  // When only one distinctive token exists, one hostname match is sufficient
-  // because generic industry/legal words may legitimately form the rest of
-  // the domain (for example, blackmahoganycivils.co.za).
   const hostnameBusinessWordMatches = businessWords.filter((word) => normalizedHostname.includes(word)).length;
   const requiredHostnameMatches = distinctiveBusinessWords.length >= 2 ? 2 : 1;
   if (businessWords.length >= 2 && hostnameBusinessWordMatches < requiredHostnameMatches) return 0;
-
-  // For a website to be trusted as the company's official site, the hostname
-  // must independently contain at least one distinctive part of the business
-  // identity. Search-result text alone is not sufficient because third-party
-  // pages can repeat the business name and contact details.
   if (hostMatches < 1) return 0;
 
   const score = 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
-  return isGenericListingTitle(result.title) ? Math.min(score, 3) : score;
+  // Generic page titles are weaker evidence, but a strong first-party hostname
+  // must not be downgraded below the minimum selection threshold merely because
+  // the site's home page is titled "Home - Company" or similar.
+  return isGenericListingTitle(result.title) ? Math.max(4, score - 2) : score;
 }
 
 function isSouthAfricanAddress(formattedAddress: string | undefined): boolean {
