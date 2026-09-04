@@ -19,11 +19,20 @@ export function createLeadQualificationDispositionPersistenceService(
       if (!qualificationRecordId) throw new Error('qualificationRecordId is required.');
       const lead = await repository.getLeadById(leadId);
       if (!lead) throw new Error(`Lead not found: ${leadId}.`);
-      if (input.disposition.disposition !== 'hold') {
-        throw new Error('Lead qualification disposition persistence only accepts conservative hold dispositions.');
-      }
-      if (input.disposition.humanApprovalRequired !== true) {
-        throw new Error('Lead qualification disposition must preserve human approval authority.');
+
+      const { disposition } = input.disposition;
+      const isGovernedHold = disposition === 'hold'
+        && input.disposition.humanApprovalRequired === true;
+      const isGovernedAutoAdvance = disposition === 'advance'
+        && input.disposition.humanApprovalRequired === false
+        && input.disposition.recommendedAction === 'approve_advance';
+
+      // The disposition service is the authority for whether the pilot threshold
+      // permits auto-advance. Persistence must accept both governed outcomes rather
+      // than silently blocking the valid advance disposition after it has been
+      // evaluated. The persistence layer still fails closed on inconsistent state.
+      if (!isGovernedHold && !isGovernedAutoAdvance) {
+        throw new Error('Lead qualification disposition is not a governed hold or auto-advance disposition.');
       }
       if (input.disposition.atlasSourcePaths.length === 0) {
         throw new Error('Lead qualification disposition requires authoritative Atlas source paths.');
@@ -39,7 +48,7 @@ export function createLeadQualificationDispositionPersistenceService(
           qualificationRecordId,
           disposition: input.disposition.disposition,
           recommendedAction: input.disposition.recommendedAction,
-          humanApprovalRequired: true,
+          humanApprovalRequired: input.disposition.humanApprovalRequired,
           reasons: input.disposition.reasons,
           atlasSourcePaths: input.disposition.atlasSourcePaths,
         },
