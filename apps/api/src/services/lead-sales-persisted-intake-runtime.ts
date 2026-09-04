@@ -16,6 +16,7 @@ import { createSalesGovernedOutreachHumanReviewRequestService } from './sales-go
 import { createSalesGovernedOutreachHumanReviewDecisionService } from './sales-governed-outreach-human-review-decision-service.js';
 import { createSalesGovernedOutreachPreparationService } from './sales-governed-outreach-preparation-service.js';
 import { createSalesGovernedOutreachSupervisedSendGateService } from './sales-governed-outreach-supervised-send-gate-service.js';
+import { createSalesGovernedOutreachHumanExecutionService } from './sales-governed-outreach-human-execution-service.js';
 import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
 import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
 import { createSalesOutreachApprovalResolutionService } from './sales-outreach-approval-resolution-service.js';
@@ -59,6 +60,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const governedOutreachHumanReview = createSalesGovernedOutreachHumanReviewRequestService(operationalRepository);
   const governedOutreachHumanReviewDecision = createSalesGovernedOutreachHumanReviewDecisionService(operationalRepository);
   const governedOutreachSupervisedSendGate = createSalesGovernedOutreachSupervisedSendGateService(operationalRepository);
+  const governedOutreachHumanExecution = createSalesGovernedOutreachHumanExecutionService(operationalRepository);
 
   const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
@@ -161,9 +163,10 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     async requestHumanOutreachReview(preparationRecordId: string) { return governedOutreachHumanReview.request(preparationRecordId); },
     async decideHumanOutreachReview(input: { reviewRequestRecordId: string; decision: 'approved' | 'denied'; reviewer: string; reason?: string }) { return governedOutreachHumanReviewDecision.decide(input); },
     async prepareSupervisedOutreachSendGate(humanReviewResolutionRecordId: string) { return governedOutreachSupervisedSendGate.prepare(humanReviewResolutionRecordId); },
+    async authoriseHumanOutreachExecution(input: { supervisedSendGateRecordId: string; actorType: string; actorId: string; humanExecutionConfirmed: boolean }) { return governedOutreachHumanExecution.authorise(input); },
   };
 
-  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, governedOutreachHumanReview, governedOutreachHumanReviewDecision, governedOutreachSupervisedSendGate, commands };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, governedOutreachHumanReview, governedOutreachHumanReviewDecision, governedOutreachSupervisedSendGate, governedOutreachHumanExecution, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
