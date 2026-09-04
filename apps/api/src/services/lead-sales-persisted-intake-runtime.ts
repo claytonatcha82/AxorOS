@@ -12,6 +12,7 @@ import { createLeadSalesIntakeActivationService } from './lead-sales-intake-acti
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
 import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
 import { createSalesOpportunityDecisionService, type SalesOpportunityDecisionResult } from './sales-opportunity-decision-service.js';
+import { createSalesGovernedOutreachHumanReviewRequestService } from './sales-governed-outreach-human-review-request-service.js';
 import { createSalesGovernedOutreachPreparationService } from './sales-governed-outreach-preparation-service.js';
 import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
 import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
@@ -53,6 +54,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const outreachApprovalResolution = createSalesOutreachApprovalResolutionService();
   const outreachApprovalResolutionPersistence = createSalesOutreachApprovalResolutionPersistenceService(operationalRepository);
   const governedOutreachPreparation = createSalesGovernedOutreachPreparationService(operationalRepository);
+  const governedOutreachHumanReview = createSalesGovernedOutreachHumanReviewRequestService(operationalRepository);
 
   const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
@@ -174,9 +176,13 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     async prepareApprovedOutreach(input: { resolutionRecordId: string; subject: string; body: string }) {
       return governedOutreachPreparation.prepare(input);
     },
+
+    async requestHumanOutreachReview(preparationRecordId: string) {
+      return governedOutreachHumanReview.request(preparationRecordId);
+    },
   };
 
-  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, commands };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, governedOutreachHumanReview, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
