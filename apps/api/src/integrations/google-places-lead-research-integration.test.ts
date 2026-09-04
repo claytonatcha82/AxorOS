@@ -58,7 +58,65 @@ test('Google Places lead research performs cost-bounded read-only business searc
   assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
     textQuery: 'plumbers in Durban South Africa',
     maxResultCount: 5,
+    regionCode: 'ZA',
   });
+});
+
+test('Google Places lead research rejects purely geographic and political results before candidate creation', async () => {
+  const integration = createGooglePlacesLeadResearchIntegration({
+    apiKey: 'test-google-places-key',
+    fetchImpl: async () => new Response(JSON.stringify({
+      places: [
+        { id: 'place-locality', displayName: { text: 'Kootwijkerbroek' }, types: ['locality', 'political'] },
+        { id: 'place-country', displayName: { text: 'South Africa' }, types: ['country', 'political'] },
+        { id: 'place-business', displayName: { text: 'Example Plumbing' }, types: ['plumber', 'establishment'] },
+      ],
+    }), { status: 200 }),
+  });
+
+  const result = await integration.execute(request());
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(result.output.candidates.map((candidate) => candidate.displayName), ['Example Plumbing']);
+  assert.deepEqual(result.evidenceReferences, ['google-places:place:place-business']);
+});
+
+test('Google Places lead research rejects results with missing type data', async () => {
+  const integration = createGooglePlacesLeadResearchIntegration({
+    apiKey: 'test-google-places-key',
+    fetchImpl: async () => new Response(JSON.stringify({
+      places: [
+        { id: 'place-unknown', displayName: { text: 'Unclassified Result' } },
+      ],
+    }), { status: 200 }),
+  });
+
+  const result = await integration.execute(request());
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(result.output.candidates, []);
+});
+
+test('Google Places lead research validates the configured region code', () => {
+  assert.throws(
+    () => createGooglePlacesLeadResearchIntegration({ apiKey: 'test-key', regionCode: 'South Africa' }),
+    /regionCode must be a two-letter ISO 3166-1 alpha-2 code/,
+  );
+});
+
+test('Google Places lead research accepts an explicit region code', async () => {
+  let capturedInit: RequestInit | undefined;
+  const integration = createGooglePlacesLeadResearchIntegration({
+    apiKey: 'test-key',
+    regionCode: 'NL',
+    fetchImpl: async (_url, init) => {
+      capturedInit = init;
+      return new Response(JSON.stringify({ places: [] }), { status: 200 });
+    },
+  });
+
+  await integration.execute(request());
+  assert.equal(JSON.parse(String(capturedInit?.body)).regionCode, 'NL');
 });
 
 test('Google Places lead research passes pagination token and returns next page token', async () => {
@@ -77,7 +135,7 @@ test('Google Places lead research passes pagination token and returns next page 
           },
         ],
         nextPageToken: 'next-page-token-123',
-      }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }), { status: 200 });
     },
   });
 
@@ -94,6 +152,7 @@ test('Google Places lead research passes pagination token and returns next page 
   assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
     textQuery: 'plumbers in Durban South Africa',
     maxResultCount: 20,
+    regionCode: 'ZA',
     pageToken: 'current-page-token-123',
   });
 });
