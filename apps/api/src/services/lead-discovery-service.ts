@@ -21,12 +21,6 @@ function requireText(value: string, field: string): string {
 
 const GOOGLE_PLACE_ID_PATTERN = /^ChIJ[A-Za-z0-9_-]+$/;
 
-/**
- * Google Places is the authoritative business identity, but provider display names
- * can occasionally contain website/UI text (for example "Contact our Office - X").
- * Strip only explicit UI prefixes/suffixes; do not broadly rewrite business names.
- * Also strip "Google Place " provider-ID fallbacks so place IDs never become canonical names.
- */
 export function canonicalizeGooglePlacesBusinessName(value: string): string {
   let name = value.trim().replace(/\s+/g, ' ');
   name = name.replace(/^(?:contact\s+(?:our|the)\s+office|contact\s+us|home|welcome)\s*[-–—:|]\s*/i, '');
@@ -34,10 +28,7 @@ export function canonicalizeGooglePlacesBusinessName(value: string): string {
   name = name.replace(/^Google Place\s+/i, '');
   name = name.trim();
   if (GOOGLE_PLACE_ID_PATTERN.test(name)) return '';
-  // A provider fallback such as "Google Place " becomes empty after stripping.
-  // Never fall back to the original value, because that would reintroduce the
-  // provider-generated identity into the canonical company name.
-  if (!name) return '';
+  if (!name || name.toLowerCase() === 'google place') return '';
   return name;
 }
 
@@ -70,10 +61,9 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
 
       for (const candidate of input.discovery.candidates) {
         const providerPlaceId = requireText(candidate.providerPlaceId, 'candidate.providerPlaceId');
-        const canonicalName = canonicalizeGooglePlacesBusinessName(candidate.displayName);
+        const displayName = requireText(candidate.displayName, 'candidate.displayName');
+        const canonicalName = canonicalizeGooglePlacesBusinessName(displayName);
 
-        // Reject provider-ID fallbacks or empty display names rather than persisting
-        // a non-business identifier as the canonical company name.
         if (!canonicalName || GOOGLE_PLACE_ID_PATTERN.test(canonicalName)) {
           skipped.push({
             providerPlaceId,
@@ -99,8 +89,6 @@ export function createLeadDiscoveryService(repository: OperationalRepository, ru
             return { kind: 'duplicate' as const, lead: legacy };
           }
 
-          // Google Places supplies the canonical business identity. Public-web
-          // search titles are evidence only and must never become the canonical identity.
           const lead = await tx.createLead({
             companyName,
             source: 'google_places',
