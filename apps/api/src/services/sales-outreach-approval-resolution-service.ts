@@ -41,7 +41,7 @@ export function createSalesOutreachApprovalResolutionService() {
       decision: SalesOpportunityDecisionResult;
       request: SalesOutreachApprovalRequest;
       approvalRecord: WorkflowEventRecord;
-      actor: 'founder';
+      actor: string;
       decisionOutcome: SalesOutreachApprovalResolutionDecision;
       reason?: string;
     }): SalesOutreachApprovalResolution {
