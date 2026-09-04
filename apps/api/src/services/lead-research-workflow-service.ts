@@ -150,7 +150,7 @@ export function createLeadResearchWorkflowService(
           officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
           publicWebEvidence: deduplicatedWebResults,
           websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
-          formattedAddress: candidate.formattedAddress,
+          ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
         });
         outcomes.enriched += 1; enrichedCount += 1;
         if (selection.status === 'not_found') outcomes.notFound += 1;
