@@ -126,7 +126,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   }
 
   const googlePlacesApiKey = env.AXOROS_GOOGLE_PLACES_API_KEY?.trim() || undefined;
-  const googlePlacesRegionCode = (env.AXOROS_GOOGLE_PLACES_REGION_CODE?.trim() || 'ZA').toUpperCase();
+  const rawGooglePlacesRegionCode = env.AXOROS_GOOGLE_PLACES_REGION_CODE?.trim();
+  const googlePlacesRegionCode = (rawGooglePlacesRegionCode || 'ZA').toUpperCase();
   if (!/^[A-Z]{2}$/.test(googlePlacesRegionCode)) throw new Error('AXOROS_GOOGLE_PLACES_REGION_CODE must be a two-letter ISO 3166-1 alpha-2 code (e.g. ZA).');
   const tavilyApiKey = env.AXOROS_TAVILY_API_KEY?.trim() || undefined;
   const paystackSecretKey = parsePaystackSecretKey(env.AXOROS_PAYSTACK_SECRET_KEY);
@@ -147,7 +148,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error('AXOROS_DEPLOYMENT_INTEGRATION=cloudflare requires AXOROS_CLOUDFLARE_ACCOUNT_ID and AXOROS_CLOUDFLARE_API_TOKEN.');
   }
 
-  const config: ApiConfig = { environment: rawEnvironment as AxorOSEnvironment, host: env.AXOROS_API_HOST ?? '127.0.0.1', port, controlCenterUrl: parsedControlCenterUrl.origin, googlePlacesRegionCode };
+  const config: ApiConfig = { environment: rawEnvironment as AxorOSEnvironment, host: env.AXOROS_API_HOST ?? '127.0.0.1', port, controlCenterUrl: parsedControlCenterUrl.origin };
   if (controlPlaneToken) config.controlPlaneToken = controlPlaneToken;
   if (databaseUrl) config.databaseUrl = databaseUrl;
   if (betterStackIngestingHost) config.betterStackIngestingHost = betterStackIngestingHost;
@@ -165,6 +166,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (gmailIdentityAddresses) config.gmailIdentityAddresses = gmailIdentityAddresses;
   if (requestedSupervisedSalesSend === 'enabled') config.gmailSupervisedSalesSendEnabled = true;
   if (googlePlacesApiKey) config.googlePlacesApiKey = googlePlacesApiKey;
+  if (rawGooglePlacesRegionCode) config.googlePlacesRegionCode = googlePlacesRegionCode;
   if (tavilyApiKey) config.tavilyApiKey = tavilyApiKey;
   if (paystackSecretKey) config.paystackSecretKey = paystackSecretKey;
   if (requestedPaymentIntegration === 'paystack' && paystackSecretKey) {
