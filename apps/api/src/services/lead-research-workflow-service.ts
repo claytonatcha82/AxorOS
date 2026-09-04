@@ -30,6 +30,7 @@ export interface EnrichedLeadResearchResult {
   officialWebsiteUrl: string | null;
   publicWebEvidence: PublicWebSearchResult[];
   websiteVerificationStatus: 'verified' | 'not_found';
+  formattedAddress?: string;
 }
 
 export interface LeadResearchOutcomeCounts {
@@ -58,14 +59,8 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
-// Use multiple focused public-web searches per business. A single broad search
-// routinely returns generic directory/home-page results and leaves qualification
-// without enough evidence. These searches deliberately target observable agency
-// opportunities and credible contact/decision-maker routes without inventing needs.
 function webQueriesFor(candidate: LeadBusinessCandidate, discoveryQuery: string): string[] {
-  const identity = [candidate.displayName, candidate.formattedAddress, discoveryQuery]
-    .filter(Boolean)
-    .join(' ');
+  const identity = [candidate.displayName, candidate.formattedAddress, discoveryQuery].filter(Boolean).join(' ');
   return [
     `${identity} official website projects tenders contracts growth expansion hiring digital transformation automation branding enquiries`,
     `${identity} contact details email directors owners founders management team leadership LinkedIn projects tenders deadline procurement`,
@@ -87,115 +82,58 @@ export function createLeadResearchWorkflowService(
       const providerCandidateLimit = 20;
 
       const discovery = await registry.execute<{ query: string; maxResults: number; pageToken?: string }, LeadBusinessSearchOutput>({
-        integrationId: 'research.google-places',
-        operation: 'search_businesses',
-        requestedBy: 'lead_agent',
-        executionId,
-        correlationId,
-        mode: 'live',
-        risk: 'low',
+        integrationId: 'research.google-places', operation: 'search_businesses', requestedBy: 'lead_agent', executionId, correlationId,
+        mode: 'live', risk: 'low',
         input: { query, maxResults: providerCandidateLimit, ...(input.pageToken ? { pageToken: input.pageToken } : {}) },
       });
-      if (discovery.status !== 'succeeded') {
-        throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
-      }
+      if (discovery.status !== 'succeeded') throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
 
       const newCandidates: Array<{ candidate: LeadBusinessCandidate; leadId: string }> = [];
       let duplicateCount = 0;
       let skippedCount = 0;
-
-      // Deduplicate the entire provider page before enrichment. This preserves
-      // pagination/exhaustion semantics while ensuring enrichment is spent only on
-      // genuinely new candidates.
       for (const candidate of discovery.output.candidates) {
-        const persisted = await discoveryService.persistDiscovery({
-          discovery: { query: discovery.output.query, candidates: [candidate] },
-          actorId: 'lead_agent',
-        });
-
+        const persisted = await discoveryService.persistDiscovery({ discovery: { query: discovery.output.query, candidates: [candidate] }, actorId: 'lead_agent' });
         const skipped = persisted.skipped.find((item) => item.providerPlaceId === candidate.providerPlaceId);
-        if (skipped) {
-          skippedCount += 1;
-          continue;
-        }
-
+        if (skipped) { skippedCount += 1; continue; }
         const duplicate = persisted.duplicates.find((item) => item.providerPlaceId === candidate.providerPlaceId);
         const leadId = persisted.created[0]?.id ?? duplicate?.leadId;
         if (!leadId) throw new Error(`Lead persistence produced no identity for ${candidate.providerPlaceId}.`);
-
-        if (duplicate && !duplicate.enrichmentPending) {
-          duplicateCount += 1;
-        } else {
-          newCandidates.push({ candidate, leadId });
-        }
+        if (duplicate && !duplicate.enrichmentPending) duplicateCount += 1;
+        else newCandidates.push({ candidate, leadId });
       }
 
       const enriched: EnrichedLeadResearchResult[] = [];
       const proposals: LeadResearchProposal[] = [];
       const outcomes: LeadResearchOutcomeCounts = {
-        enriched: 0,
-        duplicateSkipped: duplicateCount,
-        webResearchFailed: 0,
-        unresolved: 0,
-        ambiguous: 0,
-        notFound: 0,
-        skipped: skippedCount,
+        enriched: 0, duplicateSkipped: duplicateCount, webResearchFailed: 0, unresolved: 0, ambiguous: 0, notFound: 0, skipped: skippedCount,
       };
 
       let enrichedCount = 0;
       for (const { candidate, leadId } of newCandidates) {
         if (enrichedCount >= maxBusinesses) break;
-
         const webResults: PublicWebSearchResult[] = [];
         let successfulWebSearches = 0;
         for (const [searchIndex, webQuery] of webQueriesFor(candidate, query).entries()) {
           const web = await registry.execute<{ query: string; maxResults: number; country?: string }, PublicWebSearchOutput>({
-            integrationId: 'research.tavily-web',
-            operation: 'search_public_web',
-            requestedBy: 'lead_agent',
-            executionId: `${executionId}:${candidate.providerPlaceId}:web-${searchIndex + 1}`,
-            correlationId,
-            mode: 'live',
-            risk: 'low',
-            input: {
-              query: webQuery,
-              maxResults: maxWebResults,
-              ...(input.country ? { country: input.country } : {}),
-            },
+            integrationId: 'research.tavily-web', operation: 'search_public_web', requestedBy: 'lead_agent',
+            executionId: `${executionId}:${candidate.providerPlaceId}:web-${searchIndex + 1}`, correlationId, mode: 'live', risk: 'low',
+            input: { query: webQuery, maxResults: maxWebResults, ...(input.country ? { country: input.country } : {}) },
           });
           if (web.status !== 'succeeded') continue;
           successfulWebSearches += 1;
           webResults.push(...web.output.results);
         }
+        if (successfulWebSearches === 0) { outcomes.webResearchFailed += 1; continue; }
 
-        if (successfulWebSearches === 0) {
-          outcomes.webResearchFailed += 1;
-          continue;
-        }
-
-        const deduplicatedWebResults = [...new Map(
-          webResults
-            .filter((result) => result.url)
-            .map((result) => [result.url, result]),
-        ).values()];
-
+        const deduplicatedWebResults = [...new Map(webResults.filter((result) => result.url).map((result) => [result.url, result])).values()];
         const selection = selectOfficialWebsite({
           businessName: candidate.displayName,
           ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
           results: deduplicatedWebResults,
         });
-
         if (selection.status === 'ambiguous') {
-          proposals.push({
-            leadId,
-            providerPlaceId: candidate.providerPlaceId,
-            selectionStatus: selection.status,
-            candidateUrls: selection.candidateUrls,
-            publicWebResults: deduplicatedWebResults,
-          });
-          outcomes.unresolved += 1;
-          outcomes.ambiguous += 1;
-          continue;
+          proposals.push({ leadId, providerPlaceId: candidate.providerPlaceId, selectionStatus: selection.status, candidateUrls: selection.candidateUrls, publicWebResults: deduplicatedWebResults });
+          outcomes.unresolved += 1; outcomes.ambiguous += 1; continue;
         }
 
         const lead = await enrichmentService.enrich({
@@ -212,22 +150,16 @@ export function createLeadResearchWorkflowService(
           officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
           publicWebEvidence: deduplicatedWebResults,
           websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
+          formattedAddress: candidate.formattedAddress,
         });
-        outcomes.enriched += 1;
-        enrichedCount++;
+        outcomes.enriched += 1; enrichedCount += 1;
         if (selection.status === 'not_found') outcomes.notFound += 1;
       }
 
       const hasMorePages = Boolean(discovery.output.nextPageToken);
       const exhausted = newCandidates.length === 0 && !hasMorePages;
-
       return {
-        discovered: newCandidates.length,
-        enriched,
-        proposals,
-        outcomes,
-        exhausted,
-        hasMorePages,
+        discovered: newCandidates.length, enriched, proposals, outcomes, exhausted, hasMorePages,
         ...(discovery.output.nextPageToken !== undefined ? { nextPageToken: discovery.output.nextPageToken } : {}),
       };
     },
