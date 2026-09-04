@@ -59,18 +59,70 @@ export function createGooglePlacesLeadResearchIntegration(
       };
 
       if (request.operation !== 'search_businesses') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'blocked',
+          output: {
+            ...blockedOutput,
+            providerErrorCode: 'INTEGRATION_POLICY_VIOLATION',
+            providerErrorMessage: 'Operation not supported: expected search_businesses.',
+          },
+          evidenceReferences: [],
+          retryable: false,
+        };
       }
       if (request.requestedBy !== 'lead_agent' && request.requestedBy !== 'human_executive') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'blocked',
+          output: {
+            ...blockedOutput,
+            providerErrorCode: 'INTEGRATION_POLICY_VIOLATION',
+            providerErrorMessage: 'Requester not authorized: expected lead_agent or human_executive.',
+          },
+          evidenceReferences: [],
+          retryable: false,
+        };
       }
       if (request.mode !== 'live' || request.risk !== 'low') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'blocked',
+          output: {
+            ...blockedOutput,
+            providerErrorCode: 'INTEGRATION_POLICY_VIOLATION',
+            providerErrorMessage: 'Mode/risk not supported: expected live/low.',
+          },
+          evidenceReferences: [],
+          retryable: false,
+        };
       }
 
       const inputErrors = validateLeadBusinessSearchInput(request.input);
       if (inputErrors.length > 0) {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: blockedOutput, evidenceReferences: [], retryable: false };
+        return {
+          integrationId: 'research.google-places',
+          operation: request.operation,
+          provider: 'google-places',
+          mode: request.mode,
+          status: 'blocked',
+          output: {
+            ...blockedOutput,
+            providerErrorCode: 'INPUT_VALIDATION_FAILED',
+            providerErrorMessage: `Input validation failed: ${inputErrors.join('; ')}`,
+          },
+          evidenceReferences: [],
+          retryable: false,
+        };
       }
 
       let response: Response;
