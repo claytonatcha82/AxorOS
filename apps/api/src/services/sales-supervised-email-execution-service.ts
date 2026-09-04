@@ -73,16 +73,22 @@ export function createSalesSupervisedEmailExecutionService(
       if (gate.sendAuthorised !== true || gate.nextAction !== 'execute_supervised_email_send') {
         throw new Error('Sales send gate is not authorised for email execution.');
       }
-      if (gate.outreachAuthorised !== false || gate.pricingAuthorised !== false || gate.commercialCommitmentAuthorised !== false) {
-        throw new Error('Supervised email execution must not inherit unrelated commercial authority.');
+      if (
+        gate.pricingAuthorised !== false
+        || gate.commercialCommitmentAuthorised !== false
+        || (gate.outreachAuthorised !== false && gate.outreachAuthorised !== true)
+      ) {
+        throw new Error('Supervised email execution must not inherit invalid commercial authority.');
       }
 
       const draftRecordId = requiredString(gate.draftRecordId, 'draftRecordId');
       const leadId = requiredString(gate.leadId, 'leadId');
       const draftRecord = await repository.getWorkflowEventById(draftRecordId);
       if (!draftRecord) throw new Error(`Sales outreach draft record ${draftRecordId} was not found.`);
-      if (draftRecord.eventType !== 'sales_internal_outreach_draft_recorded') {
-        throw new Error('Supervised email execution requires the persisted internal Sales outreach draft.');
+      const isLegacyDraft = draftRecord.eventType === 'sales_internal_outreach_draft_recorded';
+      const isGovernedPreparation = draftRecord.eventType === 'sales_governed_outreach_prepared';
+      if (!isLegacyDraft && !isGovernedPreparation) {
+        throw new Error('Supervised email execution requires the persisted governed Sales outreach content.');
       }
       if (draftRecord.actorType !== 'agent' || draftRecord.actorId !== 'sales_agent') {
         throw new Error('Supervised email execution requires Sales Agent draft provenance.');
@@ -95,11 +101,26 @@ export function createSalesSupervisedEmailExecutionService(
       if (requiredString(draft.leadId, 'draft.leadId') !== leadId) {
         throw new Error('Supervised send gate and outreach draft reference different leads.');
       }
-      if (draft.status !== 'internal_review_required' || draft.humanReviewRequired !== true) {
-        throw new Error('Persisted outreach draft is not a governed internal-review draft.');
-      }
-      if (draft.outreachAuthorised !== false || draft.sendAuthorised !== false || draft.pricingAuthorised !== false || draft.commercialCommitmentAuthorised !== false) {
-        throw new Error('Persisted outreach draft must contain no inherited authority.');
+      if (isLegacyDraft) {
+        if (draft.status !== 'internal_review_required' || draft.humanReviewRequired !== true) {
+          throw new Error('Persisted outreach draft is not a governed internal-review draft.');
+        }
+        if (draft.outreachAuthorised !== false || draft.sendAuthorised !== false || draft.pricingAuthorised !== false || draft.commercialCommitmentAuthorised !== false) {
+          throw new Error('Persisted outreach draft must contain no inherited authority.');
+        }
+      } else {
+        if (
+          draft.status !== 'prepared_for_human_review'
+          || draft.preparationOnly !== true
+          || draft.outreachAuthorised !== true
+          || draft.dispatchAuthorised !== false
+          || draft.sendAuthorised !== false
+          || draft.pricingAuthorised !== false
+          || draft.commercialCommitmentAuthorised !== false
+          || draft.humanReviewRequired !== true
+        ) {
+          throw new Error('Governed outreach preparation is not valid for supervised email execution.');
+        }
       }
 
       const message: SalesEmailMessage = {
