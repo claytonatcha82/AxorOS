@@ -8,6 +8,7 @@ import type {
   OperationsProductionReadinessAssessment,
   OperationsProductionReadinessWorkflowResult,
 } from './agents/operations-production-readiness-workflow.js';
+import type { LeadQualificationReviewOutcome } from './services/lead-qualification-persisted-runtime-review.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
@@ -29,7 +30,7 @@ export interface ControlPlaneRequestHandlerDependencies {
   };
   leadQualificationReviewCommand?: {
     requestReview(executionId: string): Promise<RuntimeExecutionOutcome>;
-    resolveReview(executionId: string, decision: 'approved' | 'rejected', reason?: string): Promise<RuntimeExecutionOutcome>;
+    resolveReview(executionId: string, decision: 'approved' | 'rejected', reason?: string): Promise<LeadQualificationReviewOutcome>;
   };
   fallback: RequestListener;
 }
@@ -335,6 +336,7 @@ export function createControlPlaneRequestHandler(
           approvalRequired: outcome.record.task.approvalRequired,
           nextAction: outcome.record.task.nextAction,
           replayed: outcome.replayed,
+          handoff: outcome.handoff,
         },
       }, corsHeaders);
     } catch (error) {
