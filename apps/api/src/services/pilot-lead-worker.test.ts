@@ -43,7 +43,7 @@ test('PILOT_DISABLED prevents all Lead research execution', async () => {
 
 test('PILOT_ACTIVE allows the bounded expanded discovery plan to reach the orchestrator', async () => {
   const inputs: unknown[] = [];
-  const output = { queries: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { ...emptyOutcomes(), duplicateSkipped: 1 }, updatedQueryState: queryState };
+  const output = { queries: Array.from({ length: 12 }, (_, index) => `q${index + 1}`), atlasSourcePaths: ['atlas.md'], discovered: 1, enriched: [], proposals: [], outcomes: { ...emptyOutcomes(), duplicateSkipped: 1 }, updatedQueryState: queryState };
   const worker = createPilotLeadWorker(
     { async get() { return active; } },
     { async research(input) { inputs.push(input); return output; } },
@@ -52,7 +52,7 @@ test('PILOT_ACTIVE allows the bounded expanded discovery plan to reach the orche
 
   assert.equal(await worker.runOnce(), output);
   assert.equal(inputs.length, 1);
-  assert.equal((inputs[0] as any).maxQueries, 6);
+  assert.equal((inputs[0] as any).maxQueries, 12);
   assert.equal((inputs[0] as any).maxBusinessesPerQuery, 3);
   assert.equal((inputs[0] as any).maxWebResultsPerBusiness, 3);
 });
