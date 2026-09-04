@@ -464,8 +464,8 @@ function App() {
                   <article className="approval-card" key={approval.executionId}>
                     <div><span className="agent-tag">{humanize(approval.destinationAgent)}</span><h3>{approval.objective}</h3><p>{approval.reason ?? approval.expectedOutput}</p><small>{formatDate(approval.persistedAt)}</small></div>
                     <div className="approval-actions">
-                      <button className="reject-button" disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'rejected')}>Reject</button>
-                      <button disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'approved')}>{actioning === approval.executionId ? 'Processing…' : 'Approve & execute'}</button>
+                      <button className="reject-button" disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'rejected')}>{approval.destinationAgent === 'lead_agent' ? 'Hold' : 'Reject'}</button>
+                      <button disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'approved')}>{actioning === approval.executionId ? 'Processing…' : approval.destinationAgent === 'lead_agent' ? 'Approve' : 'Approve & execute'}</button>
                     </div>
                   </article>
                 ))}
