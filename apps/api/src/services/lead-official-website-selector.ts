@@ -54,6 +54,22 @@ const GENERIC_LISTING_TITLE_PATTERNS = [
   /^\s*(?:Home|Contact)\s*[-–—:|]\s*Company\s*$/i,
 ];
 
+const HOSTNAME_GENERIC_IDENTITY_WORDS = new Set([
+  'construction', 'constructions', 'contracting', 'contractor', 'contractors',
+  'building', 'buildings', 'builder', 'builders', 'project', 'projects',
+  'civil', 'civils', 'engineering', 'engineers', 'services', 'service',
+  'solutions', 'solution', 'company', 'companies', 'group', 'groups',
+  'holdings', 'industries', 'industry', 'manufacturing', 'development',
+  'developments', 'transport', 'trading', 'consulting', 'consultants',
+]);
+
+const GOVERNMENT_HOST_PATTERNS = [
+  /(^|\.)gov\.[a-z]{2,}$/i,
+  /(^|\.)gov\.[a-z]{2,}\.[a-z]{2}$/i,
+  /(^|\.)gouv\.[a-z]{2,}$/i,
+  /(^|\.)go\.\.[a-z]{2,}$/i,
+];
+
 function normalizedWords(value: string): string[] {
   return value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((word) => word.length >= 3);
 }
@@ -84,6 +100,11 @@ function isDirectoryDomain(hostname: string): boolean {
   return [...DIRECTORY_DOMAIN_MARKERS].some((marker) => lowerBase.includes(marker));
 }
 
+function isGovernmentDomain(hostname: string): boolean {
+  const normalized = hostname.replace(/^www\./, '').toLowerCase();
+  return GOVERNMENT_HOST_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 function isReservedExampleDomain(hostname: string): boolean {
   const normalized = hostname.replace(/^www\./, '').toLowerCase();
   return normalized === 'example.com'
@@ -106,6 +127,7 @@ function registrableCandidate(result: PublicWebSearchResult): { origin: string; 
     const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
     if (THIRD_PARTY_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return null;
     if (isDirectoryDomain(hostname)) return null;
+    if (isGovernmentDomain(hostname)) return null;
     if (isReservedExampleDomain(hostname)) return null;
     return { origin: `${url.protocol}//${url.host}/`, hostname };
   } catch { return null; }
@@ -120,21 +142,19 @@ function firstPartyEvidenceScore(
   const contentWords = normalizedWords(result.content);
   const titleMatches = businessWords.filter((word) => titleWords.includes(word)).length;
   const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
-  const hostMatches = businessWords.filter((word) => hostname.replace(/[^a-z0-9]+/g, ' ').includes(word)).length;
+  const hostnameWords = normalizedWords(hostname.replace(/\./g, ' '));
+  const distinctiveBusinessWords = businessWords.filter((word) => !HOSTNAME_GENERIC_IDENTITY_WORDS.has(word));
+  const hostMatches = distinctiveBusinessWords.filter((word) => hostnameWords.includes(word)).length;
   const content = result.content.toLowerCase();
   const listingText = `${result.title} ${result.content}`.toLowerCase();
 
-  // Listing/aggregator evidence must be rejected before any identity scoring so a
-  // generic business term such as "construction" cannot rescue a directory domain.
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
-  // Generic titles are weak evidence on their own. A genuine first-party hostname
-  // can still establish identity (for example "Home - Acme Engineering" on
-  // acmeengineering.co.za), while reserved/example domains are rejected above.
+  // Industry/category words such as "construction" are not sufficient hostname
+  // identity. This prevents a generic domain like constructionsite.co.za from being
+  // treated as the official site for multiple unrelated construction businesses.
   if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
 
-  // A single identity word is too thin to establish first-party ownership through
-  // content signals alone. Require the durable hostname identity match above.
   if (businessWords.length <= 1) return 0;
 
   const firstPartySignals = [
@@ -195,9 +215,6 @@ export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): Off
     return { status: 'ambiguous', candidateUrls: ranked.map(([origin]) => origin) };
   }
 
-  // Google Places is the authoritative business identity. Public-web search
-  // evidence verifies the website; it must never replace the canonical business
-  // name with a search-result title such as "Company :: Contact Us" or "Home - Company".
   return {
     status: 'selected',
     websiteUrl: bestOrigin,
