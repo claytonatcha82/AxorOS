@@ -10,6 +10,8 @@ import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
+import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
+import { createSalesOpportunityDecisionService } from './sales-opportunity-decision-service.js';
 import {
   createSalesOpportunityAssessmentService,
   type SalesOpportunityContext,
@@ -49,6 +51,10 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const operationalRepository = createOperationalRepository(pool);
   const opportunityAssessment = createSalesOpportunityAssessmentService();
   const opportunityAssessmentPersistence = createSalesOpportunityAssessmentPersistenceService(
+    operationalRepository,
+  );
+  const opportunityDecision = createSalesOpportunityDecisionService();
+  const opportunityDecisionPersistence = createSalesOpportunityDecisionPersistenceService(
     operationalRepository,
   );
 
@@ -210,6 +216,13 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const record = await opportunityAssessmentPersistence.persist({ assessment });
       return { assessment, record };
     },
+
+    async decideOpportunity(executionId: string, salesContext: SalesOpportunityContext = {}) {
+      const assessmentResult = await commands.assessOpportunity(executionId, salesContext);
+      const decision = opportunityDecision.decide(assessmentResult.assessment);
+      const record = await opportunityDecisionPersistence.persist({ decision });
+      return { assessment: assessmentResult.assessment, assessmentRecord: assessmentResult.record, decision, decisionRecord: record };
+    },
   };
 
   return {
@@ -219,6 +232,8 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     activation,
     opportunityAssessment,
     opportunityAssessmentPersistence,
+    opportunityDecision,
+    opportunityDecisionPersistence,
     commands,
   };
 }
