@@ -47,8 +47,13 @@ test('rejects missing Atlas provenance', () => {
 });
 
 test('rejects pre-authorised outreach', () => {
+  const preAuthorised = {
+    ...decision(),
+    outreachAuthorised: true,
+  } as unknown as SalesOpportunityDecisionResult;
+
   assert.throws(
-    () => createSalesOutreachApprovalService().request(decision({ outreachAuthorised: true })),
+    () => createSalesOutreachApprovalService().request(preAuthorised),
     /must start with outreach unauthorised/,
   );
 });
