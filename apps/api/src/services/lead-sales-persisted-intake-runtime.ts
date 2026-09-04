@@ -160,7 +160,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
         decision: input.decision,
         request,
         approvalRecord,
-        actor: input.actor as 'founder',
+        actor: input.actor,
         decisionOutcome: input.decisionOutcome,
         reason: input.reason,
       });
