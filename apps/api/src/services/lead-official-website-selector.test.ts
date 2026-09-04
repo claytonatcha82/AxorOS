@@ -213,3 +213,28 @@ test('rejects directory domain even when title contains business name and contac
   });
   assert.equal(result.status, 'not_found');
 });
+
+test('rejects single-word identities when the hostname does not contain the identity', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'Ruwacon (Pty) Ltd',
+    results: [{
+      title: 'Ruwacon - Contact Us',
+      url: 'https://mba-boland.co.za/ruwacon',
+      content: 'Ruwacon. Contact us for company information. enquiries@mba-boland.co.za. +27 21 555 0100.',
+    }],
+  });
+  assert.equal(result.status, 'not_found');
+});
+
+test('still selects a genuine first-party hostname for a single-word identity', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'Ruwacon (Pty) Ltd',
+    results: [{
+      title: 'Ruwacon | Construction',
+      url: 'https://ruwacon.co.za/contact',
+      content: 'Ruwacon provides construction services. Contact us at enquiries@ruwacon.co.za. +27 21 555 0100.',
+    }],
+  });
+  assert.equal(result.status, 'selected');
+  if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://ruwacon.co.za/');
+});
