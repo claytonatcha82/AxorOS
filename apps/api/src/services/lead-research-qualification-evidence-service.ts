@@ -68,9 +68,9 @@ const COMMERCIAL_SUITABILITY_PATTERNS = [
 const URGENT_TIMELINE_PATTERNS = [
   /\b(?:urgent|urgently|immediate|asap)\b/i,
   /\b(?:deadline|closing\s+date|closing\s+deadline)\b[\s\S]{0,80}\b(?:today|tomorrow|this\s+(?:week|month)|by\s+\w+|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\b/i,
-  /\b(?:tender|rfq)\b[\s\S]{0,80}\b(?:closing|closes|closing\s+date)\b/i,
 ];
 const STRONG_NEAR_TERM_TIMELINE_PATTERNS = [
+  /\b(?:tender|rfq)\b[\s\S]{0,80}\b(?:closing|closes|closing\s+date)\b/i,
   /\b(?:launch\s+date|delivery\s+date|project\s+date|completion\s+date)\b/i,
   /\b(?:this\s+(?:month|quarter|year)|next\s+(?:month|quarter))\b/i,
   /\b(?:launch(?:ing)?|underway|in\s+progress|ongoing)\b/i,
@@ -244,9 +244,8 @@ function decisionMakerAssessment(input: LeadResearchQualificationEvidenceInput):
   const namedRoleResults = roleResults.filter((result) => namedPersonNearRole([result.title, result.content].filter(Boolean).join(' '), input.companyName).length > 0);
   const directContactResults = namedRoleResults.filter((result) => namedPersonWithDirectContact([result.title, result.content].filter(Boolean).join(' '), input.companyName));
   const businessContactResults = input.publicWebResults.filter((result) => matches([result.title, result.content].filter(Boolean).join(' '), BUSINESS_CONTACT_PATTERNS));
-  const leadershipPageResults = namedRoleResults.filter((result) => /\b(?:team|leadership|management|directors?)\b/i.test(result.title));
   if (directContactResults.length > 0) return assessment(10, evidenceReferences(directContactResults), ['Decision-maker role, identity, and a direct contact route are evidenced; procurement authority is not assumed.']);
-  if (namedRoleResults.length > 0 && (businessContactResults.length > 0 || leadershipPageResults.length > 0)) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults), ...evidenceReferences(leadershipPageResults)], ['A named senior role and a credible business/leadership route are evidenced, but direct access to the decision-maker is not confirmed.']);
+  if (namedRoleResults.length > 0 && businessContactResults.length > 0) return assessment(8, [...evidenceReferences(namedRoleResults), ...evidenceReferences(businessContactResults)], ['A named senior role and a credible business contact route are evidenced, but direct access to the decision-maker is not confirmed.']);
   if (roleResults.length > 0) return assessment(6, roleReferences, ['A senior/relevant management role is identified, but named identity and/or direct access is incomplete.']);
   if (businessContactResults.length > 0) return assessment(4, evidenceReferences(businessContactResults), ['A relevant business contact route exists, but decision-maker authority is unverified.']);
   if (input.publicWebResults.length > 0) return assessment(2, evidenceReferences(input.publicWebResults), ['Only generic public evidence is available; no credible decision-maker route is established.']);
