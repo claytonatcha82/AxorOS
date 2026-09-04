@@ -21,6 +21,7 @@ import {
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import { createLeadResearchQualificationEvidenceService } from './lead-research-qualification-evidence-service.js';
 import { createLeadResearchWorkflowService } from './lead-research-workflow-service.js';
+import { createPersistedLeadQualificationRuntimeReview } from './lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './lead-sales-persisted-intake-runtime.js';
 import { logEvent } from '../logger.js';
 
@@ -29,11 +30,6 @@ export interface LeadLiveResearchRuntimeDependencies {
   integrations: IntegrationRegistry;
   knowledgeContext: Pick<KnowledgeContextService, 'assemble'>;
   runtimeStore: LeadQualificationRuntimeReviewRegistrationStore;
-  leadQualificationReviewRequest: Pick<LeadQualificationReviewRequestCommand, 'requestReview'>;
-}
-
-interface LeadQualificationReviewRequestCommand {
-  requestReview(executionId: string): Promise<unknown>;
 }
 
 export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRuntimeDependencies) {
@@ -57,6 +53,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
   const runtimeReviewRegistration = createLeadQualificationRuntimeReviewRegistrationService({
     store: dependencies.runtimeStore,
   });
+  const persistedQualificationReview = createPersistedLeadQualificationRuntimeReview(dependencies.pool);
   const baseOrchestrator = createLeadAtlasResearchOrchestrator(
     atlasContext,
     planner,
@@ -78,7 +75,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
 
       for (const lead of result.enriched) {
         if (lead.qualificationReviewExecutionId) {
-          await dependencies.leadQualificationReviewRequest.requestReview(lead.qualificationReviewExecutionId);
+          await persistedQualificationReview.commands.requestReview(lead.qualificationReviewExecutionId);
         }
       }
 
