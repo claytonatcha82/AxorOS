@@ -17,9 +17,9 @@ function qualification(
       businessFit: { score: 8, evidenceReferences: ['fixture:business-fit'], missingInformation: [] },
       projectFit: { score: 8, evidenceReferences: ['fixture:project-fit'], missingInformation: [] },
       partnershipPotential: { score: 7, evidenceReferences: ['fixture:partnership'], missingInformation: [] },
-      decisionMakerAccess: { score: 7, evidenceReferences: ['fixture:decision-maker'], missingInformation: [] },
+      decisionMakerAccess: { score: 8, evidenceReferences: ['fixture:decision-maker'], missingInformation: [] },
       commercialFit: { score: 8, evidenceReferences: ['fixture:commercial'], missingInformation: [] },
-      timeline: { score: 7, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
+      timeline: { score: 8, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
     },
     ...overrides,
   };
@@ -38,8 +38,18 @@ test('holds excellent and good leads for human approval before advance', () => {
   }
 });
 
-test('pilot auto-advances a good lead at exactly 40 when evidence is complete', () => {
-  const result = pilotService.evaluate(qualification('good', { totalScore: 40 }));
+test('pilot auto-advances a governed lead at exactly 40', () => {
+  const result = pilotService.evaluate(qualification('good', {
+    totalScore: 40,
+    assessments: {
+      businessFit: { score: 8, evidenceReferences: ['fixture:business-fit'], missingInformation: [] },
+      projectFit: { score: 8, evidenceReferences: ['fixture:project-fit'], missingInformation: [] },
+      partnershipPotential: { score: 0, evidenceReferences: ['fixture:partnership'], missingInformation: [] },
+      decisionMakerAccess: { score: 8, evidenceReferences: ['fixture:decision-maker'], missingInformation: [] },
+      commercialFit: { score: 8, evidenceReferences: ['fixture:commercial'], missingInformation: [] },
+      timeline: { score: 8, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
+    },
+  }));
   assert.equal(result.disposition, 'advance');
   assert.equal(result.recommendedAction, 'approve_advance');
   assert.equal(result.humanApprovalRequired, false);
@@ -50,6 +60,41 @@ test('pilot keeps a good lead below 40 on hold', () => {
   assert.equal(result.disposition, 'hold');
   assert.equal(result.recommendedAction, 'approve_advance');
   assert.equal(result.humanApprovalRequired, true);
+});
+
+test('pilot blocks a 40+ lead when critical evidence is below the governance minimum', () => {
+  const result = pilotService.evaluate(qualification('good', {
+    totalScore: 49,
+    assessments: {
+      businessFit: { score: 8, evidenceReferences: ['fixture:business-fit'], missingInformation: ['ICP-aligned challenge is not verified.'] },
+      projectFit: { score: 8, evidenceReferences: ['fixture:project-fit'], missingInformation: [] },
+      partnershipPotential: { score: 10, evidenceReferences: ['fixture:partnership'], missingInformation: [] },
+      decisionMakerAccess: { score: 8, evidenceReferences: ['fixture:decision-maker'], missingInformation: [] },
+      commercialFit: { score: 7, evidenceReferences: ['fixture:commercial'], missingInformation: ['Payment reliability is not independently verified.'] },
+      timeline: { score: 8, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
+    },
+  }));
+  assert.equal(result.disposition, 'hold');
+  assert.equal(result.humanApprovalRequired, true);
+  assert.match(result.reasons.join(' '), /evidence-governance gate/i);
+  assert.match(result.reasons.join(' '), /commercialFit/i);
+});
+
+test('pilot blocks auto-advance when a critical category has no evidence references', () => {
+  const result = pilotService.evaluate(qualification('good', {
+    totalScore: 48,
+    assessments: {
+      businessFit: { score: 8, evidenceReferences: ['fixture:business-fit'], missingInformation: [] },
+      projectFit: { score: 8, evidenceReferences: ['fixture:project-fit'], missingInformation: [] },
+      partnershipPotential: { score: 8, evidenceReferences: ['fixture:partnership'], missingInformation: [] },
+      decisionMakerAccess: { score: 8, evidenceReferences: [], missingInformation: [] },
+      commercialFit: { score: 8, evidenceReferences: ['fixture:commercial'], missingInformation: [] },
+      timeline: { score: 8, evidenceReferences: ['fixture:timeline'], missingInformation: [] },
+    },
+  }));
+  assert.equal(result.disposition, 'hold');
+  assert.equal(result.humanApprovalRequired, true);
+  assert.match(result.reasons.join(' '), /no evidence references/i);
 });
 
 test('pilot never auto-advances incomplete evidence even when the threshold score is supplied', () => {
