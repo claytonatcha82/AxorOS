@@ -142,9 +142,9 @@ function firstPartyEvidenceScore(
   const contentWords = normalizedWords(result.content);
   const titleMatches = businessWords.filter((word) => titleWords.includes(word)).length;
   const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
-  const hostnameWords = normalizedWords(hostname.replace(/\./g, ' '));
+  const normalizedHostname = hostname.replace(/[^a-z0-9]+/g, ' ');
   const distinctiveBusinessWords = businessWords.filter((word) => !HOSTNAME_GENERIC_IDENTITY_WORDS.has(word));
-  const hostMatches = distinctiveBusinessWords.filter((word) => hostnameWords.includes(word)).length;
+  const hostMatches = distinctiveBusinessWords.filter((word) => normalizedHostname.includes(word)).length;
   const content = result.content.toLowerCase();
   const listingText = `${result.title} ${result.content}`.toLowerCase();
 
