@@ -86,7 +86,11 @@ export function createLeadResearchWorkflowService(
         mode: 'live', risk: 'low',
         input: { query, maxResults: providerCandidateLimit, ...(input.pageToken ? { pageToken: input.pageToken } : {}) },
       });
-      if (discovery.status !== 'succeeded') throw new Error(`Google Places discovery failed: ${discovery.output.providerErrorCode ?? discovery.status}.`);
+      if (discovery.status !== 'succeeded') {
+        const providerCode = discovery.output.providerErrorCode ?? discovery.status;
+        const providerMessage = discovery.output.providerErrorMessage?.trim();
+        throw new Error(`Google Places discovery failed: ${providerCode}${providerMessage ? ` — ${providerMessage}` : ''}.`);
+      }
 
       const newCandidates: Array<{ candidate: LeadBusinessCandidate; leadId: string }> = [];
       let duplicateCount = 0;
