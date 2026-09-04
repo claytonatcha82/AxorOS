@@ -41,21 +41,19 @@ function assertApprovedReview(record: AgentRuntimeExecutionRecord, events: reado
   }
 
   const disposition = record.task.inputs.disposition;
-  if (disposition !== 'hold' && disposition !== 'advance') {
-    throw new Error('Lead to Sales handoff eligibility requires a valid disposition (hold or advance).');
+  if (disposition !== 'hold') {
+    throw new Error('Lead to Sales handoff eligibility requires a conservative hold disposition.');
   }
 
   if (record.task.inputs.recommendedAction !== 'approve_advance') {
     throw new Error('Lead to Sales handoff eligibility requires an approve_advance recommendation.');
   }
 
-  if (disposition === 'hold') {
-    if (record.task.approvalRequired) {
-      throw new Error('Lead to Sales handoff eligibility requires the human approval gate to be cleared.');
-    }
-    if (!approvedByHumanExecutive(events)) {
-      throw new Error('Lead to Sales handoff eligibility requires recorded human executive approval.');
-    }
+  if (record.task.approvalRequired) {
+    throw new Error('Lead to Sales handoff eligibility requires the human approval gate to be cleared.');
+  }
+  if (!approvedByHumanExecutive(events)) {
+    throw new Error('Lead to Sales handoff eligibility requires recorded human executive approval.');
   }
 }
 
