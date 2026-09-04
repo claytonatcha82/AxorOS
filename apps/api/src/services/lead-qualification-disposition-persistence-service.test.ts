@@ -24,7 +24,7 @@ function repository() {
       },
       async createWorkflowEvent(input: Record<string, unknown>) {
         events.push(input);
-        return { id: `event-${events.length}`, ...input } as never;
+        return { id: `event-${events.length}`, createdAt: '2026-09-04T14:00:00.000Z', ...input } as never;
       },
     },
   };
@@ -56,6 +56,26 @@ test('durably records conservative lead disposition as a workflow event', async 
   });
 });
 
+test('durably records a governed auto-advance disposition', async () => {
+  const { repo, events } = repository();
+  const service = createLeadQualificationDispositionPersistenceService(repo as never);
+
+  const result = await service.persist({
+    leadId: 'lead-1',
+    qualificationRecordId: 'qualification-1',
+    disposition: disposition({
+      disposition: 'advance',
+      recommendedAction: 'approve_advance',
+      humanApprovalRequired: false,
+      reasons: ['Atlas-backed qualification met the configured pilot auto-advance threshold.'],
+    }),
+  });
+
+  assert.equal(result.id, 'event-1');
+  assert.equal(events[0]?.payload && (events[0]?.payload as Record<string, unknown>).disposition, 'advance');
+  assert.equal(events[0]?.payload && (events[0]?.payload as Record<string, unknown>).humanApprovalRequired, false);
+});
+
 test('fails closed when the lead does not exist', async () => {
   const { repo, events } = repository();
   const service = createLeadQualificationDispositionPersistenceService(repo as never);
@@ -77,18 +97,58 @@ test('requires qualification record identity', async () => {
   );
 });
 
-test('preserves human approval authority and Atlas provenance', async () => {
+test('rejects inconsistent disposition authority combinations', async () => {
   const { repo } = repository();
   const service = createLeadQualificationDispositionPersistenceService(repo as never);
 
-  const withoutApproval = { ...disposition(), humanApprovalRequired: false } as unknown as LeadQualificationDisposition;
   await assert.rejects(
-    () => service.persist({ leadId: 'lead-1', qualificationRecordId: 'qualification-1', disposition: withoutApproval }),
-    /human approval authority/i,
+    () => service.persist({
+      leadId: 'lead-1',
+      qualificationRecordId: 'qualification-1',
+      disposition: disposition({ disposition: 'advance', humanApprovalRequired: true, recommendedAction: 'approve_advance' }),
+    }),
+    /not a governed hold or auto-advance disposition/i,
   );
 
   await assert.rejects(
+    () => service.persist({
+      leadId: 'lead-1',
+      qualificationRecordId: 'qualification-1',
+      disposition: disposition({ disposition: 'advance', humanApprovalRequired: false, recommendedAction: 'review_fit' }),
+    }),
+    /not a governed hold or auto-advance disposition/i,
+  );
+
+  await assert.rejects(
+    () => service.persist({
+      leadId: 'lead-1',
+      qualificationRecordId: 'qualification-1',
+      disposition: disposition({ humanApprovalRequired: false }),
+    }),
+    /not a governed hold or auto-advance disposition/i,
+  );
+});
+
+test('requires Atlas provenance for both governed outcomes', async () => {
+  const { repo } = repository();
+  const service = createLeadQualificationDispositionPersistenceService(repo as never);
+
+  await assert.rejects(
     () => service.persist({ leadId: 'lead-1', qualificationRecordId: 'qualification-1', disposition: disposition({ atlasSourcePaths: [] }) }),
+    /authoritative Atlas source paths/i,
+  );
+
+  await assert.rejects(
+    () => service.persist({
+      leadId: 'lead-1',
+      qualificationRecordId: 'qualification-1',
+      disposition: disposition({
+        disposition: 'advance',
+        recommendedAction: 'approve_advance',
+        humanApprovalRequired: false,
+        atlasSourcePaths: [],
+      }),
+    }),
     /authoritative Atlas source paths/i,
   );
 });
