@@ -192,3 +192,29 @@ test('rejects South African government domains as private-company official websi
   const result = selectOfficialWebsite({ businessName: 'Limpopo Structures', formattedAddress: 'Limpopo, South Africa', results: [{ title: 'Limpopo Structures', url: 'https://www.dpw.limpopo.gov.za/', content: 'Limpopo Structures. Department of Public Works information and procurement.' }] });
   assert.equal(result.status, 'not_found');
 });
+
+test('rejects a UK-domain candidate for a South African lead when the hostname identity matches', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'HBC Construction (PTY) LTD',
+    formattedAddress: 'Pretoria, Gauteng, South Africa',
+    results: [{
+      title: 'HBC Construction',
+      url: 'https://www.hbcconstruction.co.uk/',
+      content: 'HBC Construction Limited. Head office in Dronfield, Derbyshire, United Kingdom. Construction services and projects across the UK.',
+    }],
+  });
+  assert.equal(result.status, 'not_found');
+});
+
+test('rejects a UK-domain candidate for a South African lead even when the search title strongly matches', () => {
+  const result = selectOfficialWebsite({
+    businessName: 'HBC Construction (PTY) LTD',
+    formattedAddress: 'Gauteng, South Africa',
+    results: [{
+      title: 'HBC Construction (PTY) LTD | Official Website',
+      url: 'https://hbcconstruction.co.uk/contact',
+      content: 'HBC Construction (PTY) LTD. Construction contractor. Contact us for projects.',
+    }],
+  });
+  assert.equal(result.status, 'not_found');
+});
