@@ -29,8 +29,28 @@ export function createPilotLeadWorkerQueryPostgresStore(
         [stateKey],
       );
       const queryState = result.rows[0]?.query_state;
-      if (!queryState) return {};
-      return queryState as Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }>;
+      if (!queryState || typeof queryState !== 'object' || Array.isArray(queryState)) return {};
+
+      const validated: Record<string, { exhausted: boolean; lastAttemptedAt?: string; nextPageToken?: string | null }> = {};
+      for (const [query, state] of Object.entries(queryState as Record<string, unknown>)) {
+        if (!state || typeof state !== 'object' || Array.isArray(state)) continue;
+        const entry = state as Record<string, unknown>;
+        const exhausted = typeof entry.exhausted === 'boolean' ? entry.exhausted : false;
+        const lastAttemptedAt = typeof entry.lastAttemptedAt === 'string' ? entry.lastAttemptedAt : undefined;
+        const nextPageToken = entry.nextPageToken === null
+          ? null
+          : typeof entry.nextPageToken === 'string'
+            ? entry.nextPageToken
+            : undefined;
+
+        validated[query] = {
+          exhausted,
+          ...(lastAttemptedAt !== undefined ? { lastAttemptedAt } : {}),
+          ...(nextPageToken !== undefined ? { nextPageToken } : {}),
+        };
+      }
+
+      return validated;
     },
 
     async save(state: Record<string, { exhausted: boolean; lastAttemptedAt: string; nextPageToken?: string | null }>): Promise<void> {
