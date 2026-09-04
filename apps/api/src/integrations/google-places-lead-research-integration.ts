@@ -25,6 +25,28 @@ export interface GooglePlacesLeadResearchIntegrationOptions {
   apiKey: string;
   fetchImpl?: typeof fetch;
   baseUrl?: string;
+  // ISO 3166-1 alpha-2 region code (e.g. 'ZA'). Google's Places Text Search API is a
+  // global free-text search; without this, queries like "Construction businesses in
+  // South Africa" can and do return unrelated results whose names happen to match the
+  // query text, including geographic places in other countries.
+  regionCode?: string;
+}
+
+// Google Places returns `types` for every result, including ones that are not
+// businesses at all. A result is only a legitimate lead candidate if it carries at
+// least one type that is not purely geographic/political.
+const NON_BUSINESS_PLACE_TYPES = new Set([
+  'locality', 'political', 'administrative_area_level_1', 'administrative_area_level_2',
+  'administrative_area_level_3', 'administrative_area_level_4', 'administrative_area_level_5',
+  'administrative_area_level_6', 'administrative_area_level_7', 'sublocality', 'sublocality_level_1',
+  'sublocality_level_2', 'sublocality_level_3', 'sublocality_level_4', 'sublocality_level_5',
+  'country', 'postal_code', 'postal_code_prefix', 'postal_code_suffix', 'natural_feature',
+  'colloquial_area', 'continent', 'plus_code', 'archipelago', 'landmark',
+]);
+
+function isBusinessCandidate(types: string[]): boolean {
+  if (types.length === 0) return false;
+  return types.some((type) => !NON_BUSINESS_PLACE_TYPES.has(type));
 }
 
 const FIELD_MASK = 'places.id,places.displayName.text,places.formattedAddress,places.types,nextPageToken';
@@ -40,6 +62,8 @@ export function createGooglePlacesLeadResearchIntegration(
 ): ExternalIntegration<LeadBusinessSearchInput, LeadBusinessSearchOutput> {
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Error('Google Places API key is required.');
+  const regionCode = (options.regionCode?.trim() || 'ZA').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(regionCode)) throw new Error('Google Places regionCode must be a two-letter ISO 3166-1 alpha-2 code.');
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = (options.baseUrl ?? 'https://places.googleapis.com/v1').replace(/\/$/, '');
 
@@ -137,6 +161,7 @@ export function createGooglePlacesLeadResearchIntegration(
           body: JSON.stringify({
             textQuery: request.input.query.trim(),
             maxResultCount: request.input.maxResults ?? 10,
+            regionCode,
             ...(request.input.pageToken ? { pageToken: request.input.pageToken } : {}),
           }),
         });
@@ -242,11 +267,15 @@ export function createGooglePlacesLeadResearchIntegration(
           const providerPlaceId = place.id?.trim();
           const displayName = place.displayName?.text?.trim();
           if (!providerPlaceId || !displayName) return null;
+          const types = Array.isArray(place.types)
+            ? place.types.filter((type) => typeof type === 'string' && type.trim()).map((type) => type.trim())
+            : [];
+          if (!isBusinessCandidate(types)) return null;
           return {
             providerPlaceId,
             displayName,
             ...(place.formattedAddress?.trim() ? { formattedAddress: place.formattedAddress.trim() } : {}),
-            types: Array.isArray(place.types) ? place.types.filter((type) => typeof type === 'string' && type.trim()).map((type) => type.trim()) : [],
+            types,
             source: 'google_places',
           };
         })
