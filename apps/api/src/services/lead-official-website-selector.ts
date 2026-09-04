@@ -150,6 +150,15 @@ function firstPartyEvidenceScore(
 
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
+  // For multi-word names where only one token is distinctive, require the
+  // hostname to carry a second business-name token as well. This prevents
+  // unrelated domains such as swisspreneur.org from being accepted merely
+  // because they contain the distinctive token "swiss" from "Swiss
+  // Constructions". Single-word identities still use the distinctive-token
+  // rule below.
+  const hostnameBusinessWordMatches = businessWords.filter((word) => normalizedHostname.includes(word)).length;
+  if (businessWords.length >= 2 && distinctiveBusinessWords.length === 1 && hostnameBusinessWordMatches < 2) return 0;
+
   // For a website to be trusted as the company's official site, the hostname
   // must independently contain at least one distinctive part of the business
   // identity. Search-result text alone is not sufficient because third-party
