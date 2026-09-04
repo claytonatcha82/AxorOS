@@ -26,6 +26,7 @@ function qualification(
 }
 
 const service = createLeadQualificationDispositionService();
+const pilotService = createLeadQualificationDispositionService({ pilotAutoAdvanceThreshold: 40 });
 
 test('holds excellent and good leads for human approval before advance', () => {
   for (const status of ['excellent', 'good'] as const) {
@@ -35,6 +36,30 @@ test('holds excellent and good leads for human approval before advance', () => {
     assert.equal(result.humanApprovalRequired, true);
     assert.match(result.reasons[0]!, /human approval/i);
   }
+});
+
+test('pilot auto-advances a good lead at exactly 40 when evidence is complete', () => {
+  const result = pilotService.evaluate(qualification('good', { totalScore: 40 }));
+  assert.equal(result.disposition, 'advance');
+  assert.equal(result.recommendedAction, 'approve_advance');
+  assert.equal(result.humanApprovalRequired, false);
+});
+
+test('pilot keeps a good lead below 40 on hold', () => {
+  const result = pilotService.evaluate(qualification('good', { totalScore: 39 }));
+  assert.equal(result.disposition, 'hold');
+  assert.equal(result.recommendedAction, 'approve_advance');
+  assert.equal(result.humanApprovalRequired, true);
+});
+
+test('pilot never auto-advances incomplete evidence even when the threshold score is supplied', () => {
+  const result = pilotService.evaluate(qualification('insufficient_information', {
+    totalScore: null,
+    missingInformation: ['Timeline has not been verified.'],
+  }));
+  assert.equal(result.disposition, 'hold');
+  assert.equal(result.recommendedAction, 'collect_more_evidence');
+  assert.equal(result.humanApprovalRequired, true);
 });
 
 test('holds moderate leads for fit review', () => {
