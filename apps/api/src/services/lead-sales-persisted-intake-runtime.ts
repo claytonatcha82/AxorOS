@@ -13,6 +13,7 @@ import { createSalesOpportunityAssessmentPersistenceService } from './sales-oppo
 import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
 import { createSalesOpportunityDecisionService, type SalesOpportunityDecisionResult } from './sales-opportunity-decision-service.js';
 import { createSalesGovernedOutreachHumanReviewRequestService } from './sales-governed-outreach-human-review-request-service.js';
+import { createSalesGovernedOutreachHumanReviewDecisionService } from './sales-governed-outreach-human-review-decision-service.js';
 import { createSalesGovernedOutreachPreparationService } from './sales-governed-outreach-preparation-service.js';
 import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
 import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
@@ -55,6 +56,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const outreachApprovalResolutionPersistence = createSalesOutreachApprovalResolutionPersistenceService(operationalRepository);
   const governedOutreachPreparation = createSalesGovernedOutreachPreparationService(operationalRepository);
   const governedOutreachHumanReview = createSalesGovernedOutreachHumanReviewRequestService(operationalRepository);
+  const governedOutreachHumanReviewDecision = createSalesGovernedOutreachHumanReviewDecisionService(operationalRepository);
 
   const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
@@ -104,7 +106,6 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
 
   const commands = {
     async activateIntake(executionId: string) { return activation.activate(required(executionId, 'executionId')); },
-
     async processIntake(executionId: string) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const current = await store.getExecution(normalizedExecutionId);
@@ -115,14 +116,12 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       if (current.task.inputs.salesDispatchAuthorised !== false || current.task.inputs.outreachAuthorised !== false) throw new Error('Sales intake processing must not authorise Sales dispatch or outreach.');
       return orchestrator.execute({ executionId: normalizedExecutionId, capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY });
     },
-
     async handoffAutoAdvancedLead(input: AutoAdvanceSalesIntakeInput) {
       const record = await registerAutoAdvanceIntake(input);
       const ready = record.task.status === 'queued' ? await activation.activate(record.task.executionId) : record;
       const result = ready.task.status === 'ready' ? await orchestrator.execute({ executionId: ready.task.executionId, capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY }) : ready;
       return { intakeExecution: result };
     },
-
     async assessOpportunity(executionId: string, salesContext: SalesOpportunityContext = {}) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const intakeExecution = await store.getExecution(normalizedExecutionId);
@@ -134,55 +133,36 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const record = await opportunityAssessmentPersistence.persist({ assessment });
       return { assessment, record };
     },
-
     async decideOpportunity(executionId: string, salesContext: SalesOpportunityContext = {}) {
       const assessmentResult = await commands.assessOpportunity(executionId, salesContext);
       const decision = opportunityDecision.decide(assessmentResult.assessment);
       const record = await opportunityDecisionPersistence.persist({ decision });
       return { assessment: assessmentResult.assessment, assessmentRecord: assessmentResult.record, decision, decisionRecord: record };
     },
-
     async requestOutreachApproval(executionId: string, salesContext: SalesOpportunityContext = {}) {
       const decisionResult = await commands.decideOpportunity(executionId, salesContext);
       const request = outreachApproval.request(decisionResult.decision);
       const record = await outreachApprovalPersistence.persist({ request });
       return { ...decisionResult, outreachApprovalRequest: request, outreachApprovalRecord: record };
     },
-
-    async resolveOutreachApproval(input: {
-      approvalRecordId: string;
-      decision: SalesOpportunityDecisionResult;
-      decisionOutcome: 'approved' | 'denied';
-      actor: string;
-      reason?: string;
-    }) {
+    async resolveOutreachApproval(input: { approvalRecordId: string; decision: SalesOpportunityDecisionResult; decisionOutcome: 'approved' | 'denied'; actor: string; reason?: string }) {
       const approvalRecordId = required(input.approvalRecordId, 'approvalRecordId');
       const approvalRecord = await operationalRepository.getWorkflowEventById(approvalRecordId);
       if (!approvalRecord) throw new Error(`Sales outreach approval record ${approvalRecordId} was not found.`);
       const request = outreachApproval.request(input.decision);
-      const resolutionInput = {
-        decision: input.decision,
-        request,
-        approvalRecord,
-        actor: input.actor,
-        decisionOutcome: input.decisionOutcome,
-        ...(input.reason !== undefined ? { reason: input.reason } : {}),
-      };
+      const resolutionInput = { decision: input.decision, request, approvalRecord, actor: input.actor, decisionOutcome: input.decisionOutcome, ...(input.reason !== undefined ? { reason: input.reason } : {}) };
       const resolution = outreachApprovalResolution.resolve(resolutionInput);
       const record = await outreachApprovalResolutionPersistence.persist({ resolution });
       return { approvalRequest: request, approvalRecord, resolution, resolutionRecord: record };
     },
-
-    async prepareApprovedOutreach(input: { resolutionRecordId: string; subject: string; body: string }) {
-      return governedOutreachPreparation.prepare(input);
-    },
-
-    async requestHumanOutreachReview(preparationRecordId: string) {
-      return governedOutreachHumanReview.request(preparationRecordId);
+    async prepareApprovedOutreach(input: { resolutionRecordId: string; subject: string; body: string }) { return governedOutreachPreparation.prepare(input); },
+    async requestHumanOutreachReview(preparationRecordId: string) { return governedOutreachHumanReview.request(preparationRecordId); },
+    async decideHumanOutreachReview(input: { reviewRequestRecordId: string; decision: 'approved' | 'denied'; reviewer: string; reason?: string }) {
+      return governedOutreachHumanReviewDecision.decide(input);
     },
   };
 
-  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, governedOutreachHumanReview, commands };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, governedOutreachHumanReview, governedOutreachHumanReviewDecision, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
