@@ -12,6 +12,7 @@ import { createLeadSalesIntakeActivationService } from './lead-sales-intake-acti
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
 import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
 import { createSalesOpportunityDecisionService, type SalesOpportunityDecisionResult } from './sales-opportunity-decision-service.js';
+import { createSalesGovernedOutreachPreparationService } from './sales-governed-outreach-preparation-service.js';
 import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
 import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
 import { createSalesOutreachApprovalResolutionService } from './sales-outreach-approval-resolution-service.js';
@@ -51,6 +52,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const outreachApprovalPersistence = createSalesOutreachApprovalPersistenceService(operationalRepository);
   const outreachApprovalResolution = createSalesOutreachApprovalResolutionService();
   const outreachApprovalResolutionPersistence = createSalesOutreachApprovalResolutionPersistenceService(operationalRepository);
+  const governedOutreachPreparation = createSalesGovernedOutreachPreparationService(operationalRepository);
 
   const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
@@ -168,9 +170,13 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const record = await outreachApprovalResolutionPersistence.persist({ resolution });
       return { approvalRequest: request, approvalRecord, resolution, resolutionRecord: record };
     },
+
+    async prepareApprovedOutreach(input: { resolutionRecordId: string; subject: string; body: string }) {
+      return governedOutreachPreparation.prepare(input);
+    },
   };
 
-  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, commands };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, governedOutreachPreparation, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
