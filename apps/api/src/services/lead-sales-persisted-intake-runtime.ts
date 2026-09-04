@@ -1,6 +1,9 @@
 import type { Pool } from 'pg';
 import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js';
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
+import { validateAgentRuntimeTask, type AgentRuntimeTask } from '../agents/agent-runtime-contract.js';
+import { recordRuntimeIdempotency, runtimeIdempotencyKey } from '../agents/agent-runtime-idempotency.js';
+import type { AgentRuntimeEvent, AgentRuntimeExecutionRecord } from '../agents/agent-runtime-state.js';
 import { SALES_INTERNAL_INTAKE_CAPABILITY, salesInternalIntakeHandler } from '../agents/sales-internal-intake-handler.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
@@ -15,6 +18,15 @@ function required(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${field} is required.`);
   return trimmed;
+}
+
+export interface AutoAdvanceSalesIntakeInput {
+  leadId: string;
+  qualificationRecordId: string;
+  dispositionRecordId: string;
+  atlasSourcePaths: string[];
+  correlationId: string;
+  createdAt: string;
 }
 
 export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
@@ -38,6 +50,107 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const opportunityAssessmentPersistence = createSalesOpportunityAssessmentPersistenceService(
     operationalRepository,
   );
+
+  const registerAutoAdvanceIntake = async (
+    input: AutoAdvanceSalesIntakeInput,
+  ): Promise<AgentRuntimeExecutionRecord> => {
+    const leadId = required(input.leadId, 'leadId');
+    const qualificationRecordId = required(input.qualificationRecordId, 'qualificationRecordId');
+    const dispositionRecordId = required(input.dispositionRecordId, 'dispositionRecordId');
+    const correlationId = required(input.correlationId, 'correlationId');
+    const createdAt = required(input.createdAt, 'createdAt');
+    const atlasSourcePaths = [...new Set(input.atlasSourcePaths.map((path) => path.trim()).filter(Boolean))];
+    if (atlasSourcePaths.length === 0) {
+      throw new Error('Auto-advanced Sales intake requires authoritative Atlas source paths.');
+    }
+
+    const executionId = `sales-intake:auto-advance:${dispositionRecordId}`;
+    const taskId = `sales-intake-task:auto-advance:${dispositionRecordId}`;
+    const existing = await store.getExecution(executionId);
+    if (existing) return existing;
+
+    const task: AgentRuntimeTask = {
+      taskId,
+      executionId,
+      originAgent: 'lead_agent',
+      destinationAgent: 'sales_agent',
+      objective: 'Intake an auto-advanced qualified lead for internal Sales processing without contacting the prospect.',
+      priority: 'normal',
+      context: {
+        leadId,
+        qualificationRecordId,
+        dispositionRecordId,
+        authorizationBasis: 'lead_auto_advance',
+      },
+      knowledgeReferences: atlasSourcePaths,
+      inputs: {
+        leadId,
+        qualificationRecordId,
+        dispositionRecordId,
+        authorizationBasis: 'lead_auto_advance',
+        salesIntakeOnly: true,
+        salesDispatchAuthorised: false,
+        outreachAuthorised: false,
+      },
+      expectedOutput: 'A governed internal Sales intake assessment with no prospect contact or outreach.',
+      dependencies: [],
+      risks: [],
+      confidence: 1,
+      approvalRequired: false,
+      status: 'queued',
+      nextAction: 'configure_governed_sales_intake_processing',
+      attempt: 1,
+      maxAttempts: 1,
+      correlationId,
+      createdAt,
+      updatedAt: createdAt,
+    };
+
+    const errors = validateAgentRuntimeTask(task);
+    if (errors.length) throw new Error(errors.join(' '));
+
+    const operation = 'task_created';
+    const idempotencyKey = runtimeIdempotencyKey('runtime', executionId, operation);
+    if (await store.hasIdempotencyKey(idempotencyKey)) {
+      const replay = await store.getExecution(executionId);
+      if (!replay) throw new Error('Sales auto-advance idempotency record exists but execution state is missing.');
+      return replay;
+    }
+
+    const eventId = crypto.randomUUID();
+    const event: AgentRuntimeEvent = {
+      eventId,
+      executionId,
+      taskId,
+      correlationId,
+      type: 'task_created',
+      actor: 'runtime',
+      payload: {
+        originAgent: 'lead_agent',
+        destinationAgent: 'sales_agent',
+        authorizationBasis: 'lead_auto_advance',
+        salesIntakeOnly: true,
+        salesDispatchAuthorised: false,
+        outreachAuthorised: false,
+      },
+      idempotencyKey,
+      occurredAt: createdAt,
+    };
+    const record: AgentRuntimeExecutionRecord = {
+      task,
+      version: 1,
+      lastEventId: eventId,
+      persistedAt: createdAt,
+    };
+
+    await commitRuntimeMutation({
+      record,
+      expectedVersion: 0,
+      event,
+      idempotencyRecord: recordRuntimeIdempotency(event, operation),
+    });
+    return record;
+  };
 
   const commands = {
     async activateIntake(executionId: string) {
@@ -65,6 +178,18 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
         executionId: normalizedExecutionId,
         capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
       });
+    },
+
+    async handoffAutoAdvancedLead(input: AutoAdvanceSalesIntakeInput) {
+      const record = await registerAutoAdvanceIntake(input);
+      const ready = record.task.status === 'queued' ? await activation.activate(record.task.executionId) : record;
+      const result = ready.task.status === 'ready'
+        ? await orchestrator.execute({
+            executionId: ready.task.executionId,
+            capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
+          })
+        : ready;
+      return { intakeExecution: result };
     },
 
     async assessOpportunity(executionId: string, salesContext: SalesOpportunityContext = {}) {
