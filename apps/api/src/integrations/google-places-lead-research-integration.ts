@@ -7,23 +7,17 @@ import {
 } from './lead-research-integration.js';
 
 interface GooglePlacesSearchResponse {
-  places?: Array<{
-    id?: string;
-    displayName?: { text?: string };
-    formattedAddress?: string;
-    addressComponents?: Array<{
-      longText?: string;
-      shortText?: string;
-      types?: string[];
-    }>;
-    types?: string[];
-  }>;
+  places?: GooglePlacesPlace[];
   nextPageToken?: string;
-  error?: {
-    code?: number;
-    status?: string;
-    message?: string;
-  };
+  error?: { code?: number; status?: string; message?: string };
+}
+
+interface GooglePlacesPlace {
+  id?: string;
+  displayName?: { text?: string };
+  formattedAddress?: string;
+  addressComponents?: Array<{ longText?: string; shortText?: string; types?: string[] }>;
+  types?: string[];
 }
 
 export interface GooglePlacesLeadResearchIntegrationOptions {
@@ -64,18 +58,14 @@ function targetCountryCode(country: string | undefined): string | undefined {
   if (!normalized) return undefined;
   const aliases: Record<string, string> = {
     za: 'ZA', 'south africa': 'ZA', 'republic of south africa': 'ZA',
-    bw: 'BW', botswana: 'BW',
-    na: 'NA', namibia: 'NA',
-    zm: 'ZM', zambia: 'ZM',
-    zw: 'ZW', zimbabwe: 'ZW',
-    mz: 'MZ', mozambique: 'MZ',
-    ls: 'LS', lesotho: 'LS',
+    bw: 'BW', botswana: 'BW', na: 'NA', namibia: 'NA', zm: 'ZM', zambia: 'ZM',
+    zw: 'ZW', zimbabwe: 'ZW', mz: 'MZ', mozambique: 'MZ', ls: 'LS', lesotho: 'LS',
     sz: 'SZ', eswatini: 'SZ', swaziland: 'SZ',
   };
   return aliases[normalized] ?? (normalized.length === 2 ? normalized.toUpperCase() : undefined);
 }
 
-function countryCodeFromPlace(place: GooglePlacesSearchResponse['places'][number]): string | undefined {
+function countryCodeFromPlace(place: GooglePlacesPlace): string | undefined {
   const component = place.addressComponents?.find((item) => item.types?.includes('country'));
   const code = component?.shortText?.trim().toUpperCase();
   return code && /^[A-Z]{2}$/.test(code) ? code : undefined;
@@ -92,55 +82,43 @@ export function createGooglePlacesLeadResearchIntegration(
   const baseUrl = (options.baseUrl ?? 'https://places.googleapis.com/v1').replace(/\/$/, '');
 
   return {
-    integrationId: 'research.google-places',
-    kind: 'other',
-    provider: 'google-places',
-    supportedModes: ['live'],
-    supportedOperations: ['search_businesses'],
+    integrationId: 'research.google-places', kind: 'other', provider: 'google-places',
+    supportedModes: ['live'], supportedOperations: ['search_businesses'],
 
-    async execute(
-      request: IntegrationRequest<LeadBusinessSearchInput>,
-    ): Promise<IntegrationResponse<LeadBusinessSearchOutput>> {
-      const blockedOutput: LeadBusinessSearchOutput = {
-        query: request.input.query?.trim() ?? '',
-        candidates: [],
+    async execute(request: IntegrationRequest<LeadBusinessSearchInput>): Promise<IntegrationResponse<LeadBusinessSearchOutput>> {
+      const blockedOutput: LeadBusinessSearchOutput = { query: request.input.query?.trim() ?? '', candidates: [] };
+      if (request.operation !== 'search_businesses') return {
+        integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode,
+        status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Operation not supported: expected search_businesses.' }, evidenceReferences: [], retryable: false,
+      };
+      if (request.requestedBy !== 'lead_agent' && request.requestedBy !== 'human_executive') return {
+        integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode,
+        status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Requester not authorized: expected lead_agent or human_executive.' }, evidenceReferences: [], retryable: false,
+      };
+      if (request.mode !== 'live' || request.risk !== 'low') return {
+        integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode,
+        status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Mode/risk not supported: expected live/low.' }, evidenceReferences: [], retryable: false,
       };
 
-      if (request.operation !== 'search_businesses') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Operation not supported: expected search_businesses.' }, evidenceReferences: [], retryable: false };
-      }
-      if (request.requestedBy !== 'lead_agent' && request.requestedBy !== 'human_executive') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Requester not authorized: expected lead_agent or human_executive.' }, evidenceReferences: [], retryable: false };
-      }
-      if (request.mode !== 'live' || request.risk !== 'low') {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INTEGRATION_POLICY_VIOLATION', providerErrorMessage: 'Mode/risk not supported: expected live/low.' }, evidenceReferences: [], retryable: false };
-      }
-
       const inputErrors = validateLeadBusinessSearchInput(request.input);
-      if (inputErrors.length > 0) {
-        return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INPUT_VALIDATION_FAILED', providerErrorMessage: `Input validation failed: ${inputErrors.join('; ')}` }, evidenceReferences: [], retryable: false };
-      }
+      if (inputErrors.length > 0) return {
+        integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode,
+        status: 'blocked', output: { ...blockedOutput, providerErrorCode: 'INPUT_VALIDATION_FAILED', providerErrorMessage: `Input validation failed: ${inputErrors.join('; ')}` }, evidenceReferences: [], retryable: false,
+      };
 
       let response: Response;
       try {
         response = await fetchImpl(`${baseUrl}/places:searchText`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': FIELD_MASK },
-          body: JSON.stringify({
-            textQuery: request.input.query.trim(),
-            maxResultCount: request.input.maxResults ?? 10,
-            regionCode,
-            ...(request.input.pageToken ? { pageToken: request.input.pageToken } : {}),
-          }),
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': FIELD_MASK },
+          body: JSON.stringify({ textQuery: request.input.query.trim(), maxResultCount: request.input.maxResults ?? 10, regionCode, ...(request.input.pageToken ? { pageToken: request.input.pageToken } : {}) }),
         });
       } catch {
         return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: { ...blockedOutput, providerErrorCode: 'NETWORK_ERROR', providerErrorMessage: 'Google Places request failed before an HTTP response was received.' }, evidenceReferences: [], retryable: true };
       }
 
       let rawBody = '';
-      try {
-        rawBody = await response.text();
-      } catch {
+      try { rawBody = await response.text(); }
+      catch {
         return { integrationId: 'research.google-places', operation: request.operation, provider: 'google-places', mode: request.mode, status: 'failed', output: { ...blockedOutput, providerErrorCode: `HTTP_${response.status}`, providerErrorMessage: 'Google Places response body could not be read.' }, evidenceReferences: [], retryable: response.status === 429 || response.status >= 500 };
       }
 
@@ -167,18 +145,11 @@ export function createGooglePlacesLeadResearchIntegration(
           const types = Array.isArray(place.types) ? place.types.filter((type) => typeof type === 'string' && type.trim()).map((type) => type.trim()) : [];
           if (!isBusinessCandidate(types)) return null;
           const countryCode = countryCodeFromPlace(place);
-          // When Google provides a country component, an explicit mismatch is a hard
-          // reject. Missing country data is retained rather than falsely rejecting a
-          // valid local business, since regionCode can cause Google to omit the country
-          // from otherwise valid South African addresses.
           if (targetCode && countryCode && countryCode !== targetCode) return null;
           return {
-            providerPlaceId,
-            displayName,
+            providerPlaceId, displayName,
             ...(place.formattedAddress?.trim() ? { formattedAddress: place.formattedAddress.trim() } : {}),
-            ...(countryCode ? { countryCode } : {}),
-            types,
-            source: 'google_places',
+            ...(countryCode ? { countryCode } : {}), types, source: 'google_places',
           };
         })
         .filter((candidate): candidate is LeadBusinessCandidate => candidate !== null);
