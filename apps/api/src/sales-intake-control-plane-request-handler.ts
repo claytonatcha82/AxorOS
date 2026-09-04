@@ -4,73 +4,46 @@ import type { RuntimeExecutionOutcome } from './agents/agent-runtime-orchestrato
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 import type { WorkflowEventRecord } from './data/operational-repository.js';
-import type {
-  SalesOpportunityAssessment,
-  SalesOpportunityContext,
-} from './services/sales-opportunity-assessment-service.js';
+import type { SalesOpportunityAssessment, SalesOpportunityContext } from './services/sales-opportunity-assessment-service.js';
 import type { SalesOutreachDraftReviewDecision } from './services/sales-outreach-draft-review-service.js';
 import type { SalesSupervisedEmailExecution } from './services/sales-supervised-email-execution-service.js';
 import type { SalesSupervisedSendDecision } from './services/sales-supervised-send-gate-service.js';
+import type { SalesOpportunityDecisionResult } from './services/sales-opportunity-decision-service.js';
 
 const SALES_INTAKE_ACTIVATE_PATH = '/api/v1/control/sales-intake/activate';
 const SALES_INTAKE_PROCESS_PATH = '/api/v1/control/sales-intake/process';
 const SALES_INTAKE_ASSESS_PATH = '/api/v1/control/sales-intake/assess';
+const SALES_WORKFLOW_PATH = '/api/v1/control/sales-workflow';
 const SALES_EMAIL_REVIEW_DRAFT_PATH = '/api/v1/control/sales-email/review-draft';
 const SALES_EMAIL_SEND_GATE_PATH = '/api/v1/control/sales-email/send-gate';
 const SALES_EMAIL_SEND_PATH = '/api/v1/control/sales-email/send';
-const MAX_CONTROL_BODY_BYTES = 4 * 1024;
+const MAX_CONTROL_BODY_BYTES = 8 * 1024;
+
+type SalesWorkflowCommand = {
+  decideOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<unknown>;
+  requestOutreachApproval(executionId: string, salesContext?: SalesOpportunityContext): Promise<unknown>;
+  resolveOutreachApproval(input: { approvalRecordId: string; decision: SalesOpportunityDecisionResult; decisionOutcome: 'approved' | 'denied'; actor: string; reason?: string }): Promise<unknown>;
+  prepareApprovedOutreach(input: { resolutionRecordId: string; subject: string; body: string }): Promise<unknown>;
+  requestHumanOutreachReview(preparationRecordId: string): Promise<unknown>;
+  decideHumanOutreachReview(input: { reviewRequestRecordId: string; decision: 'approved' | 'denied'; reviewer: string; reason?: string }): Promise<unknown>;
+  prepareSupervisedOutreachSendGate(humanReviewResolutionRecordId: string): Promise<unknown>;
+  authoriseHumanOutreachExecution(input: { supervisedSendGateRecordId: string; actorType: string; actorId: string; humanExecutionConfirmed: boolean }): Promise<unknown>;
+};
 
 export interface SalesIntakeControlPlaneDependencies {
   config: Pick<ApiConfig, 'controlCenterUrl' | 'controlPlaneToken'>;
   salesIntakeCommand: {
     activateIntake(executionId: string): Promise<AgentRuntimeExecutionRecord>;
     processIntake(executionId: string): Promise<RuntimeExecutionOutcome>;
-    assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{
-      assessment: SalesOpportunityAssessment;
-      record: WorkflowEventRecord;
-    }>;
+    assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{ assessment: SalesOpportunityAssessment; record: WorkflowEventRecord }>;
   };
   salesOutreachDraftReviewCommand?: {
-    review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{
-      review: {
-        draftRecordId: string;
-        leadId: string;
-        decision: SalesOutreachDraftReviewDecision;
-        reviewer: 'human_executive';
-        reviewComplete: true;
-        outreachAuthorised: false;
-        sendAuthorised: false;
-        pricingAuthorised: false;
-        commercialCommitmentAuthorised: false;
-        nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft';
-      };
-      record: WorkflowEventRecord;
-    }>;
+    review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{ review: { draftRecordId: string; leadId: string; decision: SalesOutreachDraftReviewDecision; reviewer: 'human_executive'; reviewComplete: true; outreachAuthorised: false; sendAuthorised: false; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft' }; record: WorkflowEventRecord }>;
   };
   salesSupervisedSendGateCommand?: {
-    decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision): Promise<{
-      gate: {
-        draftReviewRecordId: string;
-        draftRecordId: string;
-        leadId: string;
-        decision: SalesSupervisedSendDecision;
-        approver: 'human_executive';
-        supervised: true;
-        outreachAuthorised: false;
-        sendAuthorised: boolean;
-        pricingAuthorised: false;
-        commercialCommitmentAuthorised: false;
-        nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review';
-      };
-      record: WorkflowEventRecord;
-    }>;
+    decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision): Promise<{ gate: { draftReviewRecordId: string; draftRecordId: string; leadId: string; decision: SalesSupervisedSendDecision; approver: 'human_executive'; supervised: true; outreachAuthorised: false; sendAuthorised: boolean; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review' }; record: WorkflowEventRecord }>;
   };
-  salesEmailCommand?: {
-    execute(sendGateRecordId: string): Promise<{
-      execution: SalesSupervisedEmailExecution;
-      record: WorkflowEventRecord;
-    }>;
-  };
+  salesEmailCommand?: { execute(sendGateRecordId: string): Promise<{ execution: SalesSupervisedEmailExecution; record: WorkflowEventRecord }> };
   fallback: RequestListener;
 }
 
@@ -112,7 +85,6 @@ function validSupervisedSendGateBody(body: Record<string, unknown>): body is { d
   const keys = Object.keys(body);
   return keys.length === 2 && keys.includes('draftReviewRecordId') && keys.includes('decision') && typeof body.draftReviewRecordId === 'string' && Boolean(body.draftReviewRecordId.trim()) && (body.decision === 'approved' || body.decision === 'rejected');
 }
-
 const SALES_CONTEXT_KEYS = new Set(['decisionMaker','industry','country','businessSummary','websiteAudit','painPoints','recommendedServices','priority','confidence','previousContact']);
 function validOptionalText(value: unknown): boolean { return value === undefined || (typeof value === 'string' && Boolean(value.trim())); }
 function validOptionalTextList(value: unknown): boolean { return value === undefined || (Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && Boolean(entry.trim()))); }
@@ -131,8 +103,18 @@ function validAssessmentBody(body: Record<string, unknown>): body is { execution
   if (typeof body.executionId !== 'string' || !body.executionId.trim()) return false;
   return validSalesContext(body.salesContext);
 }
+function validSalesWorkflowBody(body: Record<string, unknown>): boolean {
+  const operation = body.operation;
+  if (typeof operation !== 'string' || !['decide_opportunity','request_outreach_approval','resolve_outreach_approval','prepare_approved_outreach','request_human_outreach_review','decide_human_outreach_review','prepare_supervised_send_gate','authorise_human_outreach_execution'].includes(operation)) return false;
+  if (operation === 'decide_opportunity' || operation === 'request_outreach_approval') return typeof body.executionId === 'string' && Boolean(body.executionId.trim()) && validSalesContext(body.salesContext);
+  if (operation === 'resolve_outreach_approval') return typeof body.approvalRecordId === 'string' && Boolean(body.approvalRecordId.trim()) && (body.decisionOutcome === 'approved' || body.decisionOutcome === 'denied') && typeof body.actor === 'string' && Boolean(body.actor.trim()) && !!body.decision && typeof body.decision === 'object' && !Array.isArray(body.decision);
+  if (operation === 'prepare_approved_outreach') return typeof body.resolutionRecordId === 'string' && Boolean(body.resolutionRecordId.trim()) && typeof body.subject === 'string' && Boolean(body.subject.trim()) && typeof body.body === 'string' && Boolean(body.body.trim());
+  if (operation === 'request_human_outreach_review' || operation === 'prepare_supervised_send_gate') return typeof (operation === 'request_human_outreach_review' ? body.preparationRecordId : body.humanReviewResolutionRecordId) === 'string' && Boolean(String(operation === 'request_human_outreach_review' ? body.preparationRecordId : body.humanReviewResolutionRecordId).trim());
+  if (operation === 'decide_human_outreach_review') return typeof body.reviewRequestRecordId === 'string' && Boolean(body.reviewRequestRecordId.trim()) && (body.decision === 'approved' || body.decision === 'denied') && typeof body.reviewer === 'string' && Boolean(body.reviewer.trim());
+  return typeof body.supervisedSendGateRecordId === 'string' && Boolean(body.supervisedSendGateRecordId.trim()) && body.actorType === 'founder' && body.actorId === 'human_executive' && body.humanExecutionConfirmed === true;
+}
 function isSalesControlPath(path: string | undefined): boolean {
-  return path === SALES_INTAKE_ACTIVATE_PATH || path === SALES_INTAKE_PROCESS_PATH || path === SALES_INTAKE_ASSESS_PATH || path === SALES_EMAIL_REVIEW_DRAFT_PATH || path === SALES_EMAIL_SEND_GATE_PATH || path === SALES_EMAIL_SEND_PATH;
+  return path === SALES_INTAKE_ACTIVATE_PATH || path === SALES_INTAKE_PROCESS_PATH || path === SALES_INTAKE_ASSESS_PATH || path === SALES_WORKFLOW_PATH || path === SALES_EMAIL_REVIEW_DRAFT_PATH || path === SALES_EMAIL_SEND_GATE_PATH || path === SALES_EMAIL_SEND_PATH;
 }
 
 export function createSalesIntakeControlPlaneRequestHandler(dependencies: SalesIntakeControlPlaneDependencies): RequestListener {
@@ -160,47 +142,53 @@ export function createSalesIntakeControlPlaneRequestHandler(dependencies: SalesI
       const code = error instanceof Error ? error.message : 'invalid_json_body';
       sendJson(response,code==='request_body_too_large'?413:400,{ok:false,error:{code,message:code==='request_body_too_large'?'Request body exceeds the allowed size.':'Request body must be a JSON object.'}},corsHeaders); return;
     }
+
+    if (request.url === SALES_WORKFLOW_PATH) {
+      if (!validSalesWorkflowBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_workflow_command',message:'Invalid governed Sales workflow command.'}},corsHeaders); return; }
+      const commands = dependencies.salesIntakeCommand as typeof dependencies.salesIntakeCommand & SalesWorkflowCommand;
+      try {
+        let result: unknown;
+        switch (body.operation) {
+          case 'decide_opportunity': result = await commands.decideOpportunity(body.executionId as string, (body.salesContext ?? {}) as SalesOpportunityContext); break;
+          case 'request_outreach_approval': result = await commands.requestOutreachApproval(body.executionId as string, (body.salesContext ?? {}) as SalesOpportunityContext); break;
+          case 'resolve_outreach_approval': result = await commands.resolveOutreachApproval({ approvalRecordId: body.approvalRecordId as string, decision: body.decision as SalesOpportunityDecisionResult, decisionOutcome: body.decisionOutcome as 'approved' | 'denied', actor: body.actor as string, ...(typeof body.reason === 'string' ? { reason: body.reason } : {}) }); break;
+          case 'prepare_approved_outreach': result = await commands.prepareApprovedOutreach({ resolutionRecordId: body.resolutionRecordId as string, subject: body.subject as string, body: body.body as string }); break;
+          case 'request_human_outreach_review': result = await commands.requestHumanOutreachReview(body.preparationRecordId as string); break;
+          case 'decide_human_outreach_review': result = await commands.decideHumanOutreachReview({ reviewRequestRecordId: body.reviewRequestRecordId as string, decision: body.decision as 'approved' | 'denied', reviewer: body.reviewer as string, ...(typeof body.reason === 'string' ? { reason: body.reason } : {}) }); break;
+          case 'prepare_supervised_send_gate': result = await commands.prepareSupervisedOutreachSendGate(body.humanReviewResolutionRecordId as string); break;
+          case 'authorise_human_outreach_execution': result = await commands.authoriseHumanOutreachExecution({ supervisedSendGateRecordId: body.supervisedSendGateRecordId as string, actorType: body.actorType as string, actorId: body.actorId as string, humanExecutionConfirmed: true }); break;
+        }
+        sendJson(response,200,{ok:true,data:result as Record<string, unknown>},corsHeaders);
+      } catch(error) { const message=error instanceof Error?error.message:'Sales workflow command failed.'; sendJson(response,400,{ok:false,error:{code:'sales_workflow_command_rejected',message}},corsHeaders); }
+      return;
+    }
+
     if (request.url === SALES_EMAIL_REVIEW_DRAFT_PATH) {
       if (!validDraftReviewBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_outreach_draft_review_command',message:'Request body must contain only draftRecordId and an approved or rejected decision.'}},corsHeaders); return; }
       if (!dependencies.salesOutreachDraftReviewCommand) { sendJson(response,503,{ok:false,error:{code:'sales_outreach_draft_review_not_configured',message:'Sales outreach draft review is not configured.'}},corsHeaders); return; }
-      try {
-        const outcome=await dependencies.salesOutreachDraftReviewCommand.review(body.draftRecordId,body.decision);
-        sendJson(response,200,{ok:true,data:{draftRecordId:outcome.review.draftRecordId,leadId:outcome.review.leadId,reviewRecordId:outcome.record.id,decision:outcome.review.decision,reviewer:outcome.review.reviewer,sendAuthorised:outcome.review.sendAuthorised,pricingAuthorised:outcome.review.pricingAuthorised,commercialCommitmentAuthorised:outcome.review.commercialCommitmentAuthorised,nextAction:outcome.review.nextAction}},corsHeaders);
-      } catch(error) { const message=error instanceof Error?error.message:'Sales outreach draft review failed.'; sendJson(response,400,{ok:false,error:{code:'sales_outreach_draft_review_rejected',message}},corsHeaders); }
+      try { const outcome=await dependencies.salesOutreachDraftReviewCommand.review(body.draftRecordId,body.decision); sendJson(response,200,{ok:true,data:{draftRecordId:outcome.review.draftRecordId,leadId:outcome.review.leadId,reviewRecordId:outcome.record.id,decision:outcome.review.decision,reviewer:outcome.review.reviewer,sendAuthorised:outcome.review.sendAuthorised,pricingAuthorised:outcome.review.pricingAuthorised,commercialCommitmentAuthorised:outcome.review.commercialCommitmentAuthorised,nextAction:outcome.review.nextAction}},corsHeaders); } catch(error) { const message=error instanceof Error?error.message:'Sales outreach draft review failed.'; sendJson(response,400,{ok:false,error:{code:'sales_outreach_draft_review_rejected',message}},corsHeaders); }
       return;
     }
     if (request.url === SALES_EMAIL_SEND_GATE_PATH) {
       if (!validSupervisedSendGateBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_supervised_send_gate_command',message:'Request body must contain only draftReviewRecordId and an approved or rejected decision.'}},corsHeaders); return; }
       if (!dependencies.salesSupervisedSendGateCommand) { sendJson(response,503,{ok:false,error:{code:'sales_supervised_send_gate_not_configured',message:'Sales supervised send gate is not configured.'}},corsHeaders); return; }
-      try {
-        const outcome=await dependencies.salesSupervisedSendGateCommand.decide(body.draftReviewRecordId,body.decision);
-        sendJson(response,200,{ok:true,data:{draftReviewRecordId:outcome.gate.draftReviewRecordId,draftRecordId:outcome.gate.draftRecordId,leadId:outcome.gate.leadId,sendGateRecordId:outcome.record.id,decision:outcome.gate.decision,approver:outcome.gate.approver,supervised:outcome.gate.supervised,sendAuthorised:outcome.gate.sendAuthorised,pricingAuthorised:outcome.gate.pricingAuthorised,commercialCommitmentAuthorised:outcome.gate.commercialCommitmentAuthorised,nextAction:outcome.gate.nextAction}},corsHeaders);
-      } catch(error) { const message=error instanceof Error?error.message:'Sales supervised send gate failed.'; sendJson(response,400,{ok:false,error:{code:'sales_supervised_send_gate_rejected',message}},corsHeaders); }
+      try { const outcome=await dependencies.salesSupervisedSendGateCommand.decide(body.draftReviewRecordId,body.decision); sendJson(response,200,{ok:true,data:{draftReviewRecordId:outcome.gate.draftReviewRecordId,draftRecordId:outcome.gate.draftRecordId,leadId:outcome.gate.leadId,sendGateRecordId:outcome.record.id,decision:outcome.gate.decision,approver:outcome.gate.approver,supervised:outcome.gate.supervised,sendAuthorised:outcome.gate.sendAuthorised,pricingAuthorised:outcome.gate.pricingAuthorised,commercialCommitmentAuthorised:outcome.gate.commercialCommitmentAuthorised,nextAction:outcome.gate.nextAction}},corsHeaders); } catch(error) { const message=error instanceof Error?error.message:'Sales supervised send gate failed.'; sendJson(response,400,{ok:false,error:{code:'sales_supervised_send_gate_rejected',message}},corsHeaders); }
       return;
     }
     if (request.url === SALES_EMAIL_SEND_PATH) {
       if (!validSendGateOnlyBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_email_send_command',message:'Request body must contain only a non-empty sendGateRecordId.'}},corsHeaders); return; }
       if (!dependencies.salesEmailCommand) { sendJson(response,503,{ok:false,error:{code:'sales_email_send_not_configured',message:'Supervised Sales email execution is not configured.'}},corsHeaders); return; }
-      try {
-        const outcome=await dependencies.salesEmailCommand.execute(body.sendGateRecordId);
-        sendJson(response,200,{ok:true,data:{sendGateRecordId:outcome.execution.sendGateRecordId,draftRecordId:outcome.execution.draftRecordId,leadId:outcome.execution.leadId,sentRecordId:outcome.record.id,providerMessageId:outcome.execution.providerMessageId,supervised:outcome.execution.supervised,humanSendApprovalVerified:outcome.execution.humanSendApprovalVerified,sendExecuted:outcome.execution.sendExecuted,pricingAuthorised:outcome.execution.pricingAuthorised,commercialCommitmentAuthorised:outcome.execution.commercialCommitmentAuthorised,nextAction:outcome.execution.nextAction}},corsHeaders);
-      } catch(error) { const message=error instanceof Error?error.message:'Supervised Sales email execution failed.'; sendJson(response,400,{ok:false,error:{code:'sales_email_send_rejected',message}},corsHeaders); }
+      try { const outcome=await dependencies.salesEmailCommand.execute(body.sendGateRecordId); sendJson(response,200,{ok:true,data:{sendGateRecordId:outcome.execution.sendGateRecordId,draftRecordId:outcome.execution.draftRecordId,leadId:outcome.execution.leadId,sentRecordId:outcome.record.id,providerMessageId:outcome.execution.providerMessageId,supervised:outcome.execution.supervised,humanSendApprovalVerified:outcome.execution.humanSendApprovalVerified,sendExecuted:outcome.execution.sendExecuted,pricingAuthorised:outcome.execution.pricingAuthorised,commercialCommitmentAuthorised:outcome.execution.commercialCommitmentAuthorised,nextAction:outcome.execution.nextAction}},corsHeaders); } catch(error) { const message=error instanceof Error?error.message:'Supervised Sales email execution failed.'; sendJson(response,400,{ok:false,error:{code:'sales_email_send_rejected',message}},corsHeaders); }
       return;
     }
     if (request.url === SALES_INTAKE_ASSESS_PATH) {
       if (!validAssessmentBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_opportunity_assessment',message:'Request body must contain executionId and only supported evidence-backed salesContext fields.'}},corsHeaders); return; }
-      try {
-        const outcome=await dependencies.salesIntakeCommand.assessOpportunity(body.executionId,body.salesContext??{});
-        sendJson(response,200,{ok:true,data:{executionId:outcome.assessment.salesIntakeExecutionId,leadId:outcome.assessment.leadId,assessmentRecordId:outcome.record.id,assessmentStatus:outcome.assessment.assessmentStatus,missingInformation:outcome.assessment.missingInformation,nextAction:outcome.assessment.nextAction,outreachAuthorised:outcome.assessment.outreachAuthorised,pricingAuthorised:outcome.assessment.pricingAuthorised,commercialCommitmentAuthorised:outcome.assessment.commercialCommitmentAuthorised}},corsHeaders);
-      } catch(error) { const message=error instanceof Error?error.message:'Sales opportunity assessment failed.'; sendJson(response,400,{ok:false,error:{code:'sales_opportunity_assessment_rejected',message}},corsHeaders); }
+      try { const outcome=await dependencies.salesIntakeCommand.assessOpportunity(body.executionId,body.salesContext??{}); sendJson(response,200,{ok:true,data:{executionId:outcome.assessment.salesIntakeExecutionId,leadId:outcome.assessment.leadId,assessmentRecordId:outcome.record.id,assessmentStatus:outcome.assessment.assessmentStatus,missingInformation:outcome.assessment.missingInformation,nextAction:outcome.assessment.nextAction,outreachAuthorised:outcome.assessment.outreachAuthorised,pricingAuthorised:outcome.assessment.pricingAuthorised,commercialCommitmentAuthorised:outcome.assessment.commercialCommitmentAuthorised}},corsHeaders); } catch(error) { const message=error instanceof Error?error.message:'Sales opportunity assessment failed.'; sendJson(response,400,{ok:false,error:{code:'sales_opportunity_assessment_rejected',message}},corsHeaders); }
       return;
     }
     if (!validExecutionOnlyBody(body)) { sendJson(response,400,{ok:false,error:{code:'invalid_sales_intake_command',message:'Request body must contain only a non-empty executionId.'}},corsHeaders); return; }
     try {
-      if (request.url===SALES_INTAKE_ACTIVATE_PATH) {
-        const record=await dependencies.salesIntakeCommand.activateIntake(body.executionId);
-        sendJson(response,200,{ok:true,data:{executionId:record.task.executionId,status:record.task.status,nextAction:record.task.nextAction,salesDispatchAuthorised:record.task.inputs.salesDispatchAuthorised,outreachAuthorised:record.task.inputs.outreachAuthorised}},corsHeaders); return;
-      }
+      if (request.url===SALES_INTAKE_ACTIVATE_PATH) { const record=await dependencies.salesIntakeCommand.activateIntake(body.executionId); sendJson(response,200,{ok:true,data:{executionId:record.task.executionId,status:record.task.status,nextAction:record.task.nextAction,salesDispatchAuthorised:record.task.inputs.salesDispatchAuthorised,outreachAuthorised:record.task.inputs.outreachAuthorised}},corsHeaders); return; }
       const outcome=await dependencies.salesIntakeCommand.processIntake(body.executionId);
       sendJson(response,200,{ok:true,data:{executionId:outcome.record.task.executionId,status:outcome.record.task.status,resultStatus:outcome.record.result?.status??null,salesDispatchAuthorised:outcome.record.result?.output.salesDispatchAuthorised??false,outreachAuthorised:outcome.record.result?.output.outreachAuthorised??false,replayed:outcome.replayed}},corsHeaders);
     } catch(error) { const message=error instanceof Error?error.message:'Sales intake command failed.'; sendJson(response,400,{ok:false,error:{code:'sales_intake_command_rejected',message}},corsHeaders); }
