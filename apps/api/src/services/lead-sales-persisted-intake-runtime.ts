@@ -156,14 +156,15 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const approvalRecord = await operationalRepository.getWorkflowEventById(approvalRecordId);
       if (!approvalRecord) throw new Error(`Sales outreach approval record ${approvalRecordId} was not found.`);
       const request = outreachApproval.request(input.decision);
-      const resolution = outreachApprovalResolution.resolve({
+      const resolutionInput = {
         decision: input.decision,
         request,
         approvalRecord,
         actor: input.actor,
         decisionOutcome: input.decisionOutcome,
-        reason: input.reason,
-      });
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      };
+      const resolution = outreachApprovalResolution.resolve(resolutionInput);
       const record = await outreachApprovalResolutionPersistence.persist({ resolution });
       return { approvalRequest: request, approvalRecord, resolution, resolutionRecord: record };
     },
