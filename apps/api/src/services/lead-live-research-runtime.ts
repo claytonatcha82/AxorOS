@@ -84,7 +84,8 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
           createdAt: new Date().toISOString(),
         });
 
-        const intakeRecord = intake.intakeExecution.record;
+        const intakeExecution = intake.intakeExecution;
+        const intakeRecord = 'record' in intakeExecution ? intakeExecution.record : intakeExecution;
         logEvent('info', 'lead_sales_auto_advance_handoff_completed', {
           leadId: lead.leadId,
           companyName: lead.companyName,
