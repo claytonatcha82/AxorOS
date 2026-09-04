@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js';
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
@@ -117,7 +118,7 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       return replay;
     }
 
-    const eventId = crypto.randomUUID();
+    const eventId = randomUUID();
     const event: AgentRuntimeEvent = {
       eventId,
       executionId,
