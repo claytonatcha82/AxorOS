@@ -137,7 +137,8 @@ export function createLeadAtlasResearchOrchestrator(
         outcomes.unresolved += result.outcomes.unresolved;
         outcomes.ambiguous += result.outcomes.ambiguous;
         outcomes.notFound += result.outcomes.notFound;
-        outcomes.skipped += result.outcomes.skipped;
+        // Older workflow implementations/mocks may omit `skipped`; normalize at the aggregation boundary.
+        outcomes.skipped += result.outcomes.skipped ?? 0;
 
         for (const lead of result.enriched) {
           if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
