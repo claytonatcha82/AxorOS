@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import type { LeadRecord, WorkflowEventRecord } from '../data/operational-repository.js';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { CreateWorkflowEventInput, LeadRecord, WorkflowEventRecord } from '../data/operational-repository.js';
 import { createSalesGovernedOutreachHumanReviewRequestService } from './sales-governed-outreach-human-review-request-service.js';
 
 const lead: LeadRecord = {
@@ -14,55 +15,54 @@ function event(payload: unknown = preparationPayload, overrides: Partial<Workflo
   return { id: 'preparation-1', clientId: null, projectId: null, eventType: 'sales_governed_outreach_prepared', actorType: 'agent', actorId: 'sales_agent', payload, createdAt: '2026-09-04T00:00:00.000Z', ...overrides };
 }
 
-describe('Sales governed outreach human review request service', () => {
-  it('creates a pending human review request without granting dispatch or send authority', async () => {
-    const created: unknown[] = [];
-    const service = createSalesGovernedOutreachHumanReviewRequestService({
-      getWorkflowEventById: async () => event(),
-      findWorkflowEventByTypeAndPayloadField: async () => null,
-      createWorkflowEvent: async (input) => {
-        created.push(input);
-        return event(input.payload, { id: 'review-1', eventType: input.eventType, actorType: input.actorType, actorId: input.actorId ?? null });
-      },
-    });
-
-    const result = await service.request('preparation-1');
-
-    expect(result.reviewRequest.status).toBe('pending_human_outreach_review');
-    expect(result.reviewRequest.humanReviewRequired).toBe(true);
-    expect(result.reviewRequest.outreachAuthorised).toBe(true);
-    expect(result.reviewRequest.dispatchAuthorised).toBe(false);
-    expect(result.reviewRequest.sendAuthorised).toBe(false);
-    expect(created).toHaveLength(1);
+test('creates a pending human review request without granting dispatch or send authority', async () => {
+  const created: CreateWorkflowEventInput[] = [];
+  const service = createSalesGovernedOutreachHumanReviewRequestService({
+    getWorkflowEventById: async () => event(),
+    findWorkflowEventByTypeAndPayloadField: async () => null,
+    createWorkflowEvent: async (input) => {
+      created.push(input);
+      return event(input.payload, { id: 'review-1', eventType: input.eventType, actorType: input.actorType, actorId: input.actorId ?? null });
+    },
   });
 
-  it('blocks forged preparation authority', async () => {
-    const service = createSalesGovernedOutreachHumanReviewRequestService({
-      getWorkflowEventById: async () => event({ ...preparationPayload, dispatchAuthorised: true }),
-      findWorkflowEventByTypeAndPayloadField: async () => null,
-      createWorkflowEvent: async () => event(),
-    });
+  const result = await service.request('preparation-1');
 
-    await expect(service.request('preparation-1')).rejects.toThrow(/cannot alter or inherit dispatch/);
+  assert.equal(result.reviewRequest.status, 'pending_human_outreach_review');
+  assert.equal(result.reviewRequest.humanReviewRequired, true);
+  assert.equal(result.reviewRequest.outreachAuthorised, true);
+  assert.equal(result.reviewRequest.dispatchAuthorised, false);
+  assert.equal(result.reviewRequest.sendAuthorised, false);
+  assert.equal(created.length, 1);
+  assert.equal(created[0]?.eventType, 'sales_governed_outreach_human_review_requested');
+});
+
+test('blocks forged preparation authority', async () => {
+  const service = createSalesGovernedOutreachHumanReviewRequestService({
+    getWorkflowEventById: async () => event({ ...preparationPayload, dispatchAuthorised: true }),
+    findWorkflowEventByTypeAndPayloadField: async () => null,
+    createWorkflowEvent: async () => event(),
   });
 
-  it('blocks non-Sales Agent preparation records', async () => {
-    const service = createSalesGovernedOutreachHumanReviewRequestService({
-      getWorkflowEventById: async () => event(preparationPayload, { actorId: 'other_agent' }),
-      findWorkflowEventByTypeAndPayloadField: async () => null,
-      createWorkflowEvent: async () => event(),
-    });
+  await assert.rejects(() => service.request('preparation-1'), /cannot alter or inherit dispatch/);
+});
 
-    await expect(service.request('preparation-1')).rejects.toThrow(/Sales Agent preparation record/);
+test('blocks non-Sales Agent preparation records', async () => {
+  const service = createSalesGovernedOutreachHumanReviewRequestService({
+    getWorkflowEventById: async () => event(preparationPayload, { actorId: 'other_agent' }),
+    findWorkflowEventByTypeAndPayloadField: async () => null,
+    createWorkflowEvent: async () => event(),
   });
 
-  it('blocks duplicate review requests', async () => {
-    const service = createSalesGovernedOutreachHumanReviewRequestService({
-      getWorkflowEventById: async () => event(),
-      findWorkflowEventByTypeAndPayloadField: async () => event({}, { id: 'existing-review' }),
-      createWorkflowEvent: async () => event(),
-    });
+  await assert.rejects(() => service.request('preparation-1'), /Sales Agent preparation record/);
+});
 
-    await expect(service.request('preparation-1')).rejects.toThrow(/already exists/);
+test('blocks duplicate review requests', async () => {
+  const service = createSalesGovernedOutreachHumanReviewRequestService({
+    getWorkflowEventById: async () => event(),
+    findWorkflowEventByTypeAndPayloadField: async () => event({}, { id: 'existing-review' }),
+    createWorkflowEvent: async () => event(),
   });
+
+  await assert.rejects(() => service.request('preparation-1'), /already exists/);
 });
