@@ -51,13 +51,10 @@ test('rejects observed map and directory hosts from the pilot without suppressin
     { title: 'Acme Engineering', url: 'https://www.africabizinfo.com/acme-engineering', content: 'Business directory listing.' },
     { title: 'Acme Engineering', url: 'https://www.steel-technology.com/acme-engineering', content: 'Industry portal listing.' },
   ];
-  const result = selectOfficialWebsite({
-    businessName: 'Acme Engineering',
-    results: [
-      ...thirdPartyResults,
-      { title: 'Acme Engineering | Industrial Solutions', url: 'https://acmeengineering.co.za/services', content: 'Official company website.' },
-    ],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Acme Engineering', results: [
+    ...thirdPartyResults,
+    { title: 'Acme Engineering | Industrial Solutions', url: 'https://acmeengineering.co.za/services', content: 'Official company website.' },
+  ] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
 });
@@ -85,88 +82,59 @@ test('rejects domain-mismatch search results that merely repeat the business nam
 });
 
 test('rejects an unknown directory domain even when the listing contains strong business contact evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'TFD Manufacturing',
-    results: [{ title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'TFD Manufacturing', results: [{ title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 852 8777. Contact details and company profile.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('selects the first-party TFD Manufacturing website over an unknown directory result', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'TFD Manufacturing',
-    results: [
-      { title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 555 8777. Contact details and company profile.' },
-      { title: 'Steel Fabrication and Laser Cutting Somerset West | TFD Manufacturing', url: 'https://www.tfdm.co.za/', content: 'TFD Manufacturing and TFDM Laser support metal projects through laser cutting, CNC bending and rolling, welding, fabrication and finishing. Contact the Team. Manufacturing +27 21 555 8777. 24 Delson Close, Somerset West Business Park, Somerset West, South Africa.' },
-    ],
-  });
+  const result = selectOfficialWebsite({ businessName: 'TFD Manufacturing', results: [
+    { title: 'TFD Manufacturing - Western Cape Online', url: 'https://www.western-cape.online/item/tfd-manufacturing/', content: 'TFD Manufacturing. Business directory listing. Somerset West. +27 21 555 8777. Contact details and company profile.' },
+    { title: 'Steel Fabrication and Laser Cutting Somerset West | TFD Manufacturing', url: 'https://www.tfdm.co.za/', content: 'TFD Manufacturing and TFDM Laser support metal projects through laser cutting, CNC bending and rolling, welding, fabrication and finishing. Contact the Team. Manufacturing +27 21 555 8777. 24 Delson Close, Somerset West Business Park, Somerset West, South Africa.' },
+  ] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://www.tfdm.co.za/');
 });
 
 test('does not reject a first-party contact page merely because it contains directions or a map', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Acme Engineering',
-    results: [{ title: 'Contact Acme Engineering | Get Directions', url: 'https://acme-engineering.co.za/contact', content: 'Acme Engineering. Contact us for engineering services. Get directions to our Durban office. View map. +27 31 555 0100. enquiries@acme-engineering.co.za.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Acme Engineering', results: [{ title: 'Contact Acme Engineering | Get Directions', url: 'https://acme-engineering.co.za/contact', content: 'Acme Engineering. Contact us for engineering services. Get directions to our Durban office. View map. +27 31 555 0100. enquiries@acme-engineering.co.za.' }] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acme-engineering.co.za/');
 });
 
 test('uses matching Google Places location evidence only as a tie-breaker between equally strong identities', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Acme Engineering',
-    formattedAddress: '12 Example Road, Durban, KwaZulu-Natal, South Africa',
-    results: [
-      { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services based in Durban, KwaZulu-Natal.' },
-      { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services based in Cape Town, Western Cape.' },
-    ],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Acme Engineering', formattedAddress: '12 Example Road, Durban, KwaZulu-Natal, South Africa', results: [
+    { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services based in Durban, KwaZulu-Natal.' },
+    { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services based in Cape Town, Western Cape.' },
+  ] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://acmeengineering.co.za/');
 });
 
 test('still fails closed when equal-identity candidates have equal location evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Acme Engineering',
-    formattedAddress: 'Durban, KwaZulu-Natal, South Africa',
-    results: [
-      { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services in Durban.' },
-      { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services in Durban.' },
-    ],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Acme Engineering', formattedAddress: 'Durban, KwaZulu-Natal, South Africa', results: [
+    { title: 'Acme Engineering', url: 'https://acmeengineering.co.za/', content: 'Engineering services in Durban.' },
+    { title: 'Acme Engineering', url: 'https://acme-engineering.com/', content: 'Engineering services in Durban.' },
+  ] });
   assert.equal(result.status, 'ambiguous');
 });
 
 test('rejects constructioncompanies.co.za directory domain for Archstone Construction', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Archstone Construction (Pty) Ltd',
-    results: [{ title: 'Archstone Construction (Pty) Ltd Information', url: 'https://constructioncompanies.co.za/', content: 'Archstone Construction (Pty) Ltd. Contact details. +27 11 555 0100. info@archstone.co.za. About the company.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Archstone Construction (Pty) Ltd', results: [{ title: 'Archstone Construction (Pty) Ltd Information', url: 'https://constructioncompanies.co.za/', content: 'Archstone Construction (Pty) Ltd. Contact details. +27 11 555 0100. info@archstone.co.za. About the company.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects constructionsouthafrica.co.za directory domain for Amandla Construction', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Amandla Construction',
-    results: [{ title: 'Amandla Construction', url: 'https://www.constructionsouthafrica.co.za/', content: 'Amandla Construction. Building and civil engineering services. Contact us for a quote.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Amandla Construction', results: [{ title: 'Amandla Construction', url: 'https://www.constructionsouthafrica.co.za/', content: 'Amandla Construction. Building and civil engineering services. Contact us for a quote.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects constructionsouthafrica.co.za directory domain for Naude Construction', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Naude Construction',
-    results: [{ title: 'Naude Construction', url: 'https://www.constructionsouthafrica.co.za/', content: 'Naude Construction. General building contractor. Phone +27 21 555 0200.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Naude Construction', results: [{ title: 'Naude Construction', url: 'https://www.constructionsouthafrica.co.za/', content: 'Naude Construction. General building contractor. Phone +27 21 555 0200.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('selects blackmahoganycivils.co.za as first-party for Black Mahogany Civils', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Black Mahogany Civils',
-    results: [{ title: 'Black Mahogany Civils | Home', url: 'https://blackmahoganycivils.co.za/', content: 'Black Mahogany Civils provides civil engineering and construction services in Gauteng. Contact us for projects.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Black Mahogany Civils', results: [{ title: 'Black Mahogany Civils | Home', url: 'https://blackmahoganycivils.co.za/', content: 'Black Mahogany Civils provides civil engineering and construction services in Gauteng. Contact us for projects.' }] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') {
     assert.equal(result.websiteUrl, 'https://blackmahoganycivils.co.za/');
@@ -175,66 +143,52 @@ test('selects blackmahoganycivils.co.za as first-party for Black Mahogany Civils
 });
 
 test('rejects generic Company Information listing titles as first-party evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'SteelWorks Manufacturing',
-    results: [{ title: 'SteelWorks Manufacturing Company Information', url: 'https://steelworks.example.co.za/', content: 'SteelWorks Manufacturing. Industrial steel fabrication. Contact: +27 11 555 0300.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'SteelWorks Manufacturing', results: [{ title: 'SteelWorks Manufacturing Company Information', url: 'https://steelworks.example.co.za/', content: 'SteelWorks Manufacturing. Industrial steel fabrication. Contact: +27 11 555 0300.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects generic Home - Company listing titles as first-party evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Precision Engineering',
-    results: [{ title: 'Home - Precision Engineering', url: 'https://precision.example.co.za/', content: 'Precision Engineering. CNC machining and fabrication.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Precision Engineering', results: [{ title: 'Home - Precision Engineering', url: 'https://precision.example.co.za/', content: 'Precision Engineering. CNC machining and fabrication.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects generic Contact Company listing titles as first-party evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Delta Projects',
-    results: [{ title: 'Contact Delta Projects', url: 'https://delta.example.co.za/', content: 'Delta Projects. Construction and project management.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Delta Projects', results: [{ title: 'Contact Delta Projects', url: 'https://delta.example.co.za/', content: 'Delta Projects. Construction and project management.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects generic Company :: Contact Us listing titles as first-party evidence', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Omega Builders',
-    results: [{ title: 'Omega Builders :: Contact Us', url: 'https://omega.example.co.za/', content: 'Omega Builders. Residential and commercial construction.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Omega Builders', results: [{ title: 'Omega Builders :: Contact Us', url: 'https://omega.example.co.za/', content: 'Omega Builders. Residential and commercial construction.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects directory domain even when title contains business name and contact info', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Metro Construction',
-    results: [{ title: 'Metro Construction - Official Website', url: 'https://constructioncompanies.co.za/metro', content: 'Metro Construction official page. Contact: +27 11 555 0400. info@metro.co.za.' }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Metro Construction', results: [{ title: 'Metro Construction - Official Website', url: 'https://constructioncompanies.co.za/metro', content: 'Metro Construction official page. Contact: +27 11 555 0400. info@metro.co.za.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('rejects single-word identities when the hostname does not contain the identity', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Ruwacon (Pty) Ltd',
-    results: [{
-      title: 'Ruwacon - Contact Us',
-      url: 'https://mba-boland.co.za/ruwacon',
-      content: 'Ruwacon. Contact us for company information. enquiries@mba-boland.co.za. +27 21 555 0100.',
-    }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Ruwacon (Pty) Ltd', results: [{ title: 'Ruwacon - Contact Us', url: 'https://mba-boland.co.za/ruwacon', content: 'Ruwacon. Contact us for company information. enquiries@mba-boland.co.za. +27 21 555 0100.' }] });
   assert.equal(result.status, 'not_found');
 });
 
 test('still selects a genuine first-party hostname for a single-word identity', () => {
-  const result = selectOfficialWebsite({
-    businessName: 'Ruwacon (Pty) Ltd',
-    results: [{
-      title: 'Ruwacon | Construction',
-      url: 'https://ruwacon.co.za/contact',
-      content: 'Ruwacon provides construction services. Contact us at enquiries@ruwacon.co.za. +27 21 555 0100.',
-    }],
-  });
+  const result = selectOfficialWebsite({ businessName: 'Ruwacon (Pty) Ltd', results: [{ title: 'Ruwacon | Construction', url: 'https://ruwacon.co.za/contact', content: 'Ruwacon provides construction services. Contact us at enquiries@ruwacon.co.za. +27 21 555 0100.' }] });
   assert.equal(result.status, 'selected');
   if (result.status === 'selected') assert.equal(result.websiteUrl, 'https://ruwacon.co.za/');
+});
+
+test('rejects generic construction domain for Tau Pele Construction', () => {
+  const result = selectOfficialWebsite({ businessName: 'Tau Pele Construction', results: [{ title: 'Tau Pele Construction', url: 'https://constructionsite.co.za/', content: 'Tau Pele Construction. Building and civil engineering services. Contact us for a quote.' }] });
+  assert.equal(result.status, 'not_found');
+});
+
+test('rejects generic construction domain for Bongata Construction', () => {
+  const result = selectOfficialWebsite({ businessName: 'Bongata Construction', results: [{ title: 'Bongata Construction', url: 'https://constructionsite.co.za/', content: 'Bongata Construction. Building and civil engineering services. Contact us for a quote.' }] });
+  assert.equal(result.status, 'not_found');
+});
+
+test('rejects South African government domains as private-company official websites', () => {
+  const result = selectOfficialWebsite({ businessName: 'Limpopo Structures', formattedAddress: 'Limpopo, South Africa', results: [{ title: 'Limpopo Structures', url: 'https://www.dpw.limpopo.gov.za/', content: 'Limpopo Structures. Department of Public Works information and procurement.' }] });
+  assert.equal(result.status, 'not_found');
 });
