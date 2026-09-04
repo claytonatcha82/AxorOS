@@ -11,8 +11,10 @@ import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
 import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
-import { createSalesOpportunityDecisionService } from './sales-opportunity-decision-service.js';
+import { createSalesOpportunityDecisionService, type SalesOpportunityDecisionResult } from './sales-opportunity-decision-service.js';
 import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
+import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
+import { createSalesOutreachApprovalResolutionService } from './sales-outreach-approval-resolution-service.js';
 import { createSalesOutreachApprovalService } from './sales-outreach-approval-service.js';
 import { createSalesOpportunityAssessmentService, type SalesOpportunityContext } from './sales-opportunity-assessment-service.js';
 
@@ -47,6 +49,8 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const opportunityDecisionPersistence = createSalesOpportunityDecisionPersistenceService(operationalRepository);
   const outreachApproval = createSalesOutreachApprovalService();
   const outreachApprovalPersistence = createSalesOutreachApprovalPersistenceService(operationalRepository);
+  const outreachApprovalResolution = createSalesOutreachApprovalResolutionService();
+  const outreachApprovalResolutionPersistence = createSalesOutreachApprovalResolutionPersistenceService(operationalRepository);
 
   const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
@@ -140,9 +144,32 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const record = await outreachApprovalPersistence.persist({ request });
       return { ...decisionResult, outreachApprovalRequest: request, outreachApprovalRecord: record };
     },
+
+    async resolveOutreachApproval(input: {
+      approvalRecordId: string;
+      decision: SalesOpportunityDecisionResult;
+      decisionOutcome: 'approved' | 'denied';
+      actor: string;
+      reason?: string;
+    }) {
+      const approvalRecordId = required(input.approvalRecordId, 'approvalRecordId');
+      const approvalRecord = await operationalRepository.getWorkflowEventById(approvalRecordId);
+      if (!approvalRecord) throw new Error(`Sales outreach approval record ${approvalRecordId} was not found.`);
+      const request = outreachApproval.request(input.decision);
+      const resolution = outreachApprovalResolution.resolve({
+        decision: input.decision,
+        request,
+        approvalRecord,
+        actor: input.actor as 'founder',
+        decisionOutcome: input.decisionOutcome,
+        reason: input.reason,
+      });
+      const record = await outreachApprovalResolutionPersistence.persist({ resolution });
+      return { approvalRequest: request, approvalRecord, resolution, resolutionRecord: record };
+    },
   };
 
-  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, commands };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, outreachApprovalResolution, outreachApprovalResolutionPersistence, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
