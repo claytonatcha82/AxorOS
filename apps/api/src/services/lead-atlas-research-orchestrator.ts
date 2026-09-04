@@ -35,8 +35,8 @@ export type QualifiedEnrichedLead = LeadResearchWorkflowOutput['enriched'][numbe
   preliminaryQualificationRecordId: string;
   qualificationDisposition: LeadQualificationDisposition;
   qualificationDispositionRecordId: string;
-  qualificationReviewTaskId: string;
-  qualificationReviewExecutionId: string;
+  qualificationReviewTaskId?: string;
+  qualificationReviewExecutionId?: string;
 };
 
 export interface AtlasLeadResearchOutput {
@@ -76,29 +76,15 @@ export function createLeadAtlasResearchOrchestrator(
   runtimeReviewRegistration?: Pick<LeadQualificationRuntimeReviewRegistrationService, 'register'>,
   gapResearchService?: Pick<LeadGapResearchService, 'researchGaps'>,
 ) {
-  const qualificationDependencies = [evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence, runtimeReviewService, runtimeReviewRegistration];
-  const configuredQualificationDependencies = qualificationDependencies.filter(Boolean).length;
-  if (configuredQualificationDependencies !== 0 && configuredQualificationDependencies !== qualificationDependencies.length) {
-    throw new Error('Lead qualification pipeline requires evidence builder, qualification service, qualification persistence, disposition service, disposition persistence, runtime review service, and runtime review registration together.');
-  }
-
   return {
     async research(input: AtlasLeadResearchInput): Promise<AtlasLeadResearchOutput> {
       const executionId = required(input.executionId, 'executionId');
       const correlationId = required(input.correlationId, 'correlationId');
-      const atlas = await atlasContext.load();
-      const exhaustedQueries = Object.entries(input.queryState ?? {}).filter(([, state]) => state.exhausted).map(([query]) => query);
-      const plan = planner.plan({
-        atlas,
-        ...(input.geographicFocus ? { geographicFocus: input.geographicFocus } : {}),
-        ...(input.geographicVariants ? { geographicVariants: input.geographicVariants } : {}),
-        ...(input.maxQueries !== undefined ? { maxQueries: input.maxQueries } : {}),
-        ...(exhaustedQueries.length ? { exhaustedQueries } : {}),
-      });
-
-      const enriched: QualifiedEnrichedLead[] = [];
+      const atlas = await atlasContext.load({ geographicFocus: input.geographicFocus, geographicVariants: input.geographicVariants });
+      const plan = planner.plan({ atlas, maxQueries: input.maxQueries });
       const proposals: LeadResearchWorkflowOutput['proposals'] = [];
-      const outcomes: LeadResearchWorkflowOutput['outcomes'] = {
+      const enriched: QualifiedEnrichedLead[] = [];
+      const outcomes = {
         enriched: 0,
         duplicateSkipped: 0,
         webResearchFailed: 0,
@@ -199,48 +185,46 @@ export function createLeadAtlasResearchOrchestrator(
           const persistedQualification = await qualificationPersistence.persist({ leadId: lead.leadId, assessments, result: preliminaryQualification, actorId: 'lead_agent' });
           const qualificationDisposition = dispositionService.evaluate(preliminaryQualification);
           const persistedDisposition = await dispositionPersistence.persist({ leadId: lead.leadId, qualificationRecordId: persistedQualification.id, disposition: qualificationDisposition, actorId: 'lead_agent' });
-          const qualificationReviewTask = runtimeReviewService.createTask({
-            taskId: `lead-qualification-review-task:${persistedDisposition.id}`,
-            executionId: `lead-qualification-review:${persistedDisposition.id}`,
-            correlationId,
-            leadId: lead.leadId,
-            qualificationRecordId: persistedQualification.id,
-            dispositionRecordId: persistedDisposition.id,
-            disposition: qualificationDisposition,
-            confidence: 1,
-            createdAt: persistedDisposition.createdAt,
-          });
-          const qualificationReviewRecord = await runtimeReviewRegistration.register(qualificationReviewTask);
+
+          let qualificationReviewTaskId: string | undefined;
+          let qualificationReviewExecutionId: string | undefined;
+          if (qualificationDisposition.disposition === 'hold') {
+            const qualificationReviewTask = runtimeReviewService.createTask({
+              taskId: `lead-qualification-review-task:${persistedDisposition.id}`,
+              executionId: `lead-qualification-review:${persistedDisposition.id}`,
+              correlationId,
+              leadId: lead.leadId,
+              qualificationRecordId: persistedQualification.id,
+              dispositionRecordId: persistedDisposition.id,
+              disposition: qualificationDisposition,
+              confidence: 1,
+              createdAt: persistedDisposition.createdAt,
+            });
+            const qualificationReviewRecord = await runtimeReviewRegistration.register(qualificationReviewTask);
+            qualificationReviewTaskId = qualificationReviewRecord.task.taskId;
+            qualificationReviewExecutionId = qualificationReviewRecord.task.executionId;
+          }
+
           enriched.push({
             ...lead,
             preliminaryQualification,
             preliminaryQualificationRecordId: persistedQualification.id,
             qualificationDisposition,
             qualificationDispositionRecordId: persistedDisposition.id,
-            qualificationReviewTaskId: qualificationReviewRecord.task.taskId,
-            qualificationReviewExecutionId: qualificationReviewRecord.task.executionId,
+            ...(qualificationReviewTaskId ? { qualificationReviewTaskId } : {}),
+            ...(qualificationReviewExecutionId ? { qualificationReviewExecutionId } : {}),
           });
         }
       }
 
-      const preservedQueryState = Object.fromEntries(
-        Object.entries(input.queryState ?? {})
-          .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query))
-          .map(([query, state]) => [query, {
-            exhausted: state.exhausted,
-            lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
-            ...(state.nextPageToken !== undefined ? { nextPageToken: state.nextPageToken } : {}),
-          }]),
-      );
-
       return {
         queries: plan.queries,
-        atlasSourcePaths: plan.atlasSourcePaths,
+        atlasSourcePaths: atlas.sourcePaths,
         discovered,
         enriched,
         proposals,
         outcomes,
-        updatedQueryState: { ...preservedQueryState, ...updatedQueryState },
+        updatedQueryState,
       };
     },
   };
