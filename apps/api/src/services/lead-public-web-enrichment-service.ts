@@ -96,6 +96,16 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
+const GOOGLE_PLACE_ID_PATTERN = /^ChIJ[A-Za-z0-9_-]{10,}$/i;
+
+function requireUsableCompanyName(value: string, field: string): string {
+  const companyName = requireText(value, field);
+  if (GOOGLE_PLACE_ID_PATTERN.test(companyName) || /^Google Place(?:\s+\w+)?$/i.test(companyName)) {
+    throw new Error(`${field} must be a usable business name and cannot be a provider-generated place identity.`);
+  }
+  return companyName;
+}
+
 function normalizeWebsite(value: string): string {
   let url: URL;
   try { url = new URL(value); } catch { throw new Error('officialWebsiteUrl must be a valid URL.'); }
@@ -148,16 +158,12 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   if (companyTokens.length === 0) return false;
 
   const domainTokensForIdentity = domainTokens(domain);
-  // The domain must contain at least one distinctive company-name token. Generic
-  // industry/legal/page-title words are removed before this comparison.
   if (!companyTokens.some((token) => domainTokensForIdentity.includes(token))) return false;
 
   const domainResults = results.filter((result) => {
     try { return registrableDomain(new URL(result.url).hostname) === domain; } catch { return false; }
   });
 
-  // A matching domain alone is not enough. At least one result from that domain
-  // must independently identify the same business by all distinctive name tokens.
   return domainResults.some((result) => containsAllTokens(`${result.title} ${result.content}`, companyTokens));
 }
 
@@ -177,7 +183,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
   return {
     async enrich(input: EnrichDiscoveredLeadInput): Promise<LeadRecord> {
       const leadId = requireText(input.leadId, 'leadId');
-      requireText(input.companyName, 'companyName');
+      requireUsableCompanyName(input.companyName, 'companyName');
       const officialWebsiteUrl = input.officialWebsiteUrl ? normalizeWebsite(input.officialWebsiteUrl) : null;
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       if (input.supportingResults.length === 0) throw new Error('At least one public-web supporting result is required.');
@@ -198,6 +204,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
         if (lead.enrichmentStatus !== 'pending') {
           throw new Error(`Lead ${leadId} enrichment_status is '${lead.enrichmentStatus}' and requires an explicit requeue before enrichment.`);
         }
+        requireUsableCompanyName(lead.companyName, 'lead.companyName');
 
         const websiteVerified = Boolean(officialWebsiteUrl && domainSupportsCompanyIdentity(officialWebsiteUrl, lead.companyName, matching));
         const verifiedWebsiteUrl = websiteVerified ? officialWebsiteUrl : null;
