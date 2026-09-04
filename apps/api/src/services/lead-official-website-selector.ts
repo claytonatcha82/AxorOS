@@ -70,6 +70,10 @@ const GOVERNMENT_HOST_PATTERNS = [
   /(^|\.)go\.\.[a-z]{2,}$/i,
 ];
 
+const SOUTH_AFRICAN_FOREIGN_DOMAIN_SUFFIXES = [
+  '.co.uk', '.org.uk', '.ac.uk', '.gov.uk', '.uk',
+];
+
 function normalizedWords(value: string): string[] {
   return value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((word) => word.length >= 3);
 }
@@ -145,7 +149,6 @@ function firstPartyEvidenceScore(
   const normalizedHostname = hostname.replace(/[^a-z0-9]+/g, ' ');
   const distinctiveBusinessWords = businessWords.filter((word) => !HOSTNAME_GENERIC_IDENTITY_WORDS.has(word));
   const hostMatches = distinctiveBusinessWords.filter((word) => normalizedHostname.includes(word)).length;
-  const content = result.content.toLowerCase();
   const listingText = `${result.title} ${result.content}`.toLowerCase();
 
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
@@ -169,6 +172,18 @@ function firstPartyEvidenceScore(
   return isGenericListingTitle(result.title) ? Math.min(score, 3) : score;
 }
 
+function isSouthAfricanAddress(formattedAddress: string | undefined): boolean {
+  if (!formattedAddress) return false;
+  const normalized = formattedAddress.toLowerCase();
+  return /\bsouth\s+africa\b/.test(normalized) || /\bza\b/.test(normalized);
+}
+
+function isConflictingForeignDomain(hostname: string, formattedAddress: string | undefined): boolean {
+  if (!isSouthAfricanAddress(formattedAddress)) return false;
+  const normalized = hostname.replace(/^www\./, '').toLowerCase();
+  return SOUTH_AFRICAN_FOREIGN_DOMAIN_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
 export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): OfficialWebsiteSelection {
   const businessName = input.businessName.trim();
   if (!businessName) throw new Error('businessName is required.');
@@ -181,6 +196,7 @@ export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): Off
   for (const result of input.results) {
     const candidate = registrableCandidate(result);
     if (!candidate) continue;
+    if (isConflictingForeignDomain(candidate.hostname, input.formattedAddress)) continue;
     const identityScore = firstPartyEvidenceScore(identityWords.length > 0 ? identityWords : words, result, candidate.hostname);
     if (identityScore === 0) continue;
 
