@@ -150,27 +150,14 @@ function firstPartyEvidenceScore(
 
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
-  // Industry/category words such as "construction" are not sufficient hostname
-  // identity. This prevents a generic domain like constructionsite.co.za from being
-  // treated as the official site for multiple unrelated construction businesses.
-  if (hostMatches >= 1) return 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
+  // For a website to be trusted as the company's official site, the hostname
+  // must independently contain at least one distinctive part of the business
+  // identity. Search-result text alone is not sufficient because third-party
+  // pages can repeat the business name and contact details.
+  if (hostMatches < 1) return 0;
 
-  if (businessWords.length <= 1) return 0;
-
-  const firstPartySignals = [
-    /\babout (us|the company)\b/.test(content),
-    /\bcontact (us|details)\b/.test(content),
-    /\b(enquiries|inquiries)\b/.test(content),
-    /\b\+?\d[\d\s().-]{6,}\b/.test(result.content),
-    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(result.content),
-    contentMatches >= Math.min(2, businessWords.length),
-  ].filter(Boolean).length;
-
-  if (titleMatches === businessWords.length && firstPartySignals >= 3) {
-    const score = 2 + firstPartySignals;
-    return isGenericListingTitle(result.title) ? Math.min(score, 3) : score;
-  }
-  return 0;
+  const score = 4 + Math.min(3, titleMatches) + Math.min(2, contentMatches);
+  return isGenericListingTitle(result.title) ? Math.min(score, 3) : score;
 }
 
 export function selectOfficialWebsite(input: OfficialWebsiteSelectionInput): OfficialWebsiteSelection {
