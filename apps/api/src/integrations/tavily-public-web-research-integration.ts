@@ -74,19 +74,21 @@ export function createTavilyPublicWebResearchIntegration(options: TavilyPublicWe
 
       let response: Response;
       try {
+        const body: Record<string, unknown> = {
+          query: request.input.query.trim(),
+          search_depth: 'basic',
+          topic: 'general',
+          include_answer: false,
+          include_raw_content: false,
+          include_images: false,
+          max_results: request.input.maxResults ?? 5,
+          ...(request.input.country ? { country: request.input.country.trim().toLowerCase() } : {}),
+          ...(request.input.includeDomains?.length ? { include_domains: request.input.includeDomains } : {}),
+        };
         response = await fetchImpl(`${baseUrl}/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            query: request.input.query.trim(),
-            search_depth: 'basic',
-            topic: 'general',
-            include_answer: false,
-            include_raw_content: false,
-            include_images: false,
-            max_results: request.input.maxResults ?? 5,
-            ...(request.input.country ? { country: request.input.country.trim().toLowerCase() } : {}),
-          }),
+          body: JSON.stringify(body),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
