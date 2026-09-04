@@ -41,7 +41,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
   const qualification = createLeadPreliminaryQualificationService();
   const qualificationPersistence = createLeadPreliminaryQualificationPersistenceService(repository);
   const disposition = createLeadQualificationDispositionService({
-  pilotAutoAdvanceThreshold: 45,
+  pilotAutoAdvanceThreshold: 40,
 });
   const dispositionPersistence = createLeadQualificationDispositionPersistenceService(repository);
   const runtimeReview = createLeadQualificationRuntimeReviewService();
