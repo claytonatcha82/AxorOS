@@ -38,15 +38,26 @@ test('maps Tavily basic search results and keeps research read-only', async () =
   assert.deepEqual(response.evidenceReferences, ['public-web:https://example.co.za/']);
   assert.equal(capturedAuthorization, 'Bearer tvly-test-secret');
   assert.deepEqual(JSON.parse(capturedBody), {
-    query: 'Example Business Durban official website',
-    search_depth: 'basic',
-    topic: 'general',
-    include_answer: false,
-    include_raw_content: false,
-    include_images: false,
-    max_results: 5,
-    country: 'south africa',
+    query: 'Example Business Durban official website', search_depth: 'basic', topic: 'general', include_answer: false,
+    include_raw_content: false, include_images: false, max_results: 5, country: 'south africa',
   });
+});
+
+test('passes includeDomains through to Tavily as include_domains', async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const integration = createTavilyPublicWebResearchIntegration({
+    apiKey: 'tvly-test',
+    fetchImpl: async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    },
+  });
+
+  const response = await integration.execute(request({
+    input: { query: 'team leadership', maxResults: 5, includeDomains: ['example.co.za'] },
+  }));
+  assert.equal(response.status, 'succeeded');
+  assert.deepEqual(capturedBody?.include_domains, ['example.co.za']);
 });
 
 test('blocks agents outside Lead Agent and Human Executive authority', async () => {
