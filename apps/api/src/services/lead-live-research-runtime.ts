@@ -8,6 +8,7 @@ import { createLeadAtlasContextService } from './lead-atlas-context-service.js';
 import { createLeadAtlasResearchOrchestrator } from './lead-atlas-research-orchestrator.js';
 import { createLeadAtlasResearchPlanner } from './lead-atlas-research-planner.js';
 import { createLeadDiscoveryService } from './lead-discovery-service.js';
+import { createLeadGapResearchService } from './lead-gap-research-service.js';
 import { createLeadPreliminaryQualificationPersistenceService } from './lead-preliminary-qualification-persistence-service.js';
 import { createLeadPreliminaryQualificationService } from './lead-preliminary-qualification-service.js';
 import { createLeadPublicWebEnrichmentService } from './lead-public-web-enrichment-service.js';
@@ -39,6 +40,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
   const discovery = createLeadDiscoveryService(repository, transactionRunner);
   const enrichment = createLeadPublicWebEnrichmentService(repository, transactionRunner);
   const workflow = createLeadResearchWorkflowService(dependencies.integrations, discovery, enrichment);
+  const gapResearch = createLeadGapResearchService(dependencies.integrations);
   const qualificationEvidence = createLeadResearchQualificationEvidenceService();
   const qualification = createLeadPreliminaryQualificationService();
   const qualificationPersistence = createLeadPreliminaryQualificationPersistenceService(repository);
@@ -61,6 +63,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
     dispositionPersistence,
     runtimeReview,
     runtimeReviewRegistration,
+    gapResearch,
   );
   const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(dependencies.pool);
 
