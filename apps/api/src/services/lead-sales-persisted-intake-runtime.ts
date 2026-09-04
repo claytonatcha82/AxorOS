@@ -12,10 +12,9 @@ import { createLeadSalesIntakeActivationService } from './lead-sales-intake-acti
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
 import { createSalesOpportunityDecisionPersistenceService } from './sales-opportunity-decision-persistence-service.js';
 import { createSalesOpportunityDecisionService } from './sales-opportunity-decision-service.js';
-import {
-  createSalesOpportunityAssessmentService,
-  type SalesOpportunityContext,
-} from './sales-opportunity-assessment-service.js';
+import { createSalesOutreachApprovalPersistenceService } from './sales-outreach-approval-persistence-service.js';
+import { createSalesOutreachApprovalService } from './sales-outreach-approval-service.js';
+import { createSalesOpportunityAssessmentService, type SalesOpportunityContext } from './sales-opportunity-assessment-service.js';
 
 function required(value: string, field: string): string {
   const trimmed = value.trim();
@@ -35,41 +34,28 @@ export interface AutoAdvanceSalesIntakeInput {
 export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
   const store = createAgentRuntimePostgresStore(pool);
   const commitRuntimeMutation = store.commitRuntimeMutation;
-  if (!commitRuntimeMutation) {
-    throw new Error('Persisted Sales intake runtime requires atomic runtime mutations.');
-  }
+  if (!commitRuntimeMutation) throw new Error('Persisted Sales intake runtime requires atomic runtime mutations.');
 
   const handlers = new AgentRuntimeHandlerRegistry();
   handlers.register(salesInternalIntakeHandler);
-
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
-  const activation = createLeadSalesIntakeActivationService({
-    getExecution: store.getExecution,
-    hasIdempotencyKey: store.hasIdempotencyKey,
-    commitRuntimeMutation,
-  });
+  const activation = createLeadSalesIntakeActivationService({ getExecution: store.getExecution, hasIdempotencyKey: store.hasIdempotencyKey, commitRuntimeMutation });
   const operationalRepository = createOperationalRepository(pool);
   const opportunityAssessment = createSalesOpportunityAssessmentService();
-  const opportunityAssessmentPersistence = createSalesOpportunityAssessmentPersistenceService(
-    operationalRepository,
-  );
+  const opportunityAssessmentPersistence = createSalesOpportunityAssessmentPersistenceService(operationalRepository);
   const opportunityDecision = createSalesOpportunityDecisionService();
-  const opportunityDecisionPersistence = createSalesOpportunityDecisionPersistenceService(
-    operationalRepository,
-  );
+  const opportunityDecisionPersistence = createSalesOpportunityDecisionPersistenceService(operationalRepository);
+  const outreachApproval = createSalesOutreachApprovalService();
+  const outreachApprovalPersistence = createSalesOutreachApprovalPersistenceService(operationalRepository);
 
-  const registerAutoAdvanceIntake = async (
-    input: AutoAdvanceSalesIntakeInput,
-  ): Promise<AgentRuntimeExecutionRecord> => {
+  const registerAutoAdvanceIntake = async (input: AutoAdvanceSalesIntakeInput): Promise<AgentRuntimeExecutionRecord> => {
     const leadId = required(input.leadId, 'leadId');
     const qualificationRecordId = required(input.qualificationRecordId, 'qualificationRecordId');
     const dispositionRecordId = required(input.dispositionRecordId, 'dispositionRecordId');
     const correlationId = required(input.correlationId, 'correlationId');
     const createdAt = required(input.createdAt, 'createdAt');
     const atlasSourcePaths = [...new Set(input.atlasSourcePaths.map((path) => path.trim()).filter(Boolean))];
-    if (atlasSourcePaths.length === 0) {
-      throw new Error('Auto-advanced Sales intake requires authoritative Atlas source paths.');
-    }
+    if (atlasSourcePaths.length === 0) throw new Error('Auto-advanced Sales intake requires authoritative Atlas source paths.');
 
     const executionId = `sales-intake:auto-advance:${dispositionRecordId}`;
     const taskId = `sales-intake-task:auto-advance:${dispositionRecordId}`;
@@ -77,45 +63,19 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
     if (existing) return existing;
 
     const task: AgentRuntimeTask = {
-      taskId,
-      executionId,
-      originAgent: 'lead_agent',
-      destinationAgent: 'sales_agent',
+      taskId, executionId, originAgent: 'lead_agent', destinationAgent: 'sales_agent',
       objective: 'Intake an auto-advanced qualified lead for internal Sales processing without contacting the prospect.',
       priority: 'normal',
-      context: {
-        leadId,
-        qualificationRecordId,
-        dispositionRecordId,
-        authorizationBasis: 'lead_auto_advance',
-      },
+      context: { leadId, qualificationRecordId, dispositionRecordId, authorizationBasis: 'lead_auto_advance' },
       knowledgeReferences: atlasSourcePaths,
-      inputs: {
-        leadId,
-        qualificationRecordId,
-        dispositionRecordId,
-        authorizationBasis: 'lead_auto_advance',
-        salesIntakeOnly: true,
-        salesDispatchAuthorised: false,
-        outreachAuthorised: false,
-      },
+      inputs: { leadId, qualificationRecordId, dispositionRecordId, authorizationBasis: 'lead_auto_advance', salesIntakeOnly: true, salesDispatchAuthorised: false, outreachAuthorised: false },
       expectedOutput: 'A governed internal Sales intake assessment with no prospect contact or outreach.',
-      dependencies: [],
-      risks: [],
-      confidence: 1,
-      approvalRequired: false,
-      status: 'queued',
-      nextAction: 'configure_governed_sales_intake_processing',
-      attempt: 1,
-      maxAttempts: 1,
-      correlationId,
-      createdAt,
-      updatedAt: createdAt,
+      dependencies: [], risks: [], confidence: 1, approvalRequired: false,
+      status: 'queued', nextAction: 'configure_governed_sales_intake_processing', attempt: 1, maxAttempts: 1,
+      correlationId, createdAt, updatedAt: createdAt,
     };
-
     const errors = validateAgentRuntimeTask(task);
     if (errors.length) throw new Error(errors.join(' '));
-
     const operation = 'task_created';
     const idempotencyKey = runtimeIdempotencyKey('runtime', executionId, operation);
     if (await store.hasIdempotencyKey(idempotencyKey)) {
@@ -123,79 +83,35 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       if (!replay) throw new Error('Sales auto-advance idempotency record exists but execution state is missing.');
       return replay;
     }
-
     const eventId = randomUUID();
     const event: AgentRuntimeEvent = {
-      eventId,
-      executionId,
-      taskId,
-      correlationId,
-      type: 'task_created',
-      actor: 'runtime',
-      payload: {
-        originAgent: 'lead_agent',
-        destinationAgent: 'sales_agent',
-        authorizationBasis: 'lead_auto_advance',
-        salesIntakeOnly: true,
-        salesDispatchAuthorised: false,
-        outreachAuthorised: false,
-      },
-      idempotencyKey,
-      occurredAt: createdAt,
+      eventId, executionId, taskId, correlationId, type: 'task_created', actor: 'runtime',
+      payload: { originAgent: 'lead_agent', destinationAgent: 'sales_agent', authorizationBasis: 'lead_auto_advance', salesIntakeOnly: true, salesDispatchAuthorised: false, outreachAuthorised: false },
+      idempotencyKey, occurredAt: createdAt,
     };
-    const record: AgentRuntimeExecutionRecord = {
-      task,
-      version: 1,
-      lastEventId: eventId,
-      persistedAt: createdAt,
-    };
-
-    await commitRuntimeMutation({
-      record,
-      expectedVersion: 0,
-      event,
-      idempotencyRecord: recordRuntimeIdempotency(event, operation),
-    });
+    const record: AgentRuntimeExecutionRecord = { task, version: 1, lastEventId: eventId, persistedAt: createdAt };
+    await commitRuntimeMutation({ record, expectedVersion: 0, event, idempotencyRecord: recordRuntimeIdempotency(event, operation) });
     return record;
   };
 
   const commands = {
-    async activateIntake(executionId: string) {
-      return activation.activate(required(executionId, 'executionId'));
-    },
+    async activateIntake(executionId: string) { return activation.activate(required(executionId, 'executionId')); },
 
     async processIntake(executionId: string) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const current = await store.getExecution(normalizedExecutionId);
       if (!current) throw new Error(`Sales intake execution ${normalizedExecutionId} was not found.`);
-      if (current.task.destinationAgent !== 'sales_agent') {
-        throw new Error('Sales intake processing requires Sales Agent destination.');
-      }
-      if (current.task.status !== 'ready') {
-        throw new Error(`Sales intake processing requires ready status; received ${current.task.status}.`);
-      }
-      if (current.task.inputs.salesIntakeOnly !== true) {
-        throw new Error('Sales intake processing requires intake-only authority.');
-      }
-      if (current.task.inputs.salesDispatchAuthorised !== false || current.task.inputs.outreachAuthorised !== false) {
-        throw new Error('Sales intake processing must not authorise Sales dispatch or outreach.');
-      }
-
-      return orchestrator.execute({
-        executionId: normalizedExecutionId,
-        capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
-      });
+      if (current.task.destinationAgent !== 'sales_agent') throw new Error('Sales intake processing requires Sales Agent destination.');
+      if (current.task.status !== 'ready') throw new Error(`Sales intake processing requires ready status; received ${current.task.status}.`);
+      if (current.task.inputs.salesIntakeOnly !== true) throw new Error('Sales intake processing requires intake-only authority.');
+      if (current.task.inputs.salesDispatchAuthorised !== false || current.task.inputs.outreachAuthorised !== false) throw new Error('Sales intake processing must not authorise Sales dispatch or outreach.');
+      return orchestrator.execute({ executionId: normalizedExecutionId, capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY });
     },
 
     async handoffAutoAdvancedLead(input: AutoAdvanceSalesIntakeInput) {
       const record = await registerAutoAdvanceIntake(input);
       const ready = record.task.status === 'queued' ? await activation.activate(record.task.executionId) : record;
-      const result = ready.task.status === 'ready'
-        ? await orchestrator.execute({
-            executionId: ready.task.executionId,
-            capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
-          })
-        : ready;
+      const result = ready.task.status === 'ready' ? await orchestrator.execute({ executionId: ready.task.executionId, capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY }) : ready;
       return { intakeExecution: result };
     },
 
@@ -203,16 +119,10 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const intakeExecution = await store.getExecution(normalizedExecutionId);
       if (!intakeExecution) throw new Error(`Sales intake execution ${normalizedExecutionId} was not found.`);
-
       const leadId = required(String(intakeExecution.task.context.leadId ?? ''), 'leadId');
       const lead = await operationalRepository.getLeadById(leadId);
       if (!lead) throw new Error(`Lead not found: ${leadId}.`);
-
-      const assessment = opportunityAssessment.assess({
-        intakeExecution,
-        lead,
-        salesContext,
-      });
+      const assessment = opportunityAssessment.assess({ intakeExecution, lead, salesContext });
       const record = await opportunityAssessmentPersistence.persist({ assessment });
       return { assessment, record };
     },
@@ -223,19 +133,16 @@ export function createPersistedLeadSalesIntakeRuntime(pool: Pool) {
       const record = await opportunityDecisionPersistence.persist({ decision });
       return { assessment: assessmentResult.assessment, assessmentRecord: assessmentResult.record, decision, decisionRecord: record };
     },
+
+    async requestOutreachApproval(executionId: string, salesContext: SalesOpportunityContext = {}) {
+      const decisionResult = await commands.decideOpportunity(executionId, salesContext);
+      const request = outreachApproval.request(decisionResult.decision);
+      const record = await outreachApprovalPersistence.persist({ request });
+      return { ...decisionResult, outreachApprovalRequest: request, outreachApprovalRecord: record };
+    },
   };
 
-  return {
-    store,
-    handlers,
-    orchestrator,
-    activation,
-    opportunityAssessment,
-    opportunityAssessmentPersistence,
-    opportunityDecision,
-    opportunityDecisionPersistence,
-    commands,
-  };
+  return { store, handlers, orchestrator, activation, opportunityAssessment, opportunityAssessmentPersistence, opportunityDecision, opportunityDecisionPersistence, outreachApproval, outreachApprovalPersistence, commands };
 }
 
 export type PersistedLeadSalesIntakeRuntime = ReturnType<typeof createPersistedLeadSalesIntakeRuntime>;
