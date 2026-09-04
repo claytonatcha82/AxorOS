@@ -59,6 +59,17 @@ function requireText(value: string, field: string): string {
   return trimmed;
 }
 
+const GOOGLE_PLACE_ID_PATTERN = /^ChIJ[A-Za-z0-9_-]{10,}$/i;
+
+function usableCandidateDisplayName(candidate: LeadBusinessCandidate): boolean {
+  const displayName = candidate.displayName?.trim();
+  if (!displayName) return false;
+  if (displayName === candidate.providerPlaceId) return false;
+  if (GOOGLE_PLACE_ID_PATTERN.test(displayName)) return false;
+  if (/^Google Place(?:\s+\w+)?$/i.test(displayName)) return false;
+  return true;
+}
+
 function webQueriesFor(candidate: LeadBusinessCandidate, discoveryQuery: string): string[] {
   const identity = [candidate.displayName, candidate.formattedAddress, discoveryQuery].filter(Boolean).join(' ');
   return [
@@ -107,6 +118,7 @@ export function createLeadResearchWorkflowService(
       let duplicateCount = 0;
       let skippedCount = 0;
       for (const candidate of discovery.output.candidates) {
+        if (!usableCandidateDisplayName(candidate)) { skippedCount += 1; continue; }
         const persisted = await discoveryService.persistDiscovery({ discovery: { query: discovery.output.query, candidates: [candidate] }, actorId: 'lead_agent' });
         const skipped = persisted.skipped.find((item) => item.providerPlaceId === candidate.providerPlaceId);
         if (skipped) { skippedCount += 1; continue; }
