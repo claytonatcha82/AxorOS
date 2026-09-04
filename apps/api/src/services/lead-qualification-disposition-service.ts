@@ -53,6 +53,28 @@ function reasonsFor(result: PreliminaryLeadQualificationResult): string[] {
   }
 }
 
+const AUTO_ADVANCE_MINIMUM_SCORES: Array<keyof PreliminaryLeadQualificationResult['assessments']> = [
+  'businessFit',
+  'projectFit',
+  'decisionMakerAccess',
+  'commercialFit',
+  'timeline',
+];
+
+function evidenceGovernanceFailures(result: PreliminaryLeadQualificationResult): string[] {
+  const failures: string[] = [];
+  for (const category of AUTO_ADVANCE_MINIMUM_SCORES) {
+    const assessment = result.assessments[category];
+    if (assessment.score === null || assessment.score < 8) {
+      failures.push(`${category} evidence is below the auto-advance minimum of 8/10.`);
+    }
+    if (assessment.evidenceReferences.length === 0) {
+      failures.push(`${category} has no evidence references.`);
+    }
+  }
+  return failures;
+}
+
 export interface LeadQualificationDispositionServiceOptions {
   pilotAutoAdvanceThreshold?: number;
 }
@@ -67,17 +89,25 @@ export function createLeadQualificationDispositionService(options?: LeadQualific
         throw new Error('Lead disposition requires authoritative Atlas source paths.');
       }
 
+      const governanceFailures = evidenceGovernanceFailures(result);
       const meetsAutoAdvanceThreshold =
         options?.pilotAutoAdvanceThreshold !== undefined &&
         result.totalScore !== null &&
         result.totalScore >= options.pilotAutoAdvanceThreshold &&
-        (result.suggestedStatus === 'excellent' || result.suggestedStatus === 'good');
+        (result.suggestedStatus === 'excellent' || result.suggestedStatus === 'good') &&
+        governanceFailures.length === 0;
+
+      const reasons = [...new Set(reasonsFor(result))];
+      if (!meetsAutoAdvanceThreshold && governanceFailures.length > 0 && result.totalScore !== null && result.totalScore >= (options?.pilotAutoAdvanceThreshold ?? Number.POSITIVE_INFINITY)) {
+        reasons.push('Auto-advance is blocked by the evidence-governance gate:');
+        reasons.push(...governanceFailures);
+      }
 
       return {
         disposition: meetsAutoAdvanceThreshold ? 'advance' : 'hold',
         recommendedAction: recommendedActionFor(result.suggestedStatus),
         humanApprovalRequired: !meetsAutoAdvanceThreshold,
-        reasons: [...new Set(reasonsFor(result))],
+        reasons,
         atlasSourcePaths: [...new Set(result.atlasSourcePaths)],
       };
     },
