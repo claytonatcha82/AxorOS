@@ -29,6 +29,11 @@ export interface LeadLiveResearchRuntimeDependencies {
   integrations: IntegrationRegistry;
   knowledgeContext: Pick<KnowledgeContextService, 'assemble'>;
   runtimeStore: LeadQualificationRuntimeReviewRegistrationStore;
+  leadQualificationReviewRequest: Pick<LeadQualificationReviewRequestCommand, 'requestReview'>;
+}
+
+interface LeadQualificationReviewRequestCommand {
+  requestReview(executionId: string): Promise<unknown>;
 }
 
 export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRuntimeDependencies) {
@@ -70,6 +75,13 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
   return {
     async research(input: Parameters<typeof baseOrchestrator.research>[0]): Promise<Awaited<ReturnType<typeof baseOrchestrator.research>>> {
       const result = await baseOrchestrator.research(input);
+
+      for (const lead of result.enriched) {
+        if (lead.qualificationReviewExecutionId) {
+          await dependencies.leadQualificationReviewRequest.requestReview(lead.qualificationReviewExecutionId);
+        }
+      }
+
       const autoAdvanced = result.enriched.filter(
         (lead) =>
           lead.qualificationDisposition.disposition === 'advance' &&
