@@ -26,9 +26,9 @@ test('derives bounded breadth-first discovery queries from Atlas target industri
   const plan = createLeadAtlasResearchPlanner().plan({ atlas: atlas(), geographicFocus: 'South Africa', maxQueries: 4 });
   assert.deepEqual(plan.queries, [
     'Construction businesses in South Africa',
+    'Construction companies in South Africa',
+    'professional Construction firms in South Africa',
     'Engineering businesses in South Africa',
-    'Manufacturing businesses in South Africa',
-    'Healthcare businesses in South Africa',
   ]);
   assert.equal(plan.queries.some((query) => /web design|website developer/i.test(query)), false);
   assert.ok(plan.atlasSourcePaths.some((path) => path.includes('Ideal Client Profile')));
@@ -60,11 +60,11 @@ test('extracts industries from the exact Atlas chunk rendering used in productio
   const plan = createLeadAtlasResearchPlanner().plan({ atlas: structured, geographicFocus: 'South Africa', maxQueries: 6 });
   assert.deepEqual(plan.queries, [
     'Construction businesses in South Africa',
-    'Engineering businesses in South Africa',
-    'Manufacturing businesses in South Africa',
     'Construction companies in South Africa',
+    'professional Construction firms in South Africa',
+    'Engineering businesses in South Africa',
     'Engineering companies in South Africa',
-    'Manufacturing companies in South Africa',
+    'professional Engineering firms in South Africa',
   ]);
 });
 
