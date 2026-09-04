@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { RuntimeExecutionOutcome } from '../agents/agent-runtime-orchestrator.js';
 import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js';
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
@@ -13,6 +14,15 @@ import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-servi
 const LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY = 'lead_qualification_human_review_gate';
 
 export type LeadQualificationReviewDecision = 'approved' | 'rejected';
+
+export type LeadSalesHandoffOutcome =
+  | { status: 'not_applicable' }
+  | { status: 'registered'; salesIntakeExecutionId: string }
+  | { status: 'failed'; error: string };
+
+export interface LeadQualificationReviewOutcome extends RuntimeExecutionOutcome {
+  handoff: LeadSalesHandoffOutcome;
+}
 
 function required(value: string, field: string): string {
   const trimmed = value.trim();
@@ -63,7 +73,7 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
       });
     },
 
-    async resolveReview(executionId: string, decision: LeadQualificationReviewDecision, reason?: string) {
+    async resolveReview(executionId: string, decision: LeadQualificationReviewDecision, reason?: string): Promise<LeadQualificationReviewOutcome> {
       const normalizedExecutionId = required(executionId, 'executionId');
       const record = await store.getExecution(normalizedExecutionId);
       if (!record) throw new Error(`Lead qualification review execution ${normalizedExecutionId} was not found.`);
@@ -84,21 +94,27 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
         ...(reason?.trim() ? { reason: reason.trim() } : {}),
       });
 
+      let handoff: LeadSalesHandoffOutcome = { status: 'not_applicable' };
       if (decision === 'approved' && record.task.inputs.recommendedAction === 'approve_advance') {
-        const eligibility = await handoffEligibility.evaluate(normalizedExecutionId);
-        const persistedEligibility = await handoffEligibilityPersistence.persist({ eligibility });
-        const salesIntakeTask = salesIntakeTaskService.createTask({
-          taskId: `sales-intake-task:${persistedEligibility.id}`,
-          executionId: `sales-intake:${persistedEligibility.id}`,
-          correlationId: record.task.correlationId,
-          eligibilityRecordId: persistedEligibility.id,
-          eligibility,
-          createdAt: persistedEligibility.createdAt,
-        });
-        await salesIntakeRegistration.register(salesIntakeTask);
+        try {
+          const eligibility = await handoffEligibility.evaluate(normalizedExecutionId);
+          const persistedEligibility = await handoffEligibilityPersistence.persist({ eligibility });
+          const salesIntakeTask = salesIntakeTaskService.createTask({
+            taskId: `sales-intake-task:${persistedEligibility.id}`,
+            executionId: `sales-intake:${persistedEligibility.id}`,
+            correlationId: record.task.correlationId,
+            eligibilityRecordId: persistedEligibility.id,
+            eligibility,
+            createdAt: persistedEligibility.createdAt,
+          });
+          const registered = await salesIntakeRegistration.register(salesIntakeTask);
+          handoff = { status: 'registered', salesIntakeExecutionId: registered.task.executionId };
+        } catch (error) {
+          handoff = { status: 'failed', error: error instanceof Error ? error.message : 'Lead to Sales handoff failed.' };
+        }
       }
 
-      return outcome;
+      return { ...outcome, handoff };
     },
   };
 
