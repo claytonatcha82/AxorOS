@@ -7,6 +7,8 @@ type Repo = Parameters<typeof createSalesGovernedOutreachHumanReviewDecisionServ
 
 const requestRecord = (overrides: Record<string, unknown> = {}): WorkflowEventRecord => ({
   id: 'review-request-1',
+  clientId: null,
+  projectId: null,
   eventType: 'sales_governed_outreach_human_review_requested',
   actorType: 'agent',
   actorId: 'sales_agent',
@@ -31,13 +33,22 @@ const requestRecord = (overrides: Record<string, unknown> = {}): WorkflowEventRe
     nextAction: 'await_human_outreach_review',
     ...overrides,
   },
+  createdAt: '2026-09-04T18:00:00.000Z',
 });
 
 function repository(record: WorkflowEventRecord = requestRecord(), existing: WorkflowEventRecord | null = null): Repo {
   return {
     getWorkflowEventById: async () => record,
     findWorkflowEventByTypeAndPayloadField: async () => existing,
-    createWorkflowEvent: async (input) => ({ id: 'resolution-1', ...input }),
+    createWorkflowEvent: async (input) => ({
+      id: 'resolution-1',
+      clientId: null,
+      projectId: null,
+      createdAt: '2026-09-04T18:00:01.000Z',
+      ...input,
+      actorId: input.actorId ?? null,
+      payload: input.payload ?? {},
+    }),
   } as Repo;
 }
 
@@ -103,7 +114,7 @@ test('blocks malformed or unauthorized review requests', async () => {
 
 test('blocks duplicate resolution', async () => {
   const service = createSalesGovernedOutreachHumanReviewDecisionService(
-    repository(requestRecord(), { id: 'existing-resolution' } as WorkflowEventRecord),
+    repository(requestRecord(), { id: 'existing-resolution', clientId: null, projectId: null, eventType: 'sales_governed_outreach_human_review_resolved', actorType: 'founder', actorId: 'human_executive', payload: {}, createdAt: '2026-09-04T18:00:01.000Z' }),
   );
   await assert.rejects(
     service.decide({ reviewRequestRecordId: 'review-request-1', decision: 'approved', reviewer: 'human_executive' }),
