@@ -129,7 +129,10 @@ export function createConfiguredIntegrationRegistry(
   }
 
   if (config.googlePlacesApiKey) {
-    const googlePlaces = createGooglePlacesLeadResearchIntegration({ apiKey: config.googlePlacesApiKey });
+    const googlePlaces = createGooglePlacesLeadResearchIntegration({
+      apiKey: config.googlePlacesApiKey,
+      ...(config.googlePlacesRegionCode ? { regionCode: config.googlePlacesRegionCode } : {}),
+    });
     registry.register(googlePlaces);
     registeredIntegrationIds.push(googlePlaces.integrationId);
   }
