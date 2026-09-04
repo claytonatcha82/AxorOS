@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { CreateWorkflowEventInput, WorkflowEventRecord } from '../data/operational-repository.js';
 import { createSalesOutreachApprovalResolutionPersistenceService } from './sales-outreach-approval-resolution-persistence-service.js';
 import type { SalesOutreachApprovalResolution } from './sales-outreach-approval-resolution-service.js';
 
@@ -22,15 +23,24 @@ function resolution(overrides: Partial<SalesOutreachApprovalResolution> = {}): S
   };
 }
 
-function repository(existing: unknown = null) {
-  const events: unknown[] = [];
+function repository(existing: WorkflowEventRecord | null = null) {
+  const events: WorkflowEventRecord[] = [];
   return {
     events,
-    async findWorkflowEventByTypeAndPayloadField() { return existing as never; },
-    async createWorkflowEvent(input: Record<string, unknown>) {
-      const record = { id: 'resolution-record-1', ...input };
+    async findWorkflowEventByTypeAndPayloadField(): Promise<WorkflowEventRecord | null> { return existing; },
+    async createWorkflowEvent(input: CreateWorkflowEventInput): Promise<WorkflowEventRecord> {
+      const record: WorkflowEventRecord = {
+        id: 'resolution-record-1',
+        clientId: input.clientId ?? null,
+        projectId: input.projectId ?? null,
+        eventType: input.eventType,
+        actorType: input.actorType,
+        actorId: input.actorId ?? null,
+        payload: input.payload ?? {},
+        createdAt: new Date().toISOString(),
+      };
       events.push(record);
-      return record as never;
+      return record;
     },
   };
 }
@@ -58,7 +68,10 @@ test('persists denied Founder resolution without outreach authority', async () =
 });
 
 test('rejects a second resolution for an already-resolved approval', async () => {
-  const repo = repository({ id: 'existing-resolution' });
+  const repo = repository({
+    id: 'existing-resolution', clientId: null, projectId: null,
+    eventType: 'sales_outreach_approval_resolved', actorType: 'founder', actorId: 'founder', payload: {}, createdAt: new Date().toISOString(),
+  });
   await assert.rejects(
     () => createSalesOutreachApprovalResolutionPersistenceService(repo).persist({ resolution: resolution() }),
     /has already been resolved/,
