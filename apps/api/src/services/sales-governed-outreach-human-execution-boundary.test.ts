@@ -40,11 +40,11 @@ test('agent cannot create human execution authority', async () => {
 
 test('explicit confirmation is mandatory', async () => {
   const service = createSalesGovernedOutreachHumanExecutionService(repository({ 'gate-1': gate, 'preparation-1': preparation }));
-  await assert.rejects(() => service.authorise({ supervisedSendGateRecordId: 'gate-1', actorType: 'founder', actorId: 'human_executive', humanExecutionConfirmed: false }), /explicit human execution confirmation/);
+  await assert.rejects(() => service.authorise({ supervisedSendGateRecordId: 'gate-1', actorType: 'founder', actorId: 'human_executive', humanExecutionConfirmed: false }), /Explicit human execution confirmation/);
 });
 
 test('forged pre-authorised supervised gate is rejected', async () => {
   const forged = { ...gate, payload: { ...gate.payload, sendAuthorised: true } };
   const service = createSalesGovernedOutreachHumanExecutionService(repository({ 'gate-1': forged, 'preparation-1': preparation }));
-  await assert.rejects(() => service.authorise({ supervisedSendGateRecordId: 'gate-1', actorType: 'founder', actorId: 'human_executive', humanExecutionConfirmed: true }), /not valid for human execution/);
+  await assert.rejects(() => service.authorise({ supervisedSendGateRecordId: 'gate-1', actorType: 'founder', actorId: 'human_executive', humanExecutionConfirmed: true }), /not valid for explicit human execution/);
 });
