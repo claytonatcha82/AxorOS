@@ -56,6 +56,7 @@ const preparation = {
 
 function dependencies() {
   let sent = 0;
+  const timestamp = () => new Date().toISOString();
   return {
     transport: {
       async send() {
@@ -64,9 +65,15 @@ function dependencies() {
       },
     },
     sendAttempts: {
-      async reserve() {},
-      async markSent() {},
-      async markFailed() {},
+      async reserve(sendGateRecordId: string, draftRecordId: string, leadId: string, idempotencyKey: string) {
+        return { sendGateRecordId, draftRecordId, leadId, idempotencyKey, status: 'reserved' as const, reservedAt: timestamp(), updatedAt: timestamp() };
+      },
+      async markSent(sendGateRecordId: string, providerMessageId: string) {
+        return { sendGateRecordId, draftRecordId: 'prep-1', leadId: 'lead-1', idempotencyKey: `sales-supervised-email-send:${sendGateRecordId}`, status: 'sent' as const, providerMessageId, reservedAt: timestamp(), completedAt: timestamp(), updatedAt: timestamp() };
+      },
+      async markFailed(sendGateRecordId: string, errorMessage: string) {
+        return { sendGateRecordId, draftRecordId: 'prep-1', leadId: 'lead-1', idempotencyKey: `sales-supervised-email-send:${sendGateRecordId}`, status: 'failed' as const, errorMessage, reservedAt: timestamp(), completedAt: timestamp(), updatedAt: timestamp() };
+      },
     },
     get sendCount() { return sent; },
   };
