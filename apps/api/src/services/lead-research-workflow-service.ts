@@ -81,11 +81,28 @@ export function createLeadResearchWorkflowService(
       const maxWebResults = input.maxWebResultsPerBusiness ?? 5;
       const providerCandidateLimit = 20;
 
-      const discovery = await registry.execute<{ query: string; maxResults: number; pageToken?: string }, LeadBusinessSearchOutput>({
+      const executeDiscovery = (pageToken?: string) => registry.execute<{ query: string; maxResults: number; pageToken?: string }, LeadBusinessSearchOutput>({
         integrationId: 'research.google-places', operation: 'search_businesses', requestedBy: 'lead_agent', executionId, correlationId,
         mode: 'live', risk: 'low',
-        input: { query, maxResults: providerCandidateLimit, ...(input.pageToken ? { pageToken: input.pageToken } : {}) },
+        input: { query, maxResults: providerCandidateLimit, ...(pageToken ? { pageToken } : {}) },
       });
+
+      let discovery = await executeDiscovery(input.pageToken);
+      const isPagingParameterMismatch = Boolean(
+        input.pageToken &&
+        discovery.status !== 'succeeded' &&
+        discovery.output.providerErrorCode === 'INVALID_ARGUMENT' &&
+        discovery.output.providerErrorMessage?.trim().startsWith('Request parameters for paging requests must match the initial SearchText request'),
+      );
+
+      // Google Places page tokens are tied to the exact initial request parameters.
+      // If persisted state contains a token created before a request-parameter change,
+      // recover by starting that query from page one and let the successful response
+      // replace the stale token in the normal persisted query state.
+      if (isPagingParameterMismatch) {
+        discovery = await executeDiscovery();
+      }
+
       if (discovery.status !== 'succeeded') {
         const providerCode = discovery.output.providerErrorCode ?? discovery.status;
         const providerMessage = discovery.output.providerErrorMessage?.trim();
