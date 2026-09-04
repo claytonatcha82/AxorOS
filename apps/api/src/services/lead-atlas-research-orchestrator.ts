@@ -8,11 +8,14 @@ import type { LeadQualificationDisposition, LeadQualificationDispositionService 
 import type { LeadQualificationDispositionPersistenceService } from './lead-qualification-disposition-persistence-service.js';
 import type { LeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import type { LeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
+import type { LeadGapResearchService } from './lead-gap-research-service.js';
+import type { QualificationCategory } from './lead-preliminary-qualification-service.js';
+import { logEvent } from '../logger.js';
 
 export interface AtlasLeadResearchQueryState {
   exhausted: boolean;
   lastAttemptedAt?: string;
-  nextPageToken?: string | null; // NEW: string = has next page; null = known no next page; undefined = never fetched
+  nextPageToken?: string | null;
 }
 
 export interface AtlasLeadResearchInput {
@@ -52,6 +55,14 @@ function required(value: string, field: string): string {
   return trimmed;
 }
 
+function identifyEvidenceGaps(assessments: Record<QualificationCategory, { score: number | null }>): QualificationCategory[] {
+  const gaps: QualificationCategory[] = [];
+  for (const [category, assessment] of Object.entries(assessments) as [QualificationCategory, { score: number | null }][]) {
+    if (assessment.score === null || assessment.score < 8) gaps.push(category);
+  }
+  return gaps;
+}
+
 export function createLeadAtlasResearchOrchestrator(
   atlasContext: Pick<LeadAtlasContextService, 'load'>,
   planner: Pick<LeadAtlasResearchPlanner, 'plan'>,
@@ -63,16 +74,9 @@ export function createLeadAtlasResearchOrchestrator(
   dispositionPersistence?: Pick<LeadQualificationDispositionPersistenceService, 'persist'>,
   runtimeReviewService?: Pick<LeadQualificationRuntimeReviewService, 'createTask'>,
   runtimeReviewRegistration?: Pick<LeadQualificationRuntimeReviewRegistrationService, 'register'>,
+  gapResearchService?: Pick<LeadGapResearchService, 'researchGaps'>,
 ) {
-  const qualificationDependencies = [
-    evidenceBuilder,
-    qualificationService,
-    qualificationPersistence,
-    dispositionService,
-    dispositionPersistence,
-    runtimeReviewService,
-    runtimeReviewRegistration,
-  ];
+  const qualificationDependencies = [evidenceBuilder, qualificationService, qualificationPersistence, dispositionService, dispositionPersistence, runtimeReviewService, runtimeReviewRegistration];
   const configuredQualificationDependencies = qualificationDependencies.filter(Boolean).length;
   if (configuredQualificationDependencies !== 0 && configuredQualificationDependencies !== qualificationDependencies.length) {
     throw new Error('Lead qualification pipeline requires evidence builder, qualification service, qualification persistence, disposition service, disposition persistence, runtime review service, and runtime review registration together.');
@@ -83,9 +87,7 @@ export function createLeadAtlasResearchOrchestrator(
       const executionId = required(input.executionId, 'executionId');
       const correlationId = required(input.correlationId, 'correlationId');
       const atlas = await atlasContext.load();
-      const exhaustedQueries = Object.entries(input.queryState ?? {})
-        .filter(([, state]) => state.exhausted)
-        .map(([query]) => query);
+      const exhaustedQueries = Object.entries(input.queryState ?? {}).filter(([, state]) => state.exhausted).map(([query]) => query);
       const plan = planner.plan({
         atlas,
         ...(input.geographicFocus ? { geographicFocus: input.geographicFocus } : {}),
@@ -110,7 +112,6 @@ export function createLeadAtlasResearchOrchestrator(
 
       for (const [index, query] of plan.queries.entries()) {
         const attemptedAt = new Date().toISOString();
-
         const queryStateEntry = input.queryState?.[query];
         const pageToken = queryStateEntry?.nextPageToken ?? undefined;
 
@@ -142,26 +143,62 @@ export function createLeadAtlasResearchOrchestrator(
           if (!evidenceBuilder || !qualificationService || !qualificationPersistence || !dispositionService || !dispositionPersistence || !runtimeReviewService || !runtimeReviewRegistration) {
             throw new Error('Atlas Lead research produced an enriched lead without a fully configured governed qualification review pipeline.');
           }
-          const assessments = evidenceBuilder.build({
+
+          let publicWebResults = lead.publicWebEvidence;
+          let assessments = evidenceBuilder.build({
             atlas,
             companyName: lead.companyName,
             officialWebsiteUrl: lead.officialWebsiteUrl,
-            publicWebResults: lead.publicWebEvidence,
+            publicWebResults,
           });
+
+          if (gapResearchService) {
+            const gaps = identifyEvidenceGaps(assessments);
+            if (gaps.length > 0) {
+              logEvent('info', 'lead_gap_research_triggered', {
+                leadId: lead.leadId,
+                companyName: lead.companyName,
+                gaps,
+                initialScore: Object.fromEntries(Object.entries(assessments).map(([k, v]) => [k, v.score])),
+              });
+
+              const gapResult = await gapResearchService.researchGaps({
+                companyName: lead.companyName,
+                officialWebsiteUrl: lead.officialWebsiteUrl,
+                formattedAddress: lead.formattedAddress,
+                missingCategories: gaps,
+                existingEvidence: publicWebResults,
+                executionId: `${executionId}:gap-research:${lead.leadId}`,
+                correlationId,
+                ...(input.country ? { country: input.country } : {}),
+                maxResultsPerSearch: input.maxWebResultsPerBusiness ?? 5,
+              });
+
+              if (gapResult.additionalResults.length > 0) {
+                publicWebResults = [...publicWebResults, ...gapResult.additionalResults];
+                assessments = evidenceBuilder.build({
+                  atlas,
+                  companyName: lead.companyName,
+                  officialWebsiteUrl: lead.officialWebsiteUrl,
+                  publicWebResults,
+                });
+              }
+
+              logEvent('info', 'lead_gap_research_completed', {
+                leadId: lead.leadId,
+                companyName: lead.companyName,
+                searchesPerformed: gapResult.searchesPerformed,
+                categoriesResearched: gapResult.categoriesResearched,
+                additionalResults: gapResult.additionalResults.length,
+                updatedScore: Object.fromEntries(Object.entries(assessments).map(([k, v]) => [k, v.score])),
+              });
+            }
+          }
+
           const preliminaryQualification = qualificationService.evaluate({ atlas, assessments });
-          const persistedQualification = await qualificationPersistence.persist({
-            leadId: lead.leadId,
-            assessments,
-            result: preliminaryQualification,
-            actorId: 'lead_agent',
-          });
+          const persistedQualification = await qualificationPersistence.persist({ leadId: lead.leadId, assessments, result: preliminaryQualification, actorId: 'lead_agent' });
           const qualificationDisposition = dispositionService.evaluate(preliminaryQualification);
-          const persistedDisposition = await dispositionPersistence.persist({
-            leadId: lead.leadId,
-            qualificationRecordId: persistedQualification.id,
-            disposition: qualificationDisposition,
-            actorId: 'lead_agent',
-          });
+          const persistedDisposition = await dispositionPersistence.persist({ leadId: lead.leadId, qualificationRecordId: persistedQualification.id, disposition: qualificationDisposition, actorId: 'lead_agent' });
           const qualificationReviewTask = runtimeReviewService.createTask({
             taskId: `lead-qualification-review-task:${persistedDisposition.id}`,
             executionId: `lead-qualification-review:${persistedDisposition.id}`,
@@ -189,14 +226,11 @@ export function createLeadAtlasResearchOrchestrator(
       const preservedQueryState = Object.fromEntries(
         Object.entries(input.queryState ?? {})
           .filter(([query]) => !Object.prototype.hasOwnProperty.call(updatedQueryState, query))
-          .map(([query, state]) => [
-            query,
-            {
-              exhausted: state.exhausted,
-              lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
-              ...(state.nextPageToken !== undefined ? { nextPageToken: state.nextPageToken } : {}),
-            },
-          ]),
+          .map(([query, state]) => [query, {
+            exhausted: state.exhausted,
+            lastAttemptedAt: state.lastAttemptedAt ?? new Date().toISOString(),
+            ...(state.nextPageToken !== undefined ? { nextPageToken: state.nextPageToken } : {}),
+          }]),
       );
 
       return {
@@ -206,10 +240,7 @@ export function createLeadAtlasResearchOrchestrator(
         enriched,
         proposals,
         outcomes,
-        updatedQueryState: {
-          ...preservedQueryState,
-          ...updatedQueryState,
-        },
+        updatedQueryState: { ...preservedQueryState, ...updatedQueryState },
       };
     },
   };
