@@ -165,7 +165,7 @@ export function createLeadAtlasResearchOrchestrator(
               const gapResult = await gapResearchService.researchGaps({
                 companyName: lead.companyName,
                 officialWebsiteUrl: lead.officialWebsiteUrl,
-                formattedAddress: lead.formattedAddress,
+                ...(lead.formattedAddress ? { formattedAddress: lead.formattedAddress } : {}),
                 missingCategories: gaps,
                 existingEvidence: publicWebResults,
                 executionId: `${executionId}:gap-research:${lead.leadId}`,
