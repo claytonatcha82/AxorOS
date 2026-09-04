@@ -61,7 +61,7 @@ test('rejects denied human review', async () => {
 test('rejects forged dispatch or send authority in review resolution', async () => {
   const repository = repositoryFor(approvedResolution({ dispatchAuthorised: true }));
   const service = createSalesGovernedOutreachSupervisedSendGateService(repository);
-  await assert.rejects(() => service.prepare('record-sales_governed_outreach_human_review_resolved'), /invalid for supervised send preparation/);
+  await assert.rejects(() => service.prepare('record-sales_governed_outreach_human_review_resolved'), /not valid for supervised send preparation/);
 });
 
 test('rejects non-human-executive resolution actor', async () => {
