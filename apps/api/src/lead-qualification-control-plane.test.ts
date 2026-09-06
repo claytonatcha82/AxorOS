@@ -42,8 +42,8 @@ function reviewOutcome(status: 'review' | 'ready', approvalRequired: boolean): R
   };
 }
 
-async function withServer(run: (baseUrl: string, calls: { request: number; resolve: number }) => Promise<void>): Promise<void> {
-  const calls = { request: 0, resolve: 0 };
+async function withServer(run: (baseUrl: string, calls: { request: number; resolve: number; details: number }) => Promise<void>): Promise<void> {
+  const calls = { request: 0, resolve: 0, details: 0 };
   const fallback: RequestListener = (_request, response) => {
     response.writeHead(418);
     response.end();
@@ -60,6 +60,48 @@ async function withServer(run: (baseUrl: string, calls: { request: number; resol
         calls.request += 1;
         assert.equal(executionId, 'lead-qualification-review:disposition-1');
         return reviewOutcome('review', true);
+      },
+      async getReviewDetails(executionId) {
+        calls.details += 1;
+        assert.equal(executionId, 'lead-qualification-review:disposition-1');
+        return {
+          executionId,
+          lead: {
+            id: 'lead-1',
+            companyName: 'Example Construction',
+            contactName: null,
+            contactEmail: null,
+            opportunitySummary: 'Potential website opportunity.',
+            leadScore: null,
+            status: 'new',
+            enrichmentStatus: 'verified',
+            evidence: [{ url: 'https://example.com', title: 'Official website' }],
+          },
+          qualification: {
+            id: 'qualification-1',
+            totalScore: 52,
+            suggestedStatus: 'good',
+            assessments: { businessFit: { score: 9 } },
+            missingInformation: ['decisionMakerAccess'],
+            atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
+            createdAt: '2026-08-20T17:00:00.000Z',
+          },
+          disposition: {
+            disposition: 'hold',
+            recommendedAction: 'approve_advance',
+            humanApprovalRequired: true,
+            reasons: ['Human Executive review required.'],
+            atlasSourcePaths: ['Volume 1 - Agency/05 Client Acquisition/Lead Qualification.md'],
+            createdAt: '2026-08-20T17:00:00.000Z',
+          },
+          runtime: {
+            confidence: 1,
+            risks: ['Decision-maker not verified.'],
+            nextAction: 'obtain_required_approval',
+            createdAt: '2026-08-20T17:00:00.000Z',
+            updatedAt: '2026-08-20T17:00:00.000Z',
+          },
+        };
       },
       async resolveReview(executionId, decision, reason) {
         calls.resolve += 1;
@@ -103,16 +145,29 @@ test('authenticated control plane can request governed Lead qualification review
   });
 });
 
+test('authenticated control plane exposes persisted Lead review details without granting approval authority', async () => {
+  await withServer(async (baseUrl, calls) => {
+    const response = await fetch(`${baseUrl}/api/v1/control/lead-qualification-review/details`, {
+      headers: { authorization: `Bearer ${controlPlaneToken}`, 'x-execution-id': 'lead-qualification-review:disposition-1' },
+    });
+    const body = await response.json() as { ok: boolean; data: { lead: { companyName: string }; qualification: { totalScore: number }; disposition: { humanApprovalRequired: boolean } } };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.lead.companyName, 'Example Construction');
+    assert.equal(body.data.qualification.totalScore, 52);
+    assert.equal(body.data.disposition.humanApprovalRequired, true);
+    assert.equal(calls.details, 1);
+    assert.equal(calls.resolve, 0);
+  });
+});
+
 test('authenticated control plane records only an explicit human review decision', async () => {
   await withServer(async (baseUrl, calls) => {
     const response = await fetch(`${baseUrl}/api/v1/control/lead-qualification-review/resolve`, {
       method: 'POST',
       headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        executionId: 'lead-qualification-review:disposition-1',
-        decision: 'approved',
-        reason: 'Founder approved controlled continuation.',
-      }),
+      body: JSON.stringify({ executionId: 'lead-qualification-review:disposition-1', decision: 'approved', reason: 'Founder approved controlled continuation.' }),
     });
     const body = await response.json() as { ok: boolean; data: { status: string; approvalRequired: boolean; nextAction: string } };
 
@@ -131,11 +186,7 @@ test('Lead qualification review resolution rejects caller-supplied authority fie
     const response = await fetch(`${baseUrl}/api/v1/control/lead-qualification-review/resolve`, {
       method: 'POST',
       headers: { authorization: `Bearer ${controlPlaneToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        executionId: 'lead-qualification-review:disposition-1',
-        decision: 'approved',
-        actor: 'lead_agent',
-      }),
+      body: JSON.stringify({ executionId: 'lead-qualification-review:disposition-1', decision: 'approved', actor: 'lead_agent' }),
     });
     const body = await response.json() as { error: { code: string } };
 
