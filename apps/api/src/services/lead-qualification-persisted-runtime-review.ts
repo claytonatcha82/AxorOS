@@ -13,6 +13,7 @@ import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-e
 import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
 import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
 import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
+import type { SalesQualifiedLeadFollowthroughService } from './sales-qualified-lead-followthrough-service.js';
 
 const LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY = 'lead_qualification_human_review_gate';
 
@@ -20,7 +21,7 @@ export type LeadQualificationReviewDecision = 'approved' | 'rejected';
 
 export type LeadSalesHandoffOutcome =
   | { status: 'not_applicable' }
-  | { status: 'processed'; salesIntakeExecutionId: string }
+  | { status: 'processed'; salesIntakeExecutionId: string; salesFollowthroughStatus: 'drafted' | 'context_incomplete' }
   | { status: 'failed'; error: string };
 
 export interface LeadQualificationReviewOutcome extends RuntimeExecutionOutcome {
@@ -33,7 +34,10 @@ function required(value: string, field: string): string {
   return trimmed;
 }
 
-export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
+export function createPersistedLeadQualificationRuntimeReview(
+  pool: Pool,
+  salesFollowthrough?: SalesQualifiedLeadFollowthroughService,
+) {
   const store = createAgentRuntimePostgresStore(pool);
   const commitRuntimeMutation = store.commitRuntimeMutation;
   if (!commitRuntimeMutation) {
@@ -54,10 +58,7 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const registration = createLeadQualificationRuntimeReviewRegistrationService({ store: registrationStore });
   const handoffEligibility = createLeadSalesHandoffEligibilityService(store);
   const operationalRepository = createOperationalRepository(pool);
-  const reviewDetails = createLeadQualificationReviewDetailsService({
-    runtimeStore: store,
-    operationalRepository,
-  });
+  const reviewDetails = createLeadQualificationReviewDetailsService({ runtimeStore: store, operationalRepository });
   const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(operationalRepository);
   const salesIntakeTaskService = createLeadSalesIntakeTaskService();
   const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
@@ -68,20 +69,10 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const record = await store.getExecution(normalizedExecutionId);
       if (!record) throw new Error(`Lead qualification review execution ${normalizedExecutionId} was not found.`);
-      if (record.task.destinationAgent !== 'lead_agent') {
-        throw new Error('Lead qualification review command requires Lead Agent destination.');
-      }
-      if (record.task.approvalRequired !== true || record.task.approvalOwner !== 'human_executive') {
-        throw new Error('Lead qualification review command requires pending human executive approval.');
-      }
-      if (record.task.nextAction !== 'obtain_required_approval') {
-        throw new Error('Lead qualification review command requires the governed approval route.');
-      }
-
-      return orchestrator.execute({
-        executionId: normalizedExecutionId,
-        capabilityId: LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY,
-      });
+      if (record.task.destinationAgent !== 'lead_agent') throw new Error('Lead qualification review command requires Lead Agent destination.');
+      if (record.task.approvalRequired !== true || record.task.approvalOwner !== 'human_executive') throw new Error('Lead qualification review command requires pending human executive approval.');
+      if (record.task.nextAction !== 'obtain_required_approval') throw new Error('Lead qualification review command requires the governed approval route.');
+      return orchestrator.execute({ executionId: normalizedExecutionId, capabilityId: LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY });
     },
 
     async getReviewDetails(executionId: string) {
@@ -92,15 +83,9 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
       const normalizedExecutionId = required(executionId, 'executionId');
       const record = await store.getExecution(normalizedExecutionId);
       if (!record) throw new Error(`Lead qualification review execution ${normalizedExecutionId} was not found.`);
-      if (record.task.destinationAgent !== 'lead_agent') {
-        throw new Error('Lead qualification review resolution requires Lead Agent destination.');
-      }
-      if (record.task.status !== 'review') {
-        throw new Error(`Lead qualification review resolution requires review status; received ${record.task.status}.`);
-      }
-      if (record.task.approvalRequired !== true || record.task.approvalOwner !== 'human_executive') {
-        throw new Error('Lead qualification review resolution requires human executive approval authority.');
-      }
+      if (record.task.destinationAgent !== 'lead_agent') throw new Error('Lead qualification review resolution requires Lead Agent destination.');
+      if (record.task.status !== 'review') throw new Error(`Lead qualification review resolution requires review status; received ${record.task.status}.`);
+      if (record.task.approvalRequired !== true || record.task.approvalOwner !== 'human_executive') throw new Error('Lead qualification review resolution requires human executive approval authority.');
 
       const outcome = await orchestrator.resolveApproval({
         executionId: normalizedExecutionId,
@@ -124,17 +109,18 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
           });
           const registered = await salesIntakeRegistration.register(salesIntakeTask);
           const ready = await salesIntakeActivation.activate(registered.task.executionId);
-          const processed = await salesOrchestrator.execute({
-            executionId: ready.task.executionId,
-            capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
-          });
-
+          const processed = await salesOrchestrator.execute({ executionId: ready.task.executionId, capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY });
           if (processed.record.task.status !== 'completed' || processed.record.result?.status !== 'completed') {
             const errorMessage = processed.record.result?.errorMessage ?? `Sales intake did not complete; received ${processed.record.task.status}.`;
             throw new Error(errorMessage);
           }
-
-          handoff = { status: 'processed', salesIntakeExecutionId: processed.record.task.executionId };
+          if (!salesFollowthrough) throw new Error('Sales qualified-lead followthrough runtime is not configured.');
+          const followthrough = await salesFollowthrough.executeAfterIntake(processed.record.task.executionId);
+          handoff = {
+            status: 'processed',
+            salesIntakeExecutionId: processed.record.task.executionId,
+            salesFollowthroughStatus: followthrough.draft ? 'drafted' : 'context_incomplete',
+          };
         } catch (error) {
           handoff = { status: 'failed', error: error instanceof Error ? error.message : 'Lead to Sales handoff failed.' };
         }
@@ -157,6 +143,4 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   };
 }
 
-export type PersistedLeadQualificationRuntimeReview = ReturnType<
-  typeof createPersistedLeadQualificationRuntimeReview
->;
+export type PersistedLeadQualificationRuntimeReview = ReturnType<typeof createPersistedLeadQualificationRuntimeReview>;
