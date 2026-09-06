@@ -5,6 +5,9 @@
   let latestHeaders = {};
   let apiBaseUrl = '';
 
+  if (document.documentElement.dataset.leadApprovalReviewEnhancerLoaded === 'true') return;
+  document.documentElement.dataset.leadApprovalReviewEnhancerLoaded = 'true';
+
   const style = document.createElement('style');
   style.textContent = `.lead-review-details{margin-top:16px;border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:12px 14px;background:rgba(127,127,127,.06)}.lead-review-details summary{cursor:pointer;font-weight:700}.lead-review-section{margin-top:16px}.lead-review-section h4{margin:0 0 8px}.lead-review-field{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px;padding:7px 0;border-top:1px solid rgba(127,127,127,.16)}.lead-review-field span{white-space:pre-wrap;overflow-wrap:anywhere}.lead-review-code-field{display:block}.lead-review-code-field pre{margin:7px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}.lead-review-safety-note{margin:16px 0 0;padding:10px;border-radius:8px;font-weight:600}.approval-actions button:disabled{opacity:.45;cursor:not-allowed}`;
   document.head.append(style);
@@ -47,12 +50,26 @@
     return wrapper;
   }
 
+  function removeDuplicateDetails(card, executionId) {
+    const details = Array.from(card.querySelectorAll('.lead-review-details'));
+    const matching = details.filter((item) => item.dataset.executionId === executionId);
+    const keep = matching[0] ?? null;
+    details.forEach((item) => {
+      if (item !== keep) item.remove();
+    });
+    return keep;
+  }
+
   async function loadDetails(card, approval) {
-    if (card.dataset.leadReviewEnhanced === approval.executionId) return;
-    card.dataset.leadReviewEnhanced = approval.executionId;
+    const existing = removeDuplicateDetails(card, approval.executionId);
+    if (existing) return;
+
+    const staleDetails = card.querySelectorAll('.lead-review-details');
+    staleDetails.forEach((item) => item.remove());
 
     const details = document.createElement('details');
     details.className = 'lead-review-details';
+    details.dataset.executionId = approval.executionId;
     const summary = document.createElement('summary');
     summary.textContent = 'Review Lead evidence before deciding';
     details.append(summary);
@@ -134,6 +151,7 @@
     cards.forEach((card, index) => {
       const approval = latestApprovals[index];
       if (approval?.destinationAgent === 'lead_agent') void loadDetails(card, approval);
+      else card.querySelectorAll('.lead-review-details').forEach((item) => item.remove());
     });
   }
 
