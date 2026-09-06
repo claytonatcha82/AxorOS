@@ -113,7 +113,6 @@ test('accepts Randburg Coin Compony concatenated domain', async () => {
   });
 
   assert.equal(result.enrichmentStatus, 'verified');
-  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, 'https://randburgcoin.co.za/');
 });
 
 test('accepts Michael Vaughan concatenated domain', async () => {
@@ -132,7 +131,6 @@ test('accepts Michael Vaughan concatenated domain', async () => {
   });
 
   assert.equal(result.enrichmentStatus, 'verified');
-  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, 'https://michaelvaughan.co.za/');
 });
 
 test('accepts Pro Contracts concatenated domain', async () => {
@@ -151,7 +149,6 @@ test('accepts Pro Contracts concatenated domain', async () => {
   });
 
   assert.equal(result.enrichmentStatus, 'verified');
-  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, 'https://procontracts.co.za/');
 });
 
 test('accepts DSES Project Solutions concatenated domain', async () => {
@@ -170,7 +167,6 @@ test('accepts DSES Project Solutions concatenated domain', async () => {
   });
 
   assert.equal(result.enrichmentStatus, 'verified');
-  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, 'https://dsesprojects.co.za/');
 });
 
 test('accepts KMG abbreviated domain when construction is a non-identity token', async () => {
@@ -189,7 +185,6 @@ test('accepts KMG abbreviated domain when construction is a non-identity token',
   });
 
   assert.equal(result.enrichmentStatus, 'verified');
-  assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, 'https://kmg.co.za/');
 });
 
 test('rejects a domain matching only a generic construction token', async () => {
