@@ -18,8 +18,8 @@ function fixtures(overrides: Partial<Record<string, WorkflowEventRecord>> = {}) 
   });
   const gate = record('gate-1', 'sales_supervised_send_gate_recorded', 'founder', 'human_executive', {
     draftReviewRecordId: 'review-1', draftRecordId: 'draft-1', leadId: 'lead-1', decision: 'approved',
-    approver: 'human_executive', supervised: true, outreachAuthorised: true, sendAuthorised: true,
-    pricingAuthorised: false, commercialCommitmentAuthorised: false, nextAction: 'execute_supervised_email_send',
+    approver: 'human_executive', supervised: true, outreachAuthorised: true, dispatchAuthorised: false,
+    sendAuthorised: true, pricingAuthorised: false, commercialCommitmentAuthorised: false, nextAction: 'execute_supervised_email_send',
   });
   return new Map<string, WorkflowEventRecord>([
     ['draft-1', overrides['draft-1'] ?? draft],
