@@ -162,7 +162,13 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   if (companyTokens.length === 0) return false;
 
   const domainTokensForIdentity = domainTokens(domain);
-  const normalizedDomainBase = domain.split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+  const domainBase = domain.split('.')[0];
+
+  if (!domainBase) return false;
+
+  const normalizedDomainBase = domainBase
+   .toLowerCase()
+   .replace(/[^a-z0-9]/g, '');
 
   if (
   !companyTokens.some((token) =>
