@@ -1,15 +1,17 @@
 (() => {
   const DETAILS_PATH = '/api/v1/control/lead-qualification-review/details';
+  const RESOLVE_PATH = '/api/v1/control/lead-qualification-review/resolve';
   const originalFetch = window.fetch.bind(window);
   let latestApprovals = [];
   let latestHeaders = {};
   let apiBaseUrl = '';
+  let activeLeadApprovalExecutionId = null;
 
   if (document.documentElement.dataset.leadApprovalReviewEnhancerLoaded === 'true') return;
   document.documentElement.dataset.leadApprovalReviewEnhancerLoaded = 'true';
 
   const style = document.createElement('style');
-  style.textContent = `.lead-review-details{margin-top:16px;border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:12px 14px;background:rgba(127,127,127,.06)}.lead-review-details summary{cursor:pointer;font-weight:700}.lead-review-section{margin-top:16px}.lead-review-section h4{margin:0 0 8px}.lead-review-field{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px;padding:7px 0;border-top:1px solid rgba(127,127,127,.16)}.lead-review-field span{white-space:pre-wrap;overflow-wrap:anywhere}.lead-review-code-field{display:block}.lead-review-code-field pre{margin:7px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}.lead-review-safety-note{margin:16px 0 0;padding:10px;border-radius:8px;font-weight:600}.approval-actions button:disabled{opacity:.45;cursor:not-allowed}`;
+  style.textContent = `.lead-review-details{margin-top:16px;border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:12px 14px;background:rgba(127,127,127,.06)}.lead-review-details summary{cursor:pointer;font-weight:700}.lead-review-section{margin-top:16px}.lead-review-section h4{margin:0 0 8px}.lead-review-field{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px;padding:7px 0;border-top:1px solid rgba(127,127,127,.16)}.lead-review-field span{white-space:pre-wrap;overflow-wrap:anywhere}.lead-review-code-field{display:block}.lead-review-code-field pre{margin:7px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}.lead-review-safety-note{margin:16px 0 0;padding:10px;border-radius:8px;font-weight:600}.approval-actions button:disabled{opacity:.45;cursor:not-allowed}.lead-handoff-status{margin:0 0 16px;padding:14px 16px;border-radius:12px;border:1px solid rgba(127,127,127,.25);background:rgba(127,127,127,.08);display:flex;flex-direction:column;gap:4px}.lead-handoff-status strong{font-size:15px}.lead-handoff-status span{font-size:13px;opacity:.8}.lead-handoff-status.processing{border-style:dashed}.lead-handoff-status.success{font-weight:600}.lead-handoff-status.error{font-weight:600}`;
   document.head.append(style);
 
   const text = (value) => value === null || value === undefined || value === '' ? '—' : String(value);
@@ -58,6 +60,41 @@
       if (item !== keep) item.remove();
     });
     return keep;
+  }
+
+  function showHandoffStatus(state, title, detail) {
+    let status = document.querySelector('.lead-handoff-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'lead-handoff-status';
+      const approvalsSection = document.getElementById('approvals');
+      if (approvalsSection) approvalsSection.prepend(status);
+      else document.body.prepend(status);
+    }
+    status.className = `lead-handoff-status ${state}`;
+    status.replaceChildren();
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const message = document.createElement('span');
+    message.textContent = detail;
+    status.append(heading, message);
+  }
+
+  function markLeadApprovalProcessing(executionId) {
+    activeLeadApprovalExecutionId = executionId;
+    showHandoffStatus('processing', 'Handing to Sales…', 'Lead approval was submitted. AxorOS is completing the governed Lead → Sales handoff and starting the Sales internal intake.');
+  }
+
+  function markLeadApprovalSuccess() {
+    if (!activeLeadApprovalExecutionId) return;
+    showHandoffStatus('success', 'Handed to Sales ✓', 'The approved Lead has been handed to Sales. Sales can now continue its internal assessment and prepare the outreach draft for Human Executive review. No email has been sent.');
+    activeLeadApprovalExecutionId = null;
+  }
+
+  function markLeadApprovalFailure(message) {
+    if (!activeLeadApprovalExecutionId) return;
+    showHandoffStatus('error', 'Sales handoff failed', message || 'The Lead approval could not complete the governed handoff.');
+    activeLeadApprovalExecutionId = null;
   }
 
   async function loadDetails(card, approval) {
@@ -171,9 +208,35 @@
           window.setTimeout(enhanceCards, 0);
         }
       }
+      if (requestUrl.includes(RESOLVE_PATH) && activeLeadApprovalExecutionId && response.ok) {
+        markLeadApprovalSuccess();
+      }
+      if (requestUrl.includes(RESOLVE_PATH) && activeLeadApprovalExecutionId && !response.ok) {
+        const clone = response.clone();
+        let message = `HTTP ${response.status}`;
+        try {
+          const payload = await clone.json();
+          message = payload?.error?.message || message;
+        } catch { /* Keep HTTP status when the error body is not JSON. */ }
+        markLeadApprovalFailure(message);
+      }
     } catch { /* The main Control Center remains authoritative if enhancement fails. */ }
     return response;
   };
+
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest('.approval-actions button');
+    if (!button) return;
+    const card = button.closest('.approval-card');
+    if (!card) return;
+    const details = card.querySelector('.lead-review-details');
+    const executionId = details?.dataset.executionId;
+    const approval = latestApprovals.find((item) => item.executionId === executionId);
+    if (!approval || approval.destinationAgent !== 'lead_agent') return;
+    if (button.classList.contains('reject-button')) return;
+    markLeadApprovalProcessing(executionId);
+  });
 
   const observer = new MutationObserver(() => enhanceCards());
   observer.observe(document.documentElement, { childList: true, subtree: true });
