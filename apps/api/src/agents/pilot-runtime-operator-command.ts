@@ -66,7 +66,9 @@ function pendingApproval(record: AgentRuntimeExecutionRecord): PilotPendingAppro
   let capabilityId: string | undefined;
   let policy: unknown;
 
-  if (record.task.destinationAgent === 'support_agent' && context.supportEmailApprovalPolicy) {
+  if (record.task.destinationAgent === 'lead_agent' && record.task.approvalOwner === 'human_executive') {
+    capabilityId = 'lead_qualification_review';
+  } else if (record.task.destinationAgent === 'support_agent' && context.supportEmailApprovalPolicy) {
     capabilityId = SUPPORT_EMAIL_DRAFT_CAPABILITY;
     policy = context.supportEmailApprovalPolicy;
   } else if (record.task.destinationAgent === 'marketing_agent' && context.marketingEmailApprovalPolicy) {
@@ -77,7 +79,13 @@ function pendingApproval(record: AgentRuntimeExecutionRecord): PilotPendingAppro
     policy = context.operationsEmailApprovalPolicy;
   }
 
-  if (!capabilityId || !PILOT_OPERATOR_CAPABILITIES.get(record.task.destinationAgent)?.has(capabilityId)) return null;
+  if (
+    !capabilityId
+    || (
+      record.task.destinationAgent !== 'lead_agent'
+      && !PILOT_OPERATOR_CAPABILITIES.get(record.task.destinationAgent)?.has(capabilityId)
+    )
+  ) return null;
   const reason = policy && typeof policy === 'object' && !Array.isArray(policy)
     ? (policy as Record<string, unknown>).reason
     : undefined;
