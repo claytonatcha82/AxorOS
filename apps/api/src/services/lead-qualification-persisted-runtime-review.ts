@@ -5,6 +5,8 @@ import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestr
 import { SALES_INTERNAL_INTAKE_CAPABILITY, salesInternalIntakeHandler } from '../agents/sales-internal-intake-handler.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
+import { createConfiguredIntegrationRegistry } from '../integrations/integration-bootstrap.js';
+import { loadConfig } from '../config.js';
 import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
 import { createLeadQualificationReviewDetailsService } from './lead-qualification-review-details-service.js';
@@ -13,7 +15,7 @@ import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-e
 import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
 import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
 import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
-import type { SalesQualifiedLeadFollowthroughService } from './sales-qualified-lead-followthrough-service.js';
+import { createSalesQualifiedLeadFollowthroughService, type SalesQualifiedLeadFollowthroughService } from './sales-qualified-lead-followthrough-service.js';
 
 const LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY = 'lead_qualification_human_review_gate';
 
@@ -63,6 +65,10 @@ export function createPersistedLeadQualificationRuntimeReview(
   const salesIntakeTaskService = createLeadSalesIntakeTaskService();
   const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
   const salesIntakeActivation = createLeadSalesIntakeActivationService(registrationStore);
+  const configuredSalesFollowthrough = salesFollowthrough ?? createSalesQualifiedLeadFollowthroughService(
+    pool,
+    createConfiguredIntegrationRegistry(loadConfig()).registry,
+  );
 
   const commands = {
     async requestReview(executionId: string) {
@@ -114,8 +120,7 @@ export function createPersistedLeadQualificationRuntimeReview(
             const errorMessage = processed.record.result?.errorMessage ?? `Sales intake did not complete; received ${processed.record.task.status}.`;
             throw new Error(errorMessage);
           }
-          if (!salesFollowthrough) throw new Error('Sales qualified-lead followthrough runtime is not configured.');
-          const followthrough = await salesFollowthrough.executeAfterIntake(processed.record.task.executionId);
+          const followthrough = await configuredSalesFollowthrough.executeAfterIntake(processed.record.task.executionId);
           handoff = {
             status: 'processed',
             salesIntakeExecutionId: processed.record.task.executionId,
