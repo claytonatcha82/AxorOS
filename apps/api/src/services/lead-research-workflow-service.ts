@@ -78,6 +78,15 @@ function webQueriesFor(candidate: LeadBusinessCandidate, discoveryQuery: string)
   ].map((query) => query.slice(0, 500));
 }
 
+function registrableDomain(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/^www\./, '');
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length <= 2) return host;
+  const secondLevelTlds = new Set(['co.za', 'org.za', 'net.za', 'com.au', 'co.uk', 'org.uk']);
+  const suffix = labels.slice(-2).join('.');
+  return secondLevelTlds.has(suffix) ? labels.slice(-3).join('.') : labels.slice(-2).join('.');
+}
+
 export function createLeadResearchWorkflowService(
   registry: IntegrationRegistry,
   discoveryService: LeadDiscoveryService,
@@ -152,7 +161,7 @@ export function createLeadResearchWorkflowService(
         }
         if (successfulWebSearches === 0) { outcomes.webResearchFailed += 1; continue; }
 
-        const deduplicatedWebResults = [...new Map(webResults.filter((result) => result.url).map((result) => [result.url, result])).values()];
+        let deduplicatedWebResults = [...new Map(webResults.filter((result) => result.url).map((result) => [result.url, result])).values()];
         const selection = selectOfficialWebsite({
           businessName: candidate.displayName,
           ...(candidate.formattedAddress ? { formattedAddress: candidate.formattedAddress } : {}),
@@ -161,6 +170,27 @@ export function createLeadResearchWorkflowService(
         if (selection.status === 'ambiguous') {
           proposals.push({ leadId, providerPlaceId: candidate.providerPlaceId, selectionStatus: selection.status, candidateUrls: selection.candidateUrls, publicWebResults: deduplicatedWebResults });
           outcomes.unresolved += 1; outcomes.ambiguous += 1; continue;
+        }
+
+        // After the official domain is selected, search that domain specifically for
+        // contact details. Contact pages often do not appear in broad business search.
+        if (selection.status === 'selected') {
+          let selectedDomain: string;
+          try { selectedDomain = registrableDomain(new URL(selection.websiteUrl).hostname); } catch { selectedDomain = ''; }
+          if (selectedDomain) {
+            const contactSearch = await registry.execute<{ query: string; maxResults: number; country?: string; includeDomains?: string[] }, PublicWebSearchOutput>({
+              integrationId: 'research.tavily-web', operation: 'search_public_web', requestedBy: 'lead_agent',
+              executionId: `${executionId}:${candidate.providerPlaceId}:contact-domain`, correlationId, mode: 'live', risk: 'low',
+              input: {
+                query: `${candidate.displayName} contact email enquiries office`,
+                maxResults: Math.max(maxWebResults, 5),
+                ...(input.country ? { country: input.country } : {}),
+                includeDomains: [selectedDomain],
+              },
+            });
+            if (contactSearch.status === 'succeeded') webResults.push(...contactSearch.output.results);
+            deduplicatedWebResults = [...new Map(webResults.filter((result) => result.url).map((result) => [result.url, result])).values()];
+          }
         }
 
         const lead = await enrichmentService.enrich({
