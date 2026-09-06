@@ -167,7 +167,12 @@ function createTask(
 
 test('approved approve_advance review records eligibility and executes governed Sales intake without dispatch or outreach authority', async () => {
   const harness = createPool();
-  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
+  const salesFollowthrough = {
+    async executeAfterIntake() {
+      return { draft: null };
+    },
+  } as never;
+  const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool, salesFollowthrough);
   const task = createTask(runtime);
   await runtime.registration.register(task);
 
@@ -228,6 +233,7 @@ test('approved non-advance review creates neither Sales eligibility nor Sales in
   const approved = await runtime.commands.resolveReview(task.executionId, 'approved');
 
   assert.equal(approved.record.task.status, 'ready');
+  assert.equal(approved.handoff.status, 'not_applicable');
   assert.equal(harness.workflowEvents.length, 0);
   assert.equal([...harness.executions.values()].some((record) => record.task.destinationAgent === 'sales_agent'), false);
 });
