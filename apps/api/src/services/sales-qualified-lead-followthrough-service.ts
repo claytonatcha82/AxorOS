@@ -192,3 +192,5 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     },
   };
 }
+
+export type SalesQualifiedLeadFollowthroughService = ReturnType<typeof createSalesQualifiedLeadFollowthroughService>;
