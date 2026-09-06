@@ -90,6 +90,10 @@ const NON_IDENTITY_NAME_TOKENS = new Set([
   'town',
 ]);
 
+const EMAIL_PATTERN = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+/gi;
+const NON_CONTACT_EMAIL_LOCALS = new Set(['noreply', 'no-reply', 'donotreply', 'do-not-reply', 'mailer-daemon', 'postmaster']);
+const PREFERRED_CONTACT_EMAIL_LOCALS = ['contact', 'info', 'hello', 'sales', 'enquiries', 'enquiry', 'office', 'admin'];
+
 function requireText(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${field} is required.`);
@@ -167,6 +171,45 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   return domainResults.some((result) => containsAllTokens(`${result.title} ${result.content}`, companyTokens));
 }
 
+function discoverPublicBusinessEmail(results: PublicWebSearchResult[], officialWebsiteUrl: string): { email: string; evidenceReferences: string[] } | null {
+  const officialDomain = registrableDomain(new URL(officialWebsiteUrl).hostname);
+  const candidates = new Map<string, { email: string; evidenceReferences: string[] }>();
+
+  for (const result of results) {
+    let resultDomain: string;
+    try { resultDomain = registrableDomain(new URL(result.url).hostname); } catch { continue; }
+    if (resultDomain !== officialDomain) continue;
+
+    const text = `${result.title}\n${result.content}`;
+    for (const match of text.matchAll(EMAIL_PATTERN)) {
+      const email = match[0].trim().toLowerCase().replace(/[.,;:)\]}]+$/, '');
+      const at = email.lastIndexOf('@');
+      if (at <= 0 || at === email.length - 1) continue;
+      const local = email.slice(0, at);
+      const domain = registrableDomain(email.slice(at + 1));
+      if (domain !== officialDomain || NON_CONTACT_EMAIL_LOCALS.has(local)) continue;
+      const existing = candidates.get(email) ?? { email, evidenceReferences: [] };
+      const evidenceReference = `public-web:${result.url}`;
+      if (!existing.evidenceReferences.includes(evidenceReference)) existing.evidenceReferences.push(evidenceReference);
+      candidates.set(email, existing);
+    }
+  }
+
+  if (candidates.size === 0) return null;
+  const ranked = [...candidates.values()].sort((a, b) => {
+    const aLocal = a.email.slice(0, a.email.indexOf('@'));
+    const bLocal = b.email.slice(0, b.email.indexOf('@'));
+    const aRank = PREFERRED_CONTACT_EMAIL_LOCALS.indexOf(aLocal);
+    const bRank = PREFERRED_CONTACT_EMAIL_LOCALS.indexOf(bLocal);
+    const normalizedARank = aRank === -1 ? PREFERRED_CONTACT_EMAIL_LOCALS.length : aRank;
+    const normalizedBRank = bRank === -1 ? PREFERRED_CONTACT_EMAIL_LOCALS.length : bRank;
+    if (normalizedARank !== normalizedBRank) return normalizedARank - normalizedBRank;
+    if (a.email !== b.email) return a.email.localeCompare(b.email);
+    return b.evidenceReferences.length - a.evidenceReferences.length;
+  });
+  return ranked[0] ?? null;
+}
+
 function googleIdentity(lead: LeadRecord): { providerPlaceId: string; evidenceReference: string } | null {
   if (lead.source !== 'google_places' || !Array.isArray(lead.evidence)) return null;
   for (const item of lead.evidence) {
@@ -208,6 +251,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
 
         const websiteVerified = Boolean(officialWebsiteUrl && domainSupportsCompanyIdentity(officialWebsiteUrl, lead.companyName, matching));
         const verifiedWebsiteUrl = websiteVerified ? officialWebsiteUrl : null;
+        const discoveredEmail = verifiedWebsiteUrl ? discoverPublicBusinessEmail(matching, verifiedWebsiteUrl) : null;
         const enrichmentStatus = verifiedWebsiteUrl ? 'verified' : 'not_found';
         const evidence = [
           ...(Array.isArray(lead.evidence) ? lead.evidence : []),
@@ -215,14 +259,21 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
             kind: 'public_web_enrichment',
             provider: 'tavily',
             websiteVerificationStatus: enrichmentStatus,
+            contactEmailDiscoveryStatus: discoveredEmail ? 'verified' : 'not_found',
             ...(verifiedWebsiteUrl ? { officialWebsiteUrl: verifiedWebsiteUrl } : {}),
+            ...(discoveredEmail ? {
+              contactEmail: discoveredEmail.email,
+              contactEmailEvidenceReferences: discoveredEmail.evidenceReferences,
+            } : {}),
             evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         ];
         const enriched = await tx.enrichLead(lead.id, 'pending', {
           companyName: lead.companyName,
+          contactName: lead.contactName ?? undefined,
+          contactEmail: discoveredEmail?.email ?? lead.contactEmail ?? undefined,
           opportunitySummary: verifiedWebsiteUrl
-            ? `Official website independently identified: ${verifiedWebsiteUrl}`
+            ? `Official website independently identified: ${verifiedWebsiteUrl}${discoveredEmail ? ` Public business contact email verified from the official-domain evidence: ${discoveredEmail.email}` : ' No public business contact email was found in the verified official-domain evidence.'}`
             : 'Business identity independently identified; no official website was verified in public-web research. Website opportunity should be assessed during human review.',
           evidence,
         }, enrichmentStatus);
@@ -236,7 +287,12 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
             leadId: enriched.id,
             providerPlaceId: identity.providerPlaceId,
             ...(verifiedWebsiteUrl ? { officialWebsiteUrl: verifiedWebsiteUrl } : {}),
+            ...(discoveredEmail ? {
+              contactEmail: discoveredEmail.email,
+              contactEmailEvidenceReferences: discoveredEmail.evidenceReferences,
+            } : {}),
             websiteVerificationStatus: enrichmentStatus,
+            contactEmailDiscoveryStatus: discoveredEmail ? 'verified' : 'not_found',
             enrichmentStatus,
             evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
