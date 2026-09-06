@@ -89,6 +89,90 @@ test('marks a pending discovery not_found when no official website is verified',
   assert.equal(result.enrichmentStatus, 'not_found'); assert.equal(mock.enrichments[0]?.nextStatus, 'not_found');
 });
 
+test("accepts concatenated Randburg Coin Compony domain", async () => {
+  const result = await enrichLead({
+    leadId: "lead-randburg-coin",
+    companyName: "Randburg Coin Compony",
+    officialWebsiteUrl: "https://randburgcoin.co.za/",
+    webResults: [
+      {
+        title: "Randburg Coin Compony | Home",
+        content: "Randburg Coin Compony provides manufacturing services in Randburg.",
+        url: "https://randburgcoin.co.za/",
+      },
+    ],
+  });
+
+  assert.equal(result.verifiedWebsiteUrl, "https://randburgcoin.co.za/");
+});
+
+test("accepts concatenated Michael Vaughan domain", async () => {
+  const result = await enrichLead({
+    leadId: "lead-michael-vaughan",
+    companyName: "Michael Vaughan Construction Management & Consulting",
+    officialWebsiteUrl: "https://michaelvaughan.co.za/",
+    webResults: [
+      {
+        title: "Michael Vaughan Construction Management & Consulting",
+        content: "Michael Vaughan provides construction management and consulting services.",
+        url: "https://michaelvaughan.co.za/",
+      },
+    ],
+  });
+
+  assert.equal(result.verifiedWebsiteUrl, "https://michaelvaughan.co.za/");
+});
+
+test("accepts concatenated Pro Contracts domain", async () => {
+  const result = await enrichLead({
+    leadId: "lead-pro-contracts",
+    companyName: "Pro Contracts",
+    officialWebsiteUrl: "https://procontracts.co.za/",
+    webResults: [
+      {
+        title: "Pro Contracts",
+        content: "Pro Contracts provides professional contracting services.",
+        url: "https://procontracts.co.za/",
+      },
+    ],
+  });
+
+  assert.equal(result.verifiedWebsiteUrl, "https://procontracts.co.za/");
+});
+
+test("accepts concatenated DSES Projects domain", async () => {
+  const result = await enrichLead({
+    leadId: "lead-dses",
+    companyName: "DSES Project Solutions",
+    officialWebsiteUrl: "https://dsesprojects.co.za/",
+    webResults: [
+      {
+        title: "DSES Project Solutions",
+        content: "DSES Project Solutions provides project solutions.",
+        url: "https://dsesprojects.co.za/",
+      },
+    ],
+  });
+
+  assert.equal(result.verifiedWebsiteUrl, "https://dsesprojects.co.za/");
+});
+
+test("accepts abbreviated KMG Construction domain", async () => {
+  const result = await enrichLead({
+    leadId: "lead-kmg",
+    companyName: "KMG Construction",
+    officialWebsiteUrl: "https://kmg.co.za/",
+    webResults: [
+      {
+        title: "KMG Construction",
+        content: "KMG Construction provides construction services.",
+        url: "https://kmg.co.za/",
+      },
+    ],
+  });
+
+  assert.equal(result.verifiedWebsiteUrl, "https://kmg.co.za/");
+});
 test('rejects an official website that is not supported by research results', async () => { const mock = mockRepository(); const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never); await assert.rejects(() => service.enrich({ leadId: 'lead-1', companyName: 'Example Business', officialWebsiteUrl: 'https://example.co.za/', supportingResults: [{ title: 'Other', url: 'https://other.co.za/', content: 'Other site.' }] }), /must be supported/); assert.equal(mock.enrichments.length, 0); });
 test('rejects a known third-party directory as the official website', async () => { const mock = mockRepository('pending', 'Power Construction (Pty) Ltd'); const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never); const result = await service.enrich({ leadId: 'lead-1', companyName: 'Power Construction (Pty) Ltd', officialWebsiteUrl: 'https://rocketreach.co/power-construction-profile', supportingResults: [{ title: 'Power Construction (Pty) Ltd Information', url: 'https://rocketreach.co/power-construction-profile', content: 'Power Construction company profile.' }] }); assert.equal(result.enrichmentStatus, 'not_found'); assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined); assert.equal(mock.enrichments[0]?.input.companyName, 'Power Construction (Pty) Ltd'); });
 test('rejects an industry directory domain even when the company name appears in the listing', async () => { const mock = mockRepository('pending', 'Dennes Engineering'); const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never); const result = await service.enrich({ leadId: 'lead-1', companyName: 'Dennes Engineering', officialWebsiteUrl: 'https://www.engnet.co.za/', supportingResults: [{ title: 'Dennes Engineering :: Contact Us - Cape Town', url: 'https://www.engnet.co.za/', content: 'Dennes Engineering profile on EngNet.' }] }); assert.equal(result.enrichmentStatus, 'not_found'); assert.equal(mock.enrichments[0]?.input.officialWebsiteUrl, undefined); });
