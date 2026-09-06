@@ -55,6 +55,11 @@ const PILOT_OPERATOR_CAPABILITIES = new Map<string, ReadonlySet<string>>([
   ['executive_agent', new Set([EXECUTIVE_STRATEGIC_ANALYSIS_CAPABILITY])],
 ]);
 
+const DEFAULT_PENDING_APPROVAL_LIMIT = 500;
+const MAX_PENDING_APPROVAL_LIMIT = 500;
+const DEFAULT_RECOVERY_LIMIT = 25;
+const MAX_RECOVERY_LIMIT = 50;
+
 function normalizedRequired(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} is required.`);
@@ -105,9 +110,9 @@ export function createPilotRuntimeOperatorCommand(
   dependencies: PilotRuntimeOperatorCommandDependencies,
 ) {
   return {
-    async listPendingApprovals(limit = 25): Promise<readonly PilotPendingApproval[]> {
-      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-        throw new Error('pending approval limit must be an integer from 1 to 50.');
+    async listPendingApprovals(limit = DEFAULT_PENDING_APPROVAL_LIMIT): Promise<readonly PilotPendingApproval[]> {
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PENDING_APPROVAL_LIMIT) {
+        throw new Error(`pending approval limit must be an integer from 1 to ${MAX_PENDING_APPROVAL_LIMIT}.`);
       }
       if (!dependencies.store.listPendingHumanApprovals) {
         throw new Error('pending Human Executive approval listing is not configured.');
@@ -121,9 +126,9 @@ export function createPilotRuntimeOperatorCommand(
       return [...approvals.values()];
     },
 
-    async listRecoveryRequired(limit = 25): Promise<readonly PilotRecoveryItem[]> {
-      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-        throw new Error('recovery queue limit must be an integer from 1 to 50.');
+    async listRecoveryRequired(limit = DEFAULT_RECOVERY_LIMIT): Promise<readonly PilotRecoveryItem[]> {
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RECOVERY_LIMIT) {
+        throw new Error(`recovery queue limit must be an integer from 1 to ${MAX_RECOVERY_LIMIT}.`);
       }
       if (!dependencies.store.listRecoveryRequiredExecutions) {
         throw new Error('runtime recovery queue listing is not configured.');
