@@ -219,7 +219,7 @@ export function createAgentRuntimePostgresStore(pool: Pool): AgentRuntimePostgre
          where status = 'review'
            and task->>'approvalRequired' = 'true'
            and task->>'approvalOwner' = 'human_executive'
-         order by persisted_at asc
+         order by persisted_at desc
          limit $1`,
         [limit],
       );
