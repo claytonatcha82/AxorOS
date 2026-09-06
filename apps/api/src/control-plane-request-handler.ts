@@ -9,6 +9,7 @@ import type {
   OperationsProductionReadinessWorkflowResult,
 } from './agents/operations-production-readiness-workflow.js';
 import type { LeadSalesHandoffOutcome } from './services/lead-qualification-persisted-runtime-review.js';
+import type { LeadQualificationReviewDetails } from './services/lead-qualification-review-details-service.js';
 import { authenticateControlPlaneRequest } from './control-plane-auth.js';
 import type { ApiConfig } from './config.js';
 
@@ -16,6 +17,7 @@ const PRODUCTION_EXECUTE_PATH = '/api/v1/control/production/execute';
 const OPERATIONS_PRODUCTION_PREREQUISITE_RECORD_PATH = '/api/v1/control/operations/production-prerequisite/record';
 const OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH = '/api/v1/control/operations/production-readiness/assess';
 const LEAD_QUALIFICATION_REVIEW_REQUEST_PATH = '/api/v1/control/lead-qualification-review/request';
+const LEAD_QUALIFICATION_REVIEW_DETAILS_PATH = '/api/v1/control/lead-qualification-review/details';
 const LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH = '/api/v1/control/lead-qualification-review/resolve';
 const MAX_CONTROL_BODY_BYTES = 4 * 1024;
 
@@ -30,6 +32,7 @@ export interface ControlPlaneRequestHandlerDependencies {
   };
   leadQualificationReviewCommand?: {
     requestReview(executionId: string): Promise<RuntimeExecutionOutcome>;
+    getReviewDetails(executionId: string): Promise<LeadQualificationReviewDetails>;
     resolveReview(
       executionId: string,
       decision: 'approved' | 'rejected',
@@ -84,6 +87,7 @@ function isControlPath(path: string | undefined): boolean {
     || path === OPERATIONS_PRODUCTION_PREREQUISITE_RECORD_PATH
     || path === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH
     || path === LEAD_QUALIFICATION_REVIEW_REQUEST_PATH
+    || path === LEAD_QUALIFICATION_REVIEW_DETAILS_PATH
     || path === LEAD_QUALIFICATION_REVIEW_RESOLVE_PATH;
 }
 
@@ -145,7 +149,7 @@ export function createControlPlaneRequestHandler(
     const corsHeaders: Record<string, string> = { vary: 'Origin' };
     if (origin === dependencies.config.controlCenterUrl) {
       corsHeaders['access-control-allow-origin'] = dependencies.config.controlCenterUrl;
-      corsHeaders['access-control-allow-methods'] = 'POST,OPTIONS';
+      corsHeaders['access-control-allow-methods'] = 'GET,POST,OPTIONS';
       corsHeaders['access-control-allow-headers'] = 'authorization,content-type,x-request-id';
     }
 
@@ -159,7 +163,12 @@ export function createControlPlaneRequestHandler(
       return;
     }
 
-    if (request.method !== 'POST') {
+    const isReadOnlyDetails = request.url === LEAD_QUALIFICATION_REVIEW_DETAILS_PATH;
+    if (isReadOnlyDetails && request.method !== 'GET') {
+      sendJson(response, 405, { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } }, { allow: 'GET,OPTIONS', ...corsHeaders });
+      return;
+    }
+    if (!isReadOnlyDetails && request.method !== 'POST') {
       sendJson(response, 405, { ok: false, error: { code: 'method_not_allowed', message: 'Method is not allowed.' } }, { allow: 'POST,OPTIONS', ...corsHeaders });
       return;
     }
@@ -182,6 +191,28 @@ export function createControlPlaneRequestHandler(
         },
         { ...(notConfigured ? {} : { 'www-authenticate': 'Bearer' }), ...corsHeaders },
       );
+      return;
+    }
+
+    if (request.url === LEAD_QUALIFICATION_REVIEW_DETAILS_PATH) {
+      const url = new URL(request.url ?? '', `http://${request.headers.host ?? 'localhost'}`);
+      const executionId = url.searchParams.get('executionId')?.trim() ?? '';
+      if (!executionId) {
+        sendJson(response, 400, { ok: false, error: { code: 'invalid_lead_qualification_review_details_request', message: 'A non-empty executionId query parameter is required.' } }, corsHeaders);
+        return;
+      }
+      const reviewCommand = dependencies.leadQualificationReviewCommand;
+      if (!reviewCommand) {
+        sendJson(response, 503, { ok: false, error: { code: 'lead_qualification_review_not_configured', message: 'Lead qualification review control is not configured.' } }, corsHeaders);
+        return;
+      }
+      try {
+        const details = await reviewCommand.getReviewDetails(executionId);
+        sendJson(response, 200, { ok: true, data: details }, corsHeaders);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Lead qualification review details lookup failed.';
+        sendJson(response, 400, { ok: false, error: { code: 'lead_qualification_review_details_rejected', message } }, corsHeaders);
+      }
       return;
     }
 
@@ -246,43 +277,20 @@ export function createControlPlaneRequestHandler(
     if (request.url === OPERATIONS_PRODUCTION_READINESS_ASSESS_PATH) {
       const readinessCommand = dependencies.operationsProductionReadinessCommand;
       if (!readinessCommand) {
-        sendJson(response, 503, {
-          ok: false,
-          error: {
-            code: 'operations_production_readiness_not_configured',
-            message: 'Operations production-readiness control is not configured.',
-          },
-        }, corsHeaders);
+        sendJson(response, 503, { ok: false, error: { code: 'operations_production_readiness_not_configured', message: 'Operations production-readiness control is not configured.' } }, corsHeaders);
         return;
       }
       if (!validOperationsProductionReadinessBody(body)) {
-        sendJson(response, 400, {
-          ok: false,
-          error: {
-            code: 'invalid_operations_production_readiness_command',
-            message: 'Request body must contain only readinessId, commercialRecordReference, and assessedAt.',
-          },
-        }, corsHeaders);
+        sendJson(response, 400, { ok: false, error: { code: 'invalid_operations_production_readiness_command', message: 'Request body must contain only readinessId, commercialRecordReference, and assessedAt.' } }, corsHeaders);
         return;
       }
 
       try {
         const result = await readinessCommand.assess(body);
-        sendJson(response, 200, {
-          ok: true,
-          data: {
-            readinessId: result.decision.readinessId,
-            commercialRecordReference: result.decision.commercialRecordReference,
-            state: result.decision.state,
-            persistence: result.persistence,
-          },
-        }, corsHeaders);
+        sendJson(response, 200, { ok: true, data: { readinessId: result.decision.readinessId, commercialRecordReference: result.decision.commercialRecordReference, state: result.decision.state, persistence: result.persistence } }, corsHeaders);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Operations production-readiness assessment failed.';
-        sendJson(response, 400, {
-          ok: false,
-          error: { code: 'operations_production_readiness_rejected', message },
-        }, corsHeaders);
+        sendJson(response, 400, { ok: false, error: { code: 'operations_production_readiness_rejected', message } }, corsHeaders);
       }
       return;
     }
@@ -301,17 +309,7 @@ export function createControlPlaneRequestHandler(
 
       try {
         const outcome = await reviewCommand.requestReview(body.executionId);
-        sendJson(response, 200, {
-          ok: true,
-          data: {
-            executionId: outcome.record.task.executionId,
-            status: outcome.record.task.status,
-            approvalRequired: outcome.record.task.approvalRequired,
-            approvalOwner: outcome.record.task.approvalOwner ?? null,
-            nextAction: outcome.record.task.nextAction,
-            replayed: outcome.replayed,
-          },
-        }, corsHeaders);
+        sendJson(response, 200, { ok: true, data: { executionId: outcome.record.task.executionId, status: outcome.record.task.status, approvalRequired: outcome.record.task.approvalRequired, approvalOwner: outcome.record.task.approvalOwner ?? null, nextAction: outcome.record.task.nextAction, replayed: outcome.replayed } }, corsHeaders);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Lead qualification review request failed.';
         sendJson(response, 400, { ok: false, error: { code: 'lead_qualification_review_request_rejected', message } }, corsHeaders);
@@ -320,29 +318,13 @@ export function createControlPlaneRequestHandler(
     }
 
     if (!validLeadReviewResolutionBody(body)) {
-      sendJson(response, 400, {
-        ok: false,
-        error: {
-          code: 'invalid_lead_qualification_review_resolution',
-          message: 'Request body must contain executionId, approved/rejected decision, and optionally a non-empty reason.',
-        },
-      }, corsHeaders);
+      sendJson(response, 400, { ok: false, error: { code: 'invalid_lead_qualification_review_resolution', message: 'Request body must contain executionId, approved/rejected decision, and optionally a non-empty reason.' } }, corsHeaders);
       return;
     }
 
     try {
       const outcome = await reviewCommand.resolveReview(body.executionId, body.decision, body.reason);
-      sendJson(response, 200, {
-        ok: true,
-        data: {
-          executionId: outcome.record.task.executionId,
-          status: outcome.record.task.status,
-          approvalRequired: outcome.record.task.approvalRequired,
-          nextAction: outcome.record.task.nextAction,
-          replayed: outcome.replayed,
-          handoff: outcome.handoff ?? { status: 'not_applicable' },
-        },
-      }, corsHeaders);
+      sendJson(response, 200, { ok: true, data: { executionId: outcome.record.task.executionId, status: outcome.record.task.status, approvalRequired: outcome.record.task.approvalRequired, nextAction: outcome.record.task.nextAction, replayed: outcome.replayed, handoff: outcome.handoff ?? { status: 'not_applicable' } } }, corsHeaders);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lead qualification review resolution failed.';
       sendJson(response, 400, { ok: false, error: { code: 'lead_qualification_review_resolution_rejected', message } }, corsHeaders);
