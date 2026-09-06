@@ -6,6 +6,7 @@ import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
 import { createLeadQualificationRuntimeReviewService } from './lead-qualification-runtime-review-service.js';
+import { createLeadQualificationReviewDetailsService } from './lead-qualification-review-details-service.js';
 import { createLeadSalesHandoffEligibilityPersistenceService } from './lead-sales-handoff-eligibility-persistence-service.js';
 import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-eligibility-service.js';
 import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
@@ -48,6 +49,10 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const registration = createLeadQualificationRuntimeReviewRegistrationService({ store: registrationStore });
   const handoffEligibility = createLeadSalesHandoffEligibilityService(store);
   const operationalRepository = createOperationalRepository(pool);
+  const reviewDetails = createLeadQualificationReviewDetailsService({
+    runtimeStore: store,
+    operationalRepository,
+  });
   const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(operationalRepository);
   const salesIntakeTaskService = createLeadSalesIntakeTaskService();
   const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
@@ -71,6 +76,10 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
         executionId: normalizedExecutionId,
         capabilityId: LEAD_QUALIFICATION_REVIEW_GATE_CAPABILITY,
       });
+    },
+
+    async getReviewDetails(executionId: string) {
+      return reviewDetails.get(executionId);
     },
 
     async resolveReview(executionId: string, decision: LeadQualificationReviewDecision, reason?: string): Promise<LeadQualificationReviewOutcome> {
