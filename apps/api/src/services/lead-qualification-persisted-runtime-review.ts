@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import type { RuntimeExecutionOutcome } from '../agents/agent-runtime-orchestrator.js';
 import { AgentRuntimeHandlerRegistry } from '../agents/agent-runtime-handlers.js';
 import { createAgentRuntimeOrchestrator } from '../agents/agent-runtime-orchestrator.js';
+import { SALES_INTERNAL_INTAKE_CAPABILITY, salesInternalIntakeHandler } from '../agents/sales-internal-intake-handler.js';
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createLeadQualificationRuntimeReviewRegistrationService } from './lead-qualification-runtime-review-registration-service.js';
@@ -9,6 +10,7 @@ import { createLeadQualificationRuntimeReviewService } from './lead-qualificatio
 import { createLeadQualificationReviewDetailsService } from './lead-qualification-review-details-service.js';
 import { createLeadSalesHandoffEligibilityPersistenceService } from './lead-sales-handoff-eligibility-persistence-service.js';
 import { createLeadSalesHandoffEligibilityService } from './lead-sales-handoff-eligibility-service.js';
+import { createLeadSalesIntakeActivationService } from './lead-sales-intake-activation-service.js';
 import { createLeadSalesIntakeRegistrationService } from './lead-sales-intake-registration-service.js';
 import { createLeadSalesIntakeTaskService } from './lead-sales-intake-task-service.js';
 
@@ -18,7 +20,7 @@ export type LeadQualificationReviewDecision = 'approved' | 'rejected';
 
 export type LeadSalesHandoffOutcome =
   | { status: 'not_applicable' }
-  | { status: 'registered'; salesIntakeExecutionId: string }
+  | { status: 'processed'; salesIntakeExecutionId: string }
   | { status: 'failed'; error: string };
 
 export interface LeadQualificationReviewOutcome extends RuntimeExecutionOutcome {
@@ -40,6 +42,9 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
 
   const handlers = new AgentRuntimeHandlerRegistry();
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
+  const salesHandlers = new AgentRuntimeHandlerRegistry();
+  salesHandlers.register(salesInternalIntakeHandler);
+  const salesOrchestrator = createAgentRuntimeOrchestrator({ store, handlers: salesHandlers });
   const taskService = createLeadQualificationRuntimeReviewService();
   const registrationStore = {
     getExecution: store.getExecution,
@@ -56,6 +61,7 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
   const handoffEligibilityPersistence = createLeadSalesHandoffEligibilityPersistenceService(operationalRepository);
   const salesIntakeTaskService = createLeadSalesIntakeTaskService();
   const salesIntakeRegistration = createLeadSalesIntakeRegistrationService({ store: registrationStore });
+  const salesIntakeActivation = createLeadSalesIntakeActivationService(registrationStore);
 
   const commands = {
     async requestReview(executionId: string) {
@@ -117,7 +123,18 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
             createdAt: persistedEligibility.createdAt,
           });
           const registered = await salesIntakeRegistration.register(salesIntakeTask);
-          handoff = { status: 'registered', salesIntakeExecutionId: registered.task.executionId };
+          const ready = await salesIntakeActivation.activate(registered.task.executionId);
+          const processed = await salesOrchestrator.execute({
+            executionId: ready.task.executionId,
+            capabilityId: SALES_INTERNAL_INTAKE_CAPABILITY,
+          });
+
+          if (processed.record.task.status !== 'completed' || processed.record.result?.status !== 'completed') {
+            const errorMessage = processed.record.result?.errorMessage ?? `Sales intake did not complete; received ${processed.record.task.status}.`;
+            throw new Error(errorMessage);
+          }
+
+          handoff = { status: 'processed', salesIntakeExecutionId: processed.record.task.executionId };
         } catch (error) {
           handoff = { status: 'failed', error: error instanceof Error ? error.message : 'Lead to Sales handoff failed.' };
         }
@@ -135,6 +152,7 @@ export function createPersistedLeadQualificationRuntimeReview(pool: Pool) {
     handoffEligibilityPersistence,
     salesIntakeTaskService,
     salesIntakeRegistration,
+    salesIntakeActivation,
     commands,
   };
 }
