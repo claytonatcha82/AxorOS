@@ -12,7 +12,7 @@ function mockRepository(initialStatus: 'pending' | 'verified' | 'not_found' | 'a
   const enrichments: Array<{ id: string; expectedStatus: string; input: Record<string, unknown>; nextStatus: string }> = [];
   const repository = {
     async getLeadById() { return discoveredLead(initialStatus, companyName); },
-    async enrichLead(id: string, expectedStatus: string, input: Record<string, unknown>, nextStatus: string) { enrichments.push({ id, expectedStatus, input, nextStatus }); return { ...discoveredLead(), companyName: String(input.companyName), opportunitySummary: String(input.opportunitySummary), enrichmentStatus: nextStatus, evidence: input.evidence }; },
+    async enrichLead(id: string, expectedStatus: string, input: Record<string, unknown>, nextStatus: string) { enrichments.push({ id, expectedStatus, input, nextStatus }); return { ...discoveredLead(), companyName: String(input.companyName), contactName: input.contactName ? String(input.contactName) : null, contactEmail: input.contactEmail ? String(input.contactEmail) : null, opportunitySummary: String(input.opportunitySummary), enrichmentStatus: nextStatus, evidence: input.evidence }; },
     async createWorkflowEvent(input: unknown) { events.push(input); return { id: 'event-1' }; },
   };
   return { repository, events, enrichments, runInTransaction: async (work: (tx: typeof repository) => Promise<unknown>) => work(repository) };
@@ -28,6 +28,58 @@ test('promotes a pending Google discovery using independently sourced website ev
   assert.equal(mock.enrichments[0]?.expectedStatus, 'pending');
   assert.equal(mock.enrichments[0]?.nextStatus, 'verified');
   assert.equal(mock.events.length, 1);
+});
+
+test('discovers and persists an explicit public business email from the verified official domain', async () => {
+  const mock = mockRepository();
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({
+    leadId: 'lead-1',
+    companyName: 'Example Business',
+    officialWebsiteUrl: 'https://example.co.za/',
+    supportingResults: [
+      { title: 'Example Business Contact', url: 'https://example.co.za/contact', content: 'Contact us at info@example.co.za or call our office.' },
+      { title: 'Example Business About', url: 'https://example.co.za/about', content: 'Example Business serves South African clients.' },
+    ],
+  });
+  assert.equal(result.contactEmail, 'info@example.co.za');
+  assert.equal(mock.enrichments[0]?.input.contactEmail, 'info@example.co.za');
+  const evidence = mock.enrichments[0]?.input.evidence as Array<Record<string, unknown>>;
+  const enrichmentEvidence = evidence.find((item) => item.kind === 'public_web_enrichment');
+  assert.equal(enrichmentEvidence?.contactEmail, 'info@example.co.za');
+  assert.deepEqual(enrichmentEvidence?.contactEmailEvidenceReferences, ['public-web:https://example.co.za/contact']);
+});
+
+test('prefers a deterministic business contact mailbox and does not use a no-reply address', async () => {
+  const mock = mockRepository();
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({
+    leadId: 'lead-1',
+    companyName: 'Example Business',
+    officialWebsiteUrl: 'https://example.co.za/',
+    supportingResults: [{
+      title: 'Example Business',
+      url: 'https://example.co.za/',
+      content: 'sales@example.co.za info@example.co.za noreply@example.co.za',
+    }],
+  });
+  assert.equal(result.contactEmail, 'info@example.co.za');
+});
+
+test('does not extract an email from an unrelated or third-party research domain', async () => {
+  const mock = mockRepository();
+  const service = createLeadPublicWebEnrichmentService(mock.repository as never, mock.runInTransaction as never);
+  const result = await service.enrich({
+    leadId: 'lead-1',
+    companyName: 'Example Business',
+    officialWebsiteUrl: 'https://example.co.za/',
+    supportingResults: [
+      { title: 'Example Business', url: 'https://example.co.za/', content: 'Official website for Example Business.' },
+      { title: 'Example Business directory', url: 'https://directory.example/contact', content: 'contact@directory.example' },
+    ],
+  });
+  assert.equal(result.contactEmail, null);
+  assert.equal(mock.enrichments[0]?.input.contactEmail, undefined);
 });
 
 test('marks a pending discovery not_found when no official website is verified', async () => {
