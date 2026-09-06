@@ -101,7 +101,7 @@ test('a gate without outreach authority cannot reach the transport', async () =>
     deps.sendAttempts,
   );
 
-  await assert.rejects(() => service.execute('send-gate-1'), /explicit outreach-only authority|outreach-only authority|authorised for email execution/);
+  await assert.rejects(() => service.execute('send-gate-1'), /explicit outreach authority|outreach authority|authorised for email execution/);
   assert.equal(deps.sendCount, 0);
 });
 
