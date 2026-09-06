@@ -4,6 +4,10 @@
   let latestApprovals = [];
   let latestHeaders = {};
 
+  const style = document.createElement('style');
+  style.textContent = `.lead-review-details{margin-top:16px;border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:12px 14px;background:rgba(127,127,127,.06)}.lead-review-details summary{cursor:pointer;font-weight:700}.lead-review-section{margin-top:16px}.lead-review-section h4{margin:0 0 8px}.lead-review-field{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px;padding:7px 0;border-top:1px solid rgba(127,127,127,.16)}.lead-review-field span{white-space:pre-wrap;overflow-wrap:anywhere}.lead-review-code-field{display:block}.lead-review-code-field pre{margin:7px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}.lead-review-safety-note{margin:16px 0 0;padding:10px;border-radius:8px;font-weight:600}.approval-actions button:disabled{opacity:.45;cursor:not-allowed}`;
+  document.head.append(style);
+
   const text = (value) => value === null || value === undefined || value === '' ? '—' : String(value);
   const pretty = (value) => {
     if (value === null || value === undefined) return '—';
@@ -64,9 +68,7 @@
     if (body) body.append(details);
 
     try {
-      const response = await originalFetch(`${DETAILS_PATH}`, {
-        headers: { ...latestHeaders, 'x-execution-id': approval.executionId },
-      });
+      const response = await originalFetch(DETAILS_PATH, { headers: { ...latestHeaders, 'x-execution-id': approval.executionId } });
       const payload = await response.json();
       if (!response.ok || payload.ok === false || !payload.data) throw new Error(payload.error?.message || `HTTP ${response.status}`);
       const review = payload.data;
@@ -134,9 +136,7 @@
         if (payload?.ok && payload?.data?.approvals) {
           latestApprovals = payload.data.approvals;
           const requestInit = args[1];
-          latestHeaders = requestInit?.headers instanceof Headers
-            ? Object.fromEntries(requestInit.headers.entries())
-            : (requestInit?.headers || {});
+          latestHeaders = requestInit?.headers instanceof Headers ? Object.fromEntries(requestInit.headers.entries()) : (requestInit?.headers || {});
           window.setTimeout(enhanceCards, 0);
         }
       }
