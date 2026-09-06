@@ -113,7 +113,12 @@ export function createPilotRuntimeOperatorCommand(
         throw new Error('pending Human Executive approval listing is not configured.');
       }
       const records = await dependencies.store.listPendingHumanApprovals(limit);
-      return records.map(pendingApproval).filter((item): item is PilotPendingApproval => item !== null);
+      const approvals = new Map<string, PilotPendingApproval>();
+      for (const record of records) {
+        const approval = pendingApproval(record);
+        if (approval && !approvals.has(approval.executionId)) approvals.set(approval.executionId, approval);
+      }
+      return [...approvals.values()];
     },
 
     async listRecoveryRequired(limit = 25): Promise<readonly PilotRecoveryItem[]> {
