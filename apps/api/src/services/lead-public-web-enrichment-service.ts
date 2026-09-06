@@ -162,7 +162,13 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   if (companyTokens.length === 0) return false;
 
   const domainTokensForIdentity = domainTokens(domain);
-  if (!companyTokens.some((token) => domainTokensForIdentity.includes(token))) return false;
+  const normalizedDomainBase = domain.split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  if (
+  !companyTokens.some((token) =>
+    normalizedDomainBase.includes(token),
+     )
+  ) return false;
 
   const domainResults = results.filter((result) => {
     try { return registrableDomain(new URL(result.url).hostname) === domain; } catch { return false; }
