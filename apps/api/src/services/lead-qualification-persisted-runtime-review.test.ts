@@ -165,7 +165,7 @@ function createTask(
   });
 }
 
-test('approved approve_advance review records eligibility and creates a queued Sales intake without dispatch or outreach authority', async () => {
+test('approved approve_advance review records eligibility and executes governed Sales intake without dispatch or outreach authority', async () => {
   const harness = createPool();
   const runtime = createPersistedLeadQualificationRuntimeReview(harness.pool);
   const task = createTask(runtime);
@@ -179,6 +179,9 @@ test('approved approve_advance review records eligibility and creates a queued S
   const approved = await runtime.commands.resolveReview(task.executionId, 'approved', 'Founder approved controlled continuation.');
   assert.equal(approved.record.task.status, 'ready');
   assert.equal(approved.record.task.approvalRequired, false);
+  assert.equal(approved.handoff.status, 'processed');
+  if (approved.handoff.status !== 'processed') throw new Error('Expected processed Sales handoff.');
+  assert.equal(approved.handoff.salesIntakeExecutionId, 'sales-intake:workflow-1');
   assert.equal(harness.workflowEvents.length, 1);
   assert.equal(harness.workflowEvents[0]?.event_type, 'lead_sales_handoff_eligibility_recorded');
   assert.deepEqual(harness.workflowEvents[0]?.payload, {
@@ -199,13 +202,17 @@ test('approved approve_advance review records eligibility and creates a queued S
   assert.ok(salesExecution);
   assert.equal(salesExecution.task.originAgent, 'lead_agent');
   assert.equal(salesExecution.task.destinationAgent, 'sales_agent');
-  assert.equal(salesExecution.task.status, 'queued');
-  assert.equal(salesExecution.task.nextAction, 'configure_governed_sales_intake_processing');
+  assert.equal(salesExecution.task.status, 'completed');
+  assert.equal(salesExecution.task.nextAction, 'execute_internal_sales_intake');
   assert.equal(salesExecution.task.inputs.salesIntakeOnly, true);
   assert.equal(salesExecution.task.inputs.salesDispatchAuthorised, false);
   assert.equal(salesExecution.task.inputs.outreachAuthorised, false);
-  const salesCreated = harness.runtimeEvents.find((event) => event.execution_id === 'sales-intake:workflow-1');
-  assert.equal(salesCreated?.event_type, 'task_created');
+  assert.equal(salesExecution.result?.status, 'completed');
+  assert.equal(salesExecution.result?.output.nextAction, 'define_governed_sales_opportunity_assessment');
+  const salesEvents = harness.runtimeEvents.filter((event) => event.execution_id === 'sales-intake:workflow-1');
+  assert.equal(salesEvents.some((event) => event.to_status === 'ready'), true);
+  assert.equal(salesEvents.some((event) => event.to_status === 'in_progress'), true);
+  assert.equal(salesEvents.some((event) => event.to_status === 'completed'), true);
 });
 
 test('approved non-advance review creates neither Sales eligibility nor Sales intake', async () => {
