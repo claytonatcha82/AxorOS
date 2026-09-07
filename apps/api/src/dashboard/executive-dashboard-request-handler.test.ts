@@ -42,6 +42,7 @@ async function withServer(
           clients: [{ clientId: '00000000-0000-0000-0000-000000000001', displayName: 'Pilot Client', status: 'active' }],
           leads: { total: 4, discoveredToday: 1, discoveredLast7Days: 4, qualified: 1, engaged: 1, converted: 0, awaitingHumanReview: 2 },
           sales: { contacted: 2, contactedLast7Days: 2, inboundReplies: 1, interestedReplies: 1, failedSends: 0 },
+          salesPipeline: [],
           projects: { total: 1, active: 1, qa: 0, awaitingApproval: 0, delivered: 0 },
           finance: { expectedIncome: [], receivedIncome: [], recurringIncome: [], expectedExpenses: [], projectedProfit: [], pendingPaymentRequirements: 0, financeClearances: 0, note: 'test' },
           approvals: { pendingHumanExecutive: 1 },
