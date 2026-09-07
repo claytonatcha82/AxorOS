@@ -115,6 +115,8 @@ export function createPilotLeadWorker(
       logEvent('info', 'pilot_lead_worker_qualification_summary', {
         leads: result.enriched.map((lead) => ({
           companyName: lead.companyName,
+          contactName: lead.contactName ?? null,
+          contactEmail: lead.contactEmail ?? null,
           officialWebsiteUrl: lead.officialWebsiteUrl,
           websiteStatus: lead.officialWebsiteUrl ? 'verified' : 'no_verified_website',
           businessFit: lead.preliminaryQualification.assessments.businessFit.score,
