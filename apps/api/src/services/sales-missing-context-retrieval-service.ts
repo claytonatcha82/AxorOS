@@ -12,6 +12,7 @@ export interface SalesMissingContextRetrievalResult {
 
 const FIELD_QUERIES: Record<string, (lead: LeadRecord) => string> = {
   decision_maker: (lead) => `${lead.companyName} directors owners founders management team leadership contact`,
+  contact_email: (lead) => `${lead.companyName} official email contact email enquiries`,
   industry: (lead) => `${lead.companyName} industry business services company profile`,
   country: (lead) => `${lead.companyName} location country headquarters address`,
   business_summary: (lead) => `${lead.companyName} about company services projects business`,
@@ -21,6 +22,7 @@ const FIELD_QUERIES: Record<string, (lead: LeadRecord) => string> = {
   priority: (lead) => `${lead.companyName} latest projects expansion growth tender deadline strategic priorities`,
   confidence: (lead) => `${lead.companyName} company information official website public business evidence`,
   previous_contact: (lead) => `${lead.companyName} AxorOS contact outreach previous contact`,
+  opportunity_summary: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities`,
 };
 
 function requiredText(value: string, field: string): string {
