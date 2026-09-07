@@ -77,20 +77,56 @@ export function createExecutiveDashboardService(pool: Queryable) {
       ];
 
       const settledResults = await Promise.allSettled(queries.map(([, sql]) => pool.query(sql, [])));
-      const rejectedIndex = settledResults.findIndex((result) => result.status === 'rejected');
-      if (rejectedIndex >= 0) {
-        const rejected = settledResults[rejectedIndex];
-        const [, querySql] = queries[rejectedIndex];
-        const queryName = queries[rejectedIndex][0];
-        const error = rejected.status === 'rejected' ? rejected.reason : undefined;
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Executive dashboard query failed [${queryName}]: ${message}`, { cause: { queryName, querySql, error } });
+
+      for (let index = 0; index < settledResults.length; index += 1) {
+        const result = settledResults[index];
+        const query = queries[index];
+
+        if (!result || !query) {
+          continue;
+        }
+
+        if (result.status === 'rejected') {
+          const queryName = query[0];
+          const querySql = query[1];
+          const error = result.reason;
+          const message = error instanceof Error ? error.message : String(error);
+
+          throw new Error(`Executive dashboard query failed [${queryName}]: ${message}`, {
+            cause: { queryName, querySql, error },
+          });
+        }
       }
 
-      const results = settledResults.map((result) => (result.status === 'fulfilled' ? result.value : undefined)) as DashboardQueryResult[];
-      const [clientResult, leadResult, salesResult, salesPipelineResult, projectResult, financeExpectedResult, financeReceivedResult,
-        financeRecurringResult, financeExpenseResult, financeRequirementResult, financeClearanceResult,
-        approvalResult, agentResult, executiveResult, activityResult] = results;
+      const getResult = (index: number): DashboardQueryResult => {
+        const result = settledResults[index];
+
+        if (!result) {
+          throw new Error(`Executive dashboard query result missing at index ${index}.`);
+        }
+
+        if (result.status === 'rejected') {
+          throw result.reason;
+        }
+
+        return result.value;
+      };
+
+      const clientResult = getResult(0);
+      const leadResult = getResult(1);
+      const salesResult = getResult(2);
+      const salesPipelineResult = getResult(3);
+      const projectResult = getResult(4);
+      const financeExpectedResult = getResult(5);
+      const financeReceivedResult = getResult(6);
+      const financeRecurringResult = getResult(7);
+      const financeExpenseResult = getResult(8);
+      const financeRequirementResult = getResult(9);
+      const financeClearanceResult = getResult(10);
+      const approvalResult = getResult(11);
+      const agentResult = getResult(12);
+      const executiveResult = getResult(13);
+      const activityResult = getResult(14);
 
       const lead = leadResult.rows[0] as Record<string, unknown> | undefined;
       const sales = salesResult.rows[0] as Record<string, unknown> | undefined;
@@ -119,3 +155,5 @@ export function createExecutiveDashboardService(pool: Queryable) {
 }
 
 export type ExecutiveDashboardService = ReturnType<typeof createExecutiveDashboardService>;
+
+
