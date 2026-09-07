@@ -34,41 +34,55 @@
   }
 
   function render() {
-    const cards = Array.from(document.querySelectorAll('.agent-card'));
-    const salesCard = cards.find((card) => card.querySelector('h3')?.textContent?.trim() === 'Sales Agent');
-    if (!salesCard) return;
+    const agentsSection = document.querySelector('#agents');
+    const agentGrid = agentsSection?.querySelector('.agent-grid');
+    if (!agentsSection || !agentGrid) return;
 
-    let container = salesCard.querySelector('.sales-agent-card-live-details');
+    let container = agentsSection.querySelector('.sales-live-workflow');
     if (!container) {
-      container = document.createElement('div');
-      container.className = 'sales-agent-card-live-details';
-      const footer = salesCard.querySelector('small');
-      if (footer) footer.insertAdjacentElement('afterend', container);
-      else salesCard.appendChild(container);
+      container = document.createElement('section');
+      container.className = 'sales-live-workflow';
+      agentGrid.insertAdjacentElement('afterend', container);
     }
 
     const markup = !latestPipeline.length
-      ? '<div class="sales-agent-card-live-empty">No lead-level Sales workflow record is currently exposed by the executive dashboard.</div>'
-      : `
-        <div class="sales-agent-card-live-heading">
-          <span>Lead-level workflow</span>
-          <strong>${latestPipeline.length} lead${latestPipeline.length === 1 ? '' : 's'}</strong>
+      ? `
+        <div class="sales-live-workflow-header">
+          <div>
+            <p class="sales-live-workflow-eyebrow">Sales Agent · Live workflow</p>
+            <h3>Sales Live Workflow</h3>
+            <p>Lead-level commercial activity currently exposed by the executive dashboard.</p>
+          </div>
+          <span class="sales-live-workflow-count">0 leads</span>
         </div>
-        <div class="sales-agent-card-live-list">
+        <div class="sales-live-workflow-empty">No lead-level Sales workflow record is currently exposed by the executive dashboard.</div>
+      `
+      : `
+        <div class="sales-live-workflow-header">
+          <div>
+            <p class="sales-live-workflow-eyebrow">Sales Agent · Live workflow</p>
+            <h3>Sales Live Workflow</h3>
+            <p>Current lead-level commercial activity and the next governed action.</p>
+          </div>
+          <span class="sales-live-workflow-count">${latestPipeline.length} lead${latestPipeline.length === 1 ? '' : 's'}</span>
+        </div>
+        <div class="sales-live-workflow-list">
           ${latestPipeline.map((item) => `
-            <div class="sales-agent-card-live-row">
-              <div class="sales-agent-card-live-row-top">
-                <strong>${escapeHtml(item.company)}</strong>
-                <span class="sales-agent-card-live-status sales-agent-card-live-status-${escapeHtml(String(item.activity).toLowerCase())}">${escapeHtml(item.activity)}</span>
+            <article class="sales-live-workflow-row">
+              <div class="sales-live-workflow-row-head">
+                <div class="sales-live-workflow-company">
+                  <strong>${escapeHtml(item.company)}</strong>
+                  <span>Lead ${escapeHtml(item.leadId)}</span>
+                </div>
+                <span class="sales-live-workflow-status sales-live-workflow-status-${escapeHtml(String(item.activity).toLowerCase())}">${escapeHtml(item.activity)}</span>
               </div>
-              <div class="sales-agent-card-live-stage">${escapeHtml(item.stage)}</div>
-              <div class="sales-agent-card-live-meta">
-                <span>Lead ${escapeHtml(item.leadId)}</span>
-                <span>Score ${escapeHtml(item.qualificationScore ?? '—')}</span>
-                <span>${escapeHtml(formatDate(item.lastUpdated))}</span>
+              <div class="sales-live-workflow-stage">${escapeHtml(item.stage)}</div>
+              <div class="sales-live-workflow-meta">
+                <span><small>Qualification</small><strong>${escapeHtml(item.qualificationScore ?? '—')}</strong></span>
+                <span><small>Last updated</small><strong>${escapeHtml(formatDate(item.lastUpdated))}</strong></span>
               </div>
-              <div class="sales-agent-card-live-next"><span>Next:</span> ${escapeHtml(item.nextAction ? humanize(item.nextAction) : item.objective)}</div>
-            </div>
+              <div class="sales-live-workflow-next"><small>Next action</small><strong>${escapeHtml(item.nextAction ? humanize(item.nextAction) : item.objective)}</strong></div>
+            </article>
           `).join('')}
         </div>
       `;
