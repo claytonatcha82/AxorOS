@@ -1,0 +1,94 @@
+.sales-agent-card-live-details {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, rgba(255,255,255,.08));
+}
+
+.sales-agent-card-live-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.sales-agent-card-live-heading span { opacity: .65; }
+.sales-agent-card-live-heading strong { font-size: 11px; opacity: .85; }
+
+.sales-agent-card-live-list {
+  display: grid;
+  gap: 8px;
+}
+
+.sales-agent-card-live-row {
+  padding: 10px;
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 10px;
+  background: var(--panel-soft, rgba(255,255,255,.025));
+}
+
+.sales-agent-card-live-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sales-agent-card-live-row-top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sales-agent-card-live-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+
+.sales-agent-card-live-status-active { background: rgba(80, 200, 120, .14); }
+.sales-agent-card-live-status-review { background: rgba(245, 190, 70, .15); }
+.sales-agent-card-live-status-failed { background: rgba(220, 80, 80, .15); }
+.sales-agent-card-live-status-idle { background: rgba(150, 150, 150, .12); }
+
+.sales-agent-card-live-stage {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sales-agent-card-live-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 10px;
+  opacity: .58;
+}
+
+.sales-agent-card-live-next {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: .78;
+}
+
+.sales-agent-card-live-next span {
+  font-weight: 700;
+  opacity: .8;
+}
+
+.sales-agent-card-live-empty {
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: .65;
+  background: var(--panel-soft, rgba(255,255,255,.025));
+}
