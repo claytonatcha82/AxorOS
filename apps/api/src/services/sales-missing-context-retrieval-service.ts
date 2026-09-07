@@ -21,7 +21,6 @@ const FIELD_QUERIES: Record<string, (lead: LeadRecord) => string> = {
   recommended_services: (lead) => `${lead.companyName} website branding digital marketing automation technology needs`,
   priority: (lead) => `${lead.companyName} latest projects expansion growth tender deadline strategic priorities`,
   confidence: (lead) => `${lead.companyName} company information official website public business evidence`,
-  previous_contact: (lead) => `${lead.companyName} AxorOS contact outreach previous contact`,
   opportunity_summary: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities`,
 };
 
