@@ -227,6 +227,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
         ];
         const enriched = await tx.enrichLead(lead.id, 'pending', {
           companyName: lead.companyName,
+          contactName: lead.contactName ?? undefined,
           contactEmail: discoveredEmail?.email ?? lead.contactEmail ?? undefined,
           opportunitySummary: verifiedWebsiteUrl
             ? `Official website independently identified: ${verifiedWebsiteUrl}`
