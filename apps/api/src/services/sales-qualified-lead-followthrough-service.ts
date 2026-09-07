@@ -28,7 +28,7 @@ function required(value: string, field: string): string {
   return trimmed;
 }
 
-function parseGeneratedOutput(text: string): GeneratedFollowthrough {
+export function parseGeneratedOutput(text: string): GeneratedFollowthrough {
   const trimmed = text.trim();
   const candidate = trimmed.startsWith('```')
     ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
@@ -52,7 +52,7 @@ function parseGeneratedOutput(text: string): GeneratedFollowthrough {
   return { salesContext: context as SalesOpportunityContext, email: { subject, body } };
 }
 
-function buildTask(input: {
+export function buildSalesFollowthroughTask(input: {
   executionId: string;
   leadId: string;
   correlationId: string;
@@ -149,7 +149,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
       const executionId = `sales-followthrough:${intakeExecutionId}`;
       let modelExecution = await store.getExecution(executionId);
       if (!modelExecution) {
-        const task = buildTask({
+        const task = buildSalesFollowthroughTask({
           executionId,
           leadId,
           correlationId: intake.task.correlationId,
