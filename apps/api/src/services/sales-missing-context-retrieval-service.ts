@@ -18,9 +18,6 @@ const FIELD_QUERIES: Record<string, (lead: LeadRecord) => string> = {
   business_summary: (lead) => `${lead.companyName} about company services projects business`,
   website_audit: (lead) => `${lead.companyName} official website services projects capabilities contact`,
   pain_points: (lead) => `${lead.companyName} challenges projects growth expansion tenders contracts digital transformation`,
-  recommended_services: (lead) => `${lead.companyName} website branding digital marketing automation technology needs`,
-  priority: (lead) => `${lead.companyName} latest projects expansion growth tender deadline strategic priorities`,
-  confidence: (lead) => `${lead.companyName} company information official website public business evidence`,
   opportunity_summary: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities`,
 };
 
