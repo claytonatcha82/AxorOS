@@ -1,0 +1,12 @@
+.dashboard { display: flex; flex-direction: column; }
+.dashboard > .topbar { order: 0; }
+.dashboard > .error-banner { order: 1; }
+.dashboard > .loading-panel { order: 1; }
+.dashboard > #overview { order: 2; }
+.dashboard > #pilot { order: 3; }
+.dashboard > #finance { order: 4; }
+.dashboard > #finance-records { order: 5; }
+.dashboard > #agents { order: 6; }
+.dashboard > #approvals { order: 7; }
+.dashboard > #recovery { order: 8; }
+.dashboard > #executive { order: 9; }
