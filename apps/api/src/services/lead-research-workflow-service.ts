@@ -27,6 +27,8 @@ export interface EnrichedLeadResearchResult {
   leadId: string;
   providerPlaceId: string;
   companyName: string;
+  contactName: string | null;
+  contactEmail: string | null;
   officialWebsiteUrl: string | null;
   publicWebEvidence: PublicWebSearchResult[];
   websiteVerificationStatus: 'verified' | 'not_found';
@@ -174,6 +176,8 @@ export function createLeadResearchWorkflowService(
           leadId: lead.id,
           providerPlaceId: candidate.providerPlaceId,
           companyName: lead.companyName,
+          contactName: lead.contactName,
+          contactEmail: lead.contactEmail,
           officialWebsiteUrl: selection.status === 'selected' ? selection.websiteUrl : null,
           publicWebEvidence: deduplicatedWebResults,
           websiteVerificationStatus: selection.status === 'selected' ? 'verified' : 'not_found',
