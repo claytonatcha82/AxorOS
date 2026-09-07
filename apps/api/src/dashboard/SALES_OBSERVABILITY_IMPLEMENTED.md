@@ -1,1 +1,0 @@
-The Control Center activity feed now has a documented Sales followthrough observability contract. Persisted Sales opportunity assessment events are mapped to explicit lifecycle labels, and persisted internal outreach drafts are mapped to the human-review state. No Sales execution or authority path is changed.
