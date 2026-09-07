@@ -64,6 +64,7 @@ export function buildSalesFollowthroughTask(input: {
   intakeResult: unknown;
   createdAt: string;
   researchEvidence?: PublicWebSearchResult[];
+  internalOperationalHistory?: unknown;
 }): AgentRuntimeTask {
   const task: AgentRuntimeTask = {
     taskId: `sales-followthrough-task:${input.executionId}`,
@@ -81,6 +82,7 @@ export function buildSalesFollowthroughTask(input: {
         qualification: input.qualification,
         intakeResult: input.intakeResult,
         ...(input.researchEvidence?.length ? { additionalPublicWebEvidence: input.researchEvidence } : {}),
+        ...(input.internalOperationalHistory ? { internalOperationalHistory: input.internalOperationalHistory } : {}),
       }),
       salesIntakeOnly: true,
       salesDispatchAuthorised: false,
@@ -127,7 +129,9 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     systemInstruction: [
       'You are the AxorOS Sales Agent operating in governed internal draft mode.',
       'Return JSON only with keys salesContext and email.',
-      'Use only facts explicitly present in the supplied persisted lead, qualification, intake result, additional public-web evidence, or Atlas references.',
+      'Use only facts explicitly present in the supplied persisted lead, qualification, intake result, additional public-web evidence, internal operational history, or Atlas references.',
+      'Treat internal operational history as authoritative for AxorOS contact history. Do not use public-web results to infer whether AxorOS previously contacted the lead.',
+      'If internal operational history contains no recorded AxorOS outreach/contact event for the lead, previousContact must be false. If it contains a recorded completed outreach/contact event, previousContact may be true only when the event explicitly supports that conclusion.',
       'Never invent a decision maker, industry, country, business summary, website audit, pain point, recommended service, priority, confidence, previous contact status, pricing, discount, budget, contract term, delivery promise, or approval.',
       'If the evidence does not support a required sales context field, leave it absent so the downstream assessment fails closed rather than guessing.',
       'The email is an internal candidate draft for human review; do not send it and do not imply outreach authority.',
@@ -144,6 +148,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     lead: Awaited<ReturnType<typeof operationalRepository.getLeadById>>;
     qualification: unknown;
     researchEvidence?: PublicWebSearchResult[];
+    internalOperationalHistory?: unknown;
   }): Promise<AgentRuntimeExecutionRecord> {
     if (!input.lead) throw new Error('Sales followthrough lead is required.');
     let modelExecution = await store.getExecution(input.executionId);
@@ -158,6 +163,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
         intakeResult: input.intake.result?.output ?? {},
         createdAt: new Date().toISOString(),
         ...(input.researchEvidence ? { researchEvidence: input.researchEvidence } : {}),
+        ...(input.internalOperationalHistory ? { internalOperationalHistory: input.internalOperationalHistory } : {}),
       });
       const idempotencyKey = runtimeIdempotencyKey('runtime', input.executionId, 'task_created');
       if (await store.hasIdempotencyKey(idempotencyKey)) {
@@ -195,9 +201,20 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
       const qualifications = await operationalRepository.listPreliminaryLeadQualifications(leadId);
       const qualification = qualifications[0] ?? null;
       if (!qualification) throw new Error(`Lead qualification record not found for ${leadId}.`);
+      const workflowHistory = await operationalRepository.listWorkflowEventsByLeadId(leadId);
+      const internalOperationalHistory = {
+        leadId,
+        events: workflowHistory.map((event) => ({
+          eventType: event.eventType,
+          actorType: event.actorType,
+          actorId: event.actorId,
+          createdAt: event.createdAt,
+          payload: event.payload,
+        })),
+      };
 
       const executionId = `sales-followthrough:${intakeExecutionId}`;
-      const generated = await ensureModelExecution({ executionId, intake, lead, qualification });
+      const generated = await ensureModelExecution({ executionId, intake, lead, qualification, internalOperationalHistory });
       if (generated.task.status !== 'completed' || generated.result?.status !== 'completed') throw new Error('Sales followthrough model execution did not complete.');
       const followthrough = parseGeneratedOutput(String(generated.result?.output.text ?? ''));
       const assessment = assessmentService.assess({ intakeExecution: intake, lead, salesContext: followthrough.salesContext });
@@ -232,6 +249,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
           lead,
           qualification,
           researchEvidence: retrieval.evidence,
+          internalOperationalHistory,
         });
         if (reassessedModel.task.status !== 'completed' || reassessedModel.result?.status !== 'completed') {
           throw new Error('Sales missing-context reassessment model execution did not complete.');
