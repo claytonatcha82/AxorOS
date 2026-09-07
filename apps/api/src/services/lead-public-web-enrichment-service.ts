@@ -253,7 +253,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
   return {
     async enrich(input: EnrichDiscoveredLeadInput): Promise<LeadRecord> {
       const leadId = requireText(input.leadId, 'leadId');
-      requireUsableCompanyName(input.companyName, 'companyName');
+      const inputCompanyName = requireUsableCompanyName(input.companyName, 'companyName');
       const officialWebsiteUrl = input.officialWebsiteUrl ? normalizeWebsite(input.officialWebsiteUrl) : null;
       const actorId = requireText(input.actorId ?? 'lead_agent', 'actorId');
       if (input.supportingResults.length === 0) throw new Error('At least one public-web supporting result is required.');
@@ -274,9 +274,16 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
         if (lead.enrichmentStatus !== 'pending') {
           throw new Error(`Lead ${leadId} enrichment_status is '${lead.enrichmentStatus}' and requires an explicit requeue before enrichment.`);
         }
-        requireUsableCompanyName(lead.companyName, 'lead.companyName');
 
-        const websiteVerified = Boolean(officialWebsiteUrl && domainSupportsCompanyIdentity(officialWebsiteUrl, lead.companyName, matching));
+        let leadCompanyName = inputCompanyName;
+        let repairedProviderIdentity = false;
+        try {
+          leadCompanyName = requireUsableCompanyName(lead.companyName, 'lead.companyName');
+        } catch {
+          repairedProviderIdentity = true;
+        }
+
+        const websiteVerified = Boolean(officialWebsiteUrl && domainSupportsCompanyIdentity(officialWebsiteUrl, leadCompanyName, matching));
         const verifiedWebsiteUrl = websiteVerified ? officialWebsiteUrl : null;
         const discoveredEmail = officialWebsiteUrl ? discoverPublicBusinessEmail(matching, officialWebsiteUrl) : null;
         const enrichmentStatus = verifiedWebsiteUrl ? 'verified' : 'not_found';
@@ -292,11 +299,12 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
               contactEmail: discoveredEmail.email,
               contactEmailEvidenceReferences: discoveredEmail.evidenceReferences,
             } : {}),
+            ...(repairedProviderIdentity ? { providerIdentityNameRepair: true } : {}),
             evidenceReferences: input.supportingResults.map((result) => `public-web:${result.url}`),
           },
         ];
         const enriched = await tx.enrichLead(lead.id, 'pending', {
-          companyName: lead.companyName,
+          companyName: leadCompanyName,
           contactName: lead.contactName ?? undefined,
           contactEmail: discoveredEmail?.email ?? lead.contactEmail ?? undefined,
           opportunitySummary: verifiedWebsiteUrl
@@ -318,6 +326,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
               contactEmail: discoveredEmail.email,
               contactEmailEvidenceReferences: discoveredEmail.evidenceReferences,
             } : {}),
+            ...(repairedProviderIdentity ? { providerIdentityNameRepair: true } : {}),
             websiteVerificationStatus: enrichmentStatus,
             contactEmailDiscoveryStatus: discoveredEmail ? 'verified' : 'not_found',
             enrichmentStatus,
