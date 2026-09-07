@@ -74,8 +74,24 @@ const SOUTH_AFRICAN_FOREIGN_DOMAIN_SUFFIXES = [
   '.co.uk', '.org.uk', '.ac.uk', '.gov.uk', '.uk',
 ];
 
+function mergeSpacedAcronyms(value: string): string {
+  return value.replace(/\b(?:[A-Z]\s+){1,}[A-Z]\b/g, (match) => match.replace(/\s+/g, ''));
+}
+
+function extractAcronymTokens(value: string): string[] {
+  const merged = mergeSpacedAcronyms(value);
+  const matches = merged.match(/\b[A-Z]{2,6}\b/g) ?? [];
+  return matches.map((token) => token.toLowerCase());
+}
+
 function normalizedWords(value: string): string[] {
-  return value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((word) => word.length >= 3);
+  const acronymTokens = extractAcronymTokens(value);
+  const wordTokens = value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 3);
+  return [...new Set([...acronymTokens, ...wordTokens])];
 }
 
 const LOCATION_STOP_WORDS = new Set([
@@ -148,13 +164,17 @@ function firstPartyEvidenceScore(
   const contentMatches = businessWords.filter((word) => contentWords.includes(word)).length;
   const normalizedHostname = hostname.replace(/[^a-z0-9]+/g, ' ');
   const distinctiveBusinessWords = businessWords.filter((word) => !HOSTNAME_GENERIC_IDENTITY_WORDS.has(word));
-  const hostMatches = distinctiveBusinessWords.filter((word) => normalizedHostname.includes(word)).length;
+  // If every word in the business name is a generic industry term (common for
+  // acronym-led names like "BVI Consulting Engineers"), fall back to using all
+  // business words rather than zeroing out the identity signal entirely.
+  const effectiveIdentityWords = distinctiveBusinessWords.length > 0 ? distinctiveBusinessWords : businessWords;
+  const hostMatches = effectiveIdentityWords.filter((word) => normalizedHostname.includes(word)).length;
   const listingText = `${result.title} ${result.content}`.toLowerCase();
 
   if (THIRD_PARTY_LISTING_PATTERNS.some((pattern) => pattern.test(listingText))) return 0;
 
   const hostnameBusinessWordMatches = businessWords.filter((word) => normalizedHostname.includes(word)).length;
-  const requiredHostnameMatches = distinctiveBusinessWords.length >= 2 ? 2 : 1;
+  const requiredHostnameMatches = effectiveIdentityWords.length >= 2 ? 2 : 1;
   if (businessWords.length >= 2 && hostnameBusinessWordMatches < requiredHostnameMatches) return 0;
   if (hostMatches < 1) return 0;
 
