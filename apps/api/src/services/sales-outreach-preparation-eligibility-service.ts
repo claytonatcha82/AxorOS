@@ -5,6 +5,7 @@ export interface SalesOutreachPreparationEligibility {
   assessmentRecordId: string;
   leadId: string;
   salesIntakeExecutionId: string;
+  contactEmail: string;
   atlasSourcePaths: string[];
   preparationOnly: true;
   outreachAuthorised: false;
@@ -64,6 +65,7 @@ export function createSalesOutreachPreparationEligibilityService(
         assessmentRecordId: record.id,
         leadId: requiredString(payload.leadId, 'leadId'),
         salesIntakeExecutionId: requiredString(payload.salesIntakeExecutionId, 'salesIntakeExecutionId'),
+        contactEmail: requiredString(payload.contactEmail, 'contactEmail'),
         atlasSourcePaths: requiredStringArray(payload.atlasSourcePaths, 'atlasSourcePaths'),
         preparationOnly: true,
         outreachAuthorised: false,
