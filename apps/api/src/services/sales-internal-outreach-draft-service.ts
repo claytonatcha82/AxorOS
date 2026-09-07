@@ -58,12 +58,12 @@ export function createSalesInternalOutreachDraftService(
       const leadId = required(eligibility.leadId, 'leadId');
       const assessmentRecordId = required(eligibility.assessmentRecordId, 'assessmentRecordId');
       const salesIntakeExecutionId = required(eligibility.salesIntakeExecutionId, 'salesIntakeExecutionId');
+      const recipientEmail = required(eligibility.contactEmail, 'eligibility.contactEmail');
       const subject = required(input.subject, 'subject');
       const body = required(input.body, 'body');
 
       const lead = await repository.getLeadById(leadId);
       if (!lead) throw new Error(`Lead not found: ${leadId}.`);
-      const recipientEmail = required(lead.contactEmail ?? '', 'lead.contactEmail');
 
       const draft: SalesInternalOutreachDraft = {
         leadId,
