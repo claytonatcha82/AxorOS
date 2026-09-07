@@ -43,6 +43,7 @@ export interface ExecutiveDashboardSnapshot {
 }
 
 type Queryable = Pick<Pool, 'query'>;
+type DashboardQueryResult = Awaited<ReturnType<Queryable['query']>>;
 
 const CORE_AGENTS: CoreAgentId[] = [
   'knowledge_agent', 'executive_agent', 'operations_agent', 'lead_agent', 'sales_agent',
@@ -57,7 +58,7 @@ function moneyRows(rows: Record<string, unknown>[], amountKey: string): Dashboar
 export function createExecutiveDashboardService(pool: Queryable) {
   return {
     async snapshot(): Promise<ExecutiveDashboardSnapshot> {
-      const queries = [
+      const queries: ReadonlyArray<readonly [string, string]> = [
         ['clients', `select id, display_name, status from operational.clients where status <> 'archived' order by display_name asc`],
         ['leads', `select count(*)::int as total, count(*) filter (where created_at >= current_date)::int as discovered_today, count(*) filter (where created_at >= now() - interval '7 days')::int as discovered_last_7_days, count(*) filter (where status = 'qualified')::int as qualified, count(*) filter (where status = 'engaged')::int as engaged, count(*) filter (where status = 'converted')::int as converted, (select count(*)::int from runtime.agent_executions where destination_agent = 'lead_agent' and status = 'review' and task->>'approvalRequired' = 'true' and task->>'approvalOwner' = 'human_executive') as awaiting_human_review from operational.leads`],
         ['sales', `select count(*) filter (where event_type = 'sales_supervised_email_sent')::int as contacted, count(*) filter (where event_type = 'sales_supervised_email_sent' and created_at >= now() - interval '7 days')::int as contacted_last_7_days, (select count(*)::int from operational.sales_inbound_reply_evidence) as inbound_replies, (select count(*)::int from operational.sales_inbound_reply_classifications where primary_category in ('positive_interest','information_request','pricing_or_commercial_question','meeting_request')) as interested_replies, (select count(*)::int from operational.sales_email_send_attempts where status = 'failed') as failed_sends from operational.workflow_events`],
@@ -73,18 +74,20 @@ export function createExecutiveDashboardService(pool: Queryable) {
         ['agents', `select destination_agent, count(*)::int as total_executions, count(*) filter (where status in ('queued','ready','in_progress','waiting','blocked'))::int + case when destination_agent = 'sales_agent' then (select count(*)::int from operational.workflow_events where actor_id = 'sales_agent' and event_type = 'sales_opportunity_assessment_recorded' and payload->>'assessmentStatus' = 'context_incomplete' and created_at = (select max(created_at) from operational.workflow_events where actor_id = 'sales_agent' and event_type in ('sales_opportunity_assessment_recorded','sales_internal_outreach_draft_recorded'))) else 0 end as active_executions, count(*) filter (where status = 'completed')::int as completed_executions, count(*) filter (where status = 'review')::int + case when destination_agent = 'sales_agent' then (select count(*)::int from operational.workflow_events where actor_id = 'sales_agent' and event_type = 'sales_internal_outreach_draft_recorded') else 0 end as review_executions, count(*) filter (where status = 'failed')::int as failed_executions, greatest(max(persisted_at), (select max(created_at) from operational.workflow_events where actor_id = destination_agent)) as latest_activity_at, case when destination_agent = 'sales_agent' then coalesce((select case when event_type = 'sales_internal_outreach_draft_recorded' then concat('Outreach draft ready for human review · ', payload->>'company') when event_type = 'sales_opportunity_assessment_recorded' and payload->>'assessmentStatus' = 'context_incomplete' then concat('Sales assessment incomplete · ', payload->>'company') when event_type = 'sales_opportunity_assessment_recorded' then concat('Sales assessment complete · ', payload->>'company') end from operational.workflow_events where actor_id = 'sales_agent' and event_type in ('sales_opportunity_assessment_recorded','sales_internal_outreach_draft_recorded') order by created_at desc limit 1), (array_agg(task->>'objective' order by persisted_at desc))[1]) else (array_agg(task->>'objective' order by persisted_at desc))[1] end as latest_objective from runtime.agent_executions group by destination_agent`],
         ['executiveUpdates', `select execution_id, task->>'objective' as objective, status, persisted_at, case when result is null then null else result->'output'->>'text' end as summary from runtime.agent_executions where destination_agent = 'executive_agent' order by persisted_at desc limit 8`],
         ['activity', `select case when event_type = 'sales_opportunity_assessment_recorded' and payload->>'assessmentStatus' = 'context_complete' then 'sales_followthrough_context_complete' when event_type = 'sales_opportunity_assessment_recorded' and payload->>'assessmentStatus' = 'context_incomplete' then 'sales_followthrough_context_incomplete' when event_type = 'sales_internal_outreach_draft_recorded' then 'sales_outreach_draft_ready_for_human_review' else event_type end as event_type, actor_type, actor_id, created_at from operational.workflow_events order by created_at desc limit 20`],
-      ] as const;
+      ];
 
       const settledResults = await Promise.allSettled(queries.map(([, sql]) => pool.query(sql, [])));
-      const rejected = settledResults.find((result) => result.status === 'rejected');
-      if (rejected) {
-        const index = settledResults.indexOf(rejected);
-        const [queryName] = queries[index];
-        const error = rejected.reason;
+      const rejectedIndex = settledResults.findIndex((result) => result.status === 'rejected');
+      if (rejectedIndex >= 0) {
+        const rejected = settledResults[rejectedIndex];
+        const [, querySql] = queries[rejectedIndex];
+        const queryName = queries[rejectedIndex][0];
+        const error = rejected.status === 'rejected' ? rejected.reason : undefined;
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Executive dashboard query failed [${queryName}]: ${message}`);
+        throw new Error(`Executive dashboard query failed [${queryName}]: ${message}`, { cause: { queryName, querySql, error } });
       }
-      const results = settledResults.map((result) => (result as PromiseFulfilledResult<{ rows: unknown[] }>).value);
+
+      const results = settledResults.map((result) => (result.status === 'fulfilled' ? result.value : undefined)) as DashboardQueryResult[];
       const [clientResult, leadResult, salesResult, salesPipelineResult, projectResult, financeExpectedResult, financeReceivedResult,
         financeRecurringResult, financeExpenseResult, financeRequirementResult, financeClearanceResult,
         approvalResult, agentResult, executiveResult, activityResult] = results;
