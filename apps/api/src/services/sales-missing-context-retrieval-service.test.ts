@@ -5,6 +5,7 @@ import { createSalesMissingContextRetrievalService } from './sales-missing-conte
 
 const lead: LeadRecord = {
   id: 'lead-1',
+  clientId: null,
   companyName: 'Proman Construction Managers',
   contactName: null,
   contactEmail: 'donovan@promanconstruction.co.za',
@@ -16,6 +17,8 @@ const lead: LeadRecord = {
   evidence: [
     { kind: 'public_web_enrichment', officialWebsiteUrl: 'https://www.promanconstruction.co.za/' },
   ],
+  createdAt: '2026-09-07T00:00:00.000Z',
+  updatedAt: '2026-09-07T00:00:00.000Z',
 };
 
 function registryWithResults(resultsByQuery: Record<string, Array<{ title: string; url: string; content: string }>>) {
