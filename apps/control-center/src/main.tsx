@@ -4,28 +4,17 @@ import { FinanceReportingForms } from './FinanceReportingForms';
 import { PilotActivationPanel } from './PilotActivationPanel';
 import './styles.css';
 
+// Sales workflow visibility is sourced from the authoritative dashboard snapshot.
+// This UI intentionally does not infer readiness or grant any outbound authority.
+
 type Money = { amountMinor: number; currency: string; available: boolean; note?: string };
 type AgentId = 'knowledge_agent' | 'executive_agent' | 'operations_agent' | 'lead_agent' | 'sales_agent' | 'production_agent' | 'support_agent' | 'marketing_agent' | 'finance_agent';
 type AgentReadinessStatus = 'READY' | 'NOT_CONFIGURED' | 'BLOCKED' | 'DEGRADED';
 type ClientOption = { clientId: string; displayName: string; status: string };
 type PilotSystemState = 'PILOT_DISABLED' | 'PILOT_ACTIVE';
 
-type AgentReadinessRecord = {
-  agentId: AgentId;
-  status: AgentReadinessStatus;
-  requiredIntegrations: string[];
-  missingIntegrations: string[];
-  blockers: string[];
-  notes: string[];
-};
-
-type PilotStateRecord = {
-  state: PilotSystemState;
-  changedBy: string;
-  reason: string;
-  version: number;
-  changedAt: string;
-};
+type AgentReadinessRecord = { agentId: AgentId; status: AgentReadinessStatus; requiredIntegrations: string[]; missingIntegrations: string[]; blockers: string[]; notes: string[] };
+type PilotStateRecord = { state: PilotSystemState; changedBy: string; reason: string; version: number; changedAt: string };
 
 type DashboardSnapshot = {
   generatedAt: string;
@@ -33,487 +22,56 @@ type DashboardSnapshot = {
   leads: { total: number; discoveredToday: number; discoveredLast7Days: number; qualified: number; engaged: number; converted: number; awaitingHumanReview: number };
   sales: { contacted: number; contactedLast7Days: number; inboundReplies: number; interestedReplies: number; failedSends: number };
   projects: { total: number; active: number; qa: number; awaitingApproval: number; delivered: number };
-  finance: {
-    expectedIncome: Money[];
-    receivedIncome: Money[];
-    recurringIncome: Money[];
-    expectedExpenses: Money[];
-    projectedProfit: Money[];
-    pendingPaymentRequirements: number;
-    financeClearances: number;
-    note: string;
-  };
+  finance: { expectedIncome: Money[]; receivedIncome: Money[]; recurringIncome: Money[]; expectedExpenses: Money[]; projectedProfit: Money[]; pendingPaymentRequirements: number; financeClearances: number; note: string };
   approvals: { pendingHumanExecutive: number };
   agents: Array<{ agentId: AgentId; totalExecutions: number; activeExecutions: number; completedExecutions: number; reviewExecutions: number; failedExecutions: number; latestActivityAt: string | null; latestObjective: string | null }>;
   agentReadiness: AgentReadinessRecord[];
   pilotState: PilotStateRecord;
-  pilotLeadWorker: {
-    inProgress: boolean;
-    lastStartedAt: string | null;
-    lastCompletedAt: string | null;
-    lastFailedAt: string | null;
-    lastOutcome: 'completed' | 'failed' | 'skipped' | null;
-    lastSummary: {
-      discovered: number;
-      enriched: number;
-      duplicateSkipped: number;
-      webResearchFailed: number;
-      unresolved: number;
-      ambiguous: number;
-      notFound: number;
-    } | null;
-  };
+  pilotLeadWorker: { inProgress: boolean; lastStartedAt: string | null; lastCompletedAt: string | null; lastFailedAt: string | null; lastOutcome: 'completed' | 'failed' | 'skipped' | null; lastSummary: { discovered: number; enriched: number; duplicateSkipped: number; webResearchFailed: number; unresolved: number; ambiguous: number; notFound: number } | null };
   executiveUpdates: Array<{ executionId: string; objective: string; status: string; updatedAt: string; summary: string | null }>;
   recentActivity: Array<{ eventType: string; actorType: string; actorId: string | null; createdAt: string }>;
 };
 
-type PendingApproval = {
-  executionId: string;
-  destinationAgent: string;
-  objective: string;
-  expectedOutput: string;
-  capabilityId: string;
-  persistedAt: string;
-  reason?: string;
-};
-
-type RecoveryItem = {
-  executionId: string;
-  destinationAgent: string;
-  objective: string;
-  status: 'review' | 'escalated';
-  owner: string;
-  nextAction: string;
-  priority: string;
-  risks: string[];
-  persistedAt: string;
-};
+type PendingApproval = { executionId: string; destinationAgent: string; objective: string; expectedOutput: string; capabilityId: string; persistedAt: string; reason?: string };
+type RecoveryItem = { executionId: string; destinationAgent: string; objective: string; status: 'review' | 'escalated'; owner: string; nextAction: string; priority: string; risks: string[]; persistedAt: string };
 
 const API_BASE_URL = (import.meta.env.VITE_AXOROS_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://127.0.0.1:3001';
-
-const AGENT_LABELS: Record<AgentId, string> = {
-  lead_agent: 'Lead',
-  sales_agent: 'Sales',
-  production_agent: 'Production',
-  operations_agent: 'Operations',
-  finance_agent: 'Finance',
-  support_agent: 'Support',
-  marketing_agent: 'Marketing',
-  knowledge_agent: 'Knowledge',
-  executive_agent: 'Executive',
-};
-
-function formatMoney(items: Money[]): string {
-  if (!items.length) return 'R0.00';
-  if (items.some((item) => !item.available)) return 'Unavailable';
-  return items.map((item) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: item.currency }).format(item.amountMinor / 100)).join(' · ');
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return 'No activity yet';
-  return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-}
-
-function humanize(value: string): string {
-  return value.replace(/_agent$/, '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function runtimeActivity(agent: DashboardSnapshot['agents'][number]): 'ACTIVE' | 'REVIEW' | 'FAILED' | 'IDLE' {
-  if (agent.activeExecutions > 0) return 'ACTIVE';
-  if (agent.reviewExecutions > 0) return 'REVIEW';
-  if (agent.failedExecutions > 0) return 'FAILED';
-  return 'IDLE';
-}
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json() as { ok?: boolean; data?: T; error?: { message?: string } };
-  if (!response.ok || body.ok === false || body.data === undefined) {
-    throw new Error(body.error?.message ?? `Request failed with HTTP ${response.status}.`);
-  }
-  return body.data;
-}
+const AGENT_LABELS: Record<AgentId, string> = { lead_agent: 'Lead', sales_agent: 'Sales', production_agent: 'Production', operations_agent: 'Operations', finance_agent: 'Finance', support_agent: 'Support', marketing_agent: 'Marketing', knowledge_agent: 'Knowledge', executive_agent: 'Executive' };
+function formatMoney(items: Money[]): string { if (!items.length) return 'R0.00'; if (items.some((item) => !item.available)) return 'Unavailable'; return items.map((item) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: item.currency }).format(item.amountMinor / 100)).join(' · '); }
+function formatDate(value: string | null): string { if (!value) return 'No activity yet'; return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
+function humanize(value: string): string { return value.replace(/_agent$/, '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function runtimeActivity(agent: DashboardSnapshot['agents'][number]): 'ACTIVE' | 'REVIEW' | 'FAILED' | 'IDLE' { if (agent.activeExecutions > 0) return 'ACTIVE'; if (agent.reviewExecutions > 0) return 'REVIEW'; if (agent.failedExecutions > 0) return 'FAILED'; return 'IDLE'; }
+async function readJson<T>(response: Response): Promise<T> { const body = await response.json() as { ok?: boolean; data?: T; error?: { message?: string } }; if (!response.ok || body.ok === false || body.data === undefined) throw new Error(body.error?.message ?? `Request failed with HTTP ${response.status}.`); return body.data; }
 
 function App() {
-  const [token, setToken] = useState('');
-  const [draftToken, setDraftToken] = useState('');
-  const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [recovery, setRecovery] = useState<RecoveryItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [actioning, setActioning] = useState<string | null>(null);
-  const [pilotChanging, setPilotChanging] = useState(false);
-  const [pilotReason, setPilotReason] = useState('');
-  const [pilotConfirmation, setPilotConfirmation] = useState('');
-  const [leadCycleRunning, setLeadCycleRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const [token, setToken] = useState(''); const [draftToken, setDraftToken] = useState(''); const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null); const [approvals, setApprovals] = useState<PendingApproval[]>([]); const [recovery, setRecovery] = useState<RecoveryItem[]>([]); const [loading, setLoading] = useState(false); const [actioning, setActioning] = useState<string | null>(null); const [pilotChanging, setPilotChanging] = useState(false); const [pilotReason, setPilotReason] = useState(''); const [pilotConfirmation, setPilotConfirmation] = useState(''); const [leadCycleRunning, setLeadCycleRunning] = useState(false); const [error, setError] = useState<string | null>(null);
   const headers = useMemo(() => ({ authorization: `Bearer ${token}` }), [token]);
+  const refresh = useCallback(async () => { if (!token) return; setLoading(true); setError(null); try { const [dashboardResponse, approvalsResponse, recoveryResponse] = await Promise.all([fetch(`${API_BASE_URL}/api/v1/control/dashboard/executive`, { headers }), fetch(`${API_BASE_URL}/api/v1/control/runtime/approvals/pending`, { headers }), fetch(`${API_BASE_URL}/api/v1/control/runtime/recovery`, { headers })]); const [dashboardData, approvalsData, recoveryData] = await Promise.all([readJson<DashboardSnapshot>(dashboardResponse), readJson<{ approvals: PendingApproval[] }>(approvalsResponse), readJson<{ recovery: RecoveryItem[] }>(recoveryResponse)]); setDashboard(dashboardData); setApprovals(approvalsData.approvals); setRecovery(recoveryData.recovery); } catch (refreshError) { setError(refreshError instanceof Error ? refreshError.message : String(refreshError)); } finally { setLoading(false); } }, [headers, token]);
+  useEffect(() => { if (!token) return; void refresh(); const timer = window.setInterval(() => { void refresh(); }, 2_000); return () => window.clearInterval(timer); }, [refresh, token]);
+  async function resolveApproval(approval: PendingApproval, decision: 'approved' | 'rejected') { if (!token) return; setActioning(approval.executionId); setError(null); try { if (approval.destinationAgent === 'lead_agent') { const response = await fetch(`${API_BASE_URL}/api/v1/control/lead-qualification-review/resolve`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ executionId: approval.executionId, decision, reason: decision === 'approved' ? 'Approved by Human Executive through AxorOS Control Center.' : 'Held by Human Executive through AxorOS Control Center.' }) }); await readJson(response); await refresh(); return; } const approvalResponse = await fetch(`${API_BASE_URL}/api/v1/control/runtime/approval/resolve`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ executionId: approval.executionId, decision, reason: decision === 'approved' ? 'Approved by Human Executive through AxorOS Control Center.' : 'Rejected by Human Executive through AxorOS Control Center.' }) }); await readJson(approvalResponse); if (decision === 'approved') { const executeResponse = await fetch(`${API_BASE_URL}/api/v1/control/runtime/execute`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ executionId: approval.executionId, capabilityId: approval.capabilityId }) }); await readJson(executeResponse); } await refresh(); } catch (actionError) { setError(actionError instanceof Error ? actionError.message : String(actionError)); } finally { setActioning(null); } }
+  async function runLeadCycle() { if (!token || leadCycleRunning) return; setLeadCycleRunning(true); setError(null); try { const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/lead-worker/run-once`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ confirmation: 'RUN PILOT LEAD CYCLE' }) }); await readJson(response); await refresh(); } catch (cycleError) { setError(cycleError instanceof Error ? cycleError.message : String(cycleError)); await refresh(); } finally { setLeadCycleRunning(false); } }
+  async function changePilotState(state: PilotSystemState) { if (!token || !pilotReason.trim()) return; setPilotChanging(true); setError(null); try { const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/state`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ state, reason: pilotReason.trim(), ...(state === 'PILOT_ACTIVE' ? { confirmation: pilotConfirmation } : {}) }) }); await readJson<PilotStateRecord>(response); setPilotReason(''); setPilotConfirmation(''); await refresh(); } catch (pilotError) { setError(pilotError instanceof Error ? pilotError.message : String(pilotError)); } finally { setPilotChanging(false); } }
+  if (!token) return <main className="login-shell"><section className="login-panel"><div className="brand-mark">AX</div><p className="eyebrow">AxorOS · Human Executive</p><h1>Control Center</h1><p className="muted">Enter the development control-plane token to open the governed executive dashboard. The token is kept only in this browser tab's memory.</p><form onSubmit={(event) => { event.preventDefault(); if (draftToken.trim()) setToken(draftToken.trim()); }}><label htmlFor="token">Control-plane token</label><input id="token" type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} autoComplete="off" placeholder="AXOROS_CONTROL_PLANE_TOKEN" /><button type="submit" disabled={!draftToken.trim()}>Open Control Center</button></form><p className="security-note">Do not paste the token into source code or commit it to GitHub.</p></section></main>;
+  const moneyUnavailableNote = dashboard?.finance.expectedExpenses.find((item) => !item.available)?.note; const readinessByAgent = new Map((dashboard?.agentReadiness ?? []).map((record) => [record.agentId, record])); const allAgentsReady = Boolean(dashboard?.agentReadiness.length) && dashboard!.agentReadiness.every((record) => record.status === 'READY'); const notReadyAgents = dashboard?.agentReadiness.filter((record) => record.status !== 'READY') ?? [];
+  const salesAgent = dashboard?.agents.find((agent) => agent.agentId === 'sales_agent');
+  const salesStatus = salesAgent ? runtimeActivity(salesAgent) : 'IDLE';
+  const salesActivities = dashboard?.recentActivity.filter((activity) => activity.actorId === 'sales_agent' || activity.eventType.startsWith('sales_')).slice(0, 8) ?? [];
+  const salesAssessment = salesActivities.find((activity) => activity.eventType === 'sales_followthrough_context_complete' || activity.eventType === 'sales_followthrough_context_incomplete');
+  const salesDraft = salesActivities.find((activity) => activity.eventType === 'sales_outreach_draft_ready_for_human_review');
+  const salesProcessLabel = salesDraft ? 'OUTREACH DRAFT READY FOR HUMAN REVIEW' : salesAssessment?.eventType === 'sales_followthrough_context_incomplete' ? 'ASSESSMENT INCOMPLETE · CONTEXT RETRIEVAL / REASSESSMENT REQUIRED' : salesAssessment?.eventType === 'sales_followthrough_context_complete' ? 'ASSESSMENT COMPLETE · OUTREACH PREPARATION' : salesStatus === 'ACTIVE' ? 'SALES PROCESS ACTIVE' : salesStatus === 'REVIEW' ? 'SALES PROCESS AWAITING REVIEW' : 'SALES PROCESS IDLE';
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [dashboardResponse, approvalsResponse, recoveryResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/v1/control/dashboard/executive`, { headers }),
-        fetch(`${API_BASE_URL}/api/v1/control/runtime/approvals/pending`, { headers }),
-        fetch(`${API_BASE_URL}/api/v1/control/runtime/recovery`, { headers }),
-      ]);
-      const [dashboardData, approvalsData, recoveryData] = await Promise.all([
-        readJson<DashboardSnapshot>(dashboardResponse),
-        readJson<{ approvals: PendingApproval[] }>(approvalsResponse),
-        readJson<{ recovery: RecoveryItem[] }>(recoveryResponse),
-      ]);
-      setDashboard(dashboardData);
-      setApprovals(approvalsData.approvals);
-      setRecovery(recoveryData.recovery);
-    } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
-    } finally {
-      setLoading(false);
-    }
-  }, [headers, token]);
-
-  useEffect(() => {
-    if (!token) return;
-    void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [refresh, token]);
-
-  async function resolveApproval(approval: PendingApproval, decision: 'approved' | 'rejected') {
-    if (!token) return;
-    setActioning(approval.executionId);
-    setError(null);
-    try {
-      if (approval.destinationAgent === 'lead_agent') {
-        const response = await fetch(`${API_BASE_URL}/api/v1/control/lead-qualification-review/resolve`, {
-          method: 'POST',
-          headers: { ...headers, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            executionId: approval.executionId,
-            decision,
-            reason: decision === 'approved'
-              ? 'Approved by Human Executive through AxorOS Control Center.'
-              : 'Held by Human Executive through AxorOS Control Center.',
-          }),
-        });
-        await readJson(response);
-        await refresh();
-        return;
-      }
-
-      const approvalResponse = await fetch(`${API_BASE_URL}/api/v1/control/runtime/approval/resolve`, {
-        method: 'POST',
-        headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          executionId: approval.executionId,
-          decision,
-          reason: decision === 'approved'
-            ? 'Approved by Human Executive through AxorOS Control Center.'
-            : 'Rejected by Human Executive through AxorOS Control Center.',
-        }),
-      });
-      await readJson(approvalResponse);
-
-      if (decision === 'approved') {
-        const executeResponse = await fetch(`${API_BASE_URL}/api/v1/control/runtime/execute`, {
-          method: 'POST',
-          headers: { ...headers, 'content-type': 'application/json' },
-          body: JSON.stringify({ executionId: approval.executionId, capabilityId: approval.capabilityId }),
-        });
-        await readJson(executeResponse);
-      }
-      await refresh();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : String(actionError));
-    } finally {
-      setActioning(null);
-    }
-  }
-
-  async function runLeadCycle() {
-    if (!token || leadCycleRunning) return;
-    setLeadCycleRunning(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/lead-worker/run-once`, {
-        method: 'POST',
-        headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ confirmation: 'RUN PILOT LEAD CYCLE' }),
-      });
-      await readJson(response);
-      await refresh();
-    } catch (cycleError) {
-      setError(cycleError instanceof Error ? cycleError.message : String(cycleError));
-      await refresh();
-    } finally {
-      setLeadCycleRunning(false);
-    }
-  }
-
-  async function changePilotState(state: PilotSystemState) {
-    if (!token || !pilotReason.trim()) return;
-    setPilotChanging(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/control/pilot/state`, {
-        method: 'POST',
-        headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          state,
-          reason: pilotReason.trim(),
-          ...(state === 'PILOT_ACTIVE' ? { confirmation: pilotConfirmation } : {}),
-        }),
-      });
-      await readJson<PilotStateRecord>(response);
-      setPilotReason('');
-      setPilotConfirmation('');
-      await refresh();
-    } catch (pilotError) {
-      setError(pilotError instanceof Error ? pilotError.message : String(pilotError));
-    } finally {
-      setPilotChanging(false);
-    }
-  }
-
-  if (!token) {
-    return (
-      <main className="login-shell">
-        <section className="login-panel">
-          <div className="brand-mark">AX</div>
-          <p className="eyebrow">AxorOS · Human Executive</p>
-          <h1>Control Center</h1>
-          <p className="muted">Enter the development control-plane token to open the governed executive dashboard. The token is kept only in this browser tab's memory.</p>
-          <form onSubmit={(event) => { event.preventDefault(); if (draftToken.trim()) setToken(draftToken.trim()); }}>
-            <label htmlFor="token">Control-plane token</label>
-            <input id="token" type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} autoComplete="off" placeholder="AXOROS_CONTROL_PLANE_TOKEN" />
-            <button type="submit" disabled={!draftToken.trim()}>Open Control Center</button>
-          </form>
-          <p className="security-note">Do not paste the token into source code or commit it to GitHub.</p>
-        </section>
-      </main>
-    );
-  }
-
-  const moneyUnavailableNote = dashboard?.finance.expectedExpenses.find((item) => !item.available)?.note;
-  const readinessByAgent = new Map((dashboard?.agentReadiness ?? []).map((record) => [record.agentId, record]));
-  const allAgentsReady = Boolean(dashboard?.agentReadiness.length) && dashboard!.agentReadiness.every((record) => record.status === 'READY');
-  const notReadyAgents = dashboard?.agentReadiness.filter((record) => record.status !== 'READY') ?? [];
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-row"><div className="brand-mark small">AX</div><div><strong>AxorOS</strong><span>Control Center</span></div></div>
-        <nav>
-          <a href="#pilot" className="active">Pilot control</a>
-          <a href="#overview">Overview</a>
-          <a href="#finance">Finance</a>
-          <a href="#finance-records">Finance records</a>
-          <a href="#agents">Agents</a>
-          <a href="#approvals">Approvals</a>
-          <a href="#recovery">Runtime recovery</a>
-          <a href="#executive">Executive updates</a>
-          <a href="#activity">Activity</a>
-        </nav>
-        <div className="sidebar-footer">
-          <span className="status-dot" /> Development connected
-          <button className="text-button" onClick={() => { setToken(''); setDraftToken(''); setDashboard(null); setApprovals([]); setRecovery([]); }}>Lock dashboard</button>
-        </div>
-      </aside>
-
-      <main className="dashboard">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Human Executive</p>
-            <h1>Business Command Center</h1>
-            <p className="muted">Authoritative live data from AxorOS persisted agent, operational and Finance state.</p>
-          </div>
-          <div className="topbar-actions">
-            <span className="last-updated">{dashboard ? `Updated ${formatDate(dashboard.generatedAt)}` : 'Not loaded'}</span>
-            <button className="secondary-button" onClick={() => void refresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
-          </div>
-        </header>
-
-        {error && <div className="error-banner"><strong>Control Center error</strong><span>{error}</span></div>}
-        {!dashboard && !error && <div className="loading-panel">Loading authoritative business state…</div>}
-
-        {dashboard && <>
-          <section id="pilot" className="section-block">
-            <div className="section-heading">
-              <div><p className="eyebrow">System authority</p><h2>Pilot activation</h2></div>
-              <span className={dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'status-badge' : 'pill attention-pill'}>{dashboard.pilotState.state}</span>
-            </div>
-            <div className="split-grid">
-              <article className="panel-card">
-                <div className="card-heading"><div><p className="eyebrow">Authoritative state</p><h2>{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Pilot is active' : 'Pilot is disabled'}</h2></div></div>
-                <p className="muted">{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Approved live pilot operations may proceed subject to every existing agent, risk, Finance and Human Executive gate.' : 'Live pilot operations must remain blocked. AxorOS may continue readiness testing, persistence checks and sandbox verification.'}</p>
-                <div className="finance-table">
-                  <div><span>Changed by</span><strong>{humanize(dashboard.pilotState.changedBy)}</strong></div>
-                  <div><span>Version</span><strong>{dashboard.pilotState.version}</strong></div>
-                  <div><span>Changed</span><strong>{formatDate(dashboard.pilotState.changedAt)}</strong></div>
-                </div>
-                <p className="panel-note">{dashboard.pilotState.reason}</p>
-              </article>
-
-              <PilotActivationPanel
-                apiBaseUrl={API_BASE_URL}
-                token={token}
-                pilotState={dashboard.pilotState}
-                onStateChanged={refresh}
-                onError={(message) => setError(message)}
-              />
-            </div>
-          </section>
-
-          <section id="overview" className="section-block">
-            <div className="section-heading"><div><p className="eyebrow">Executive overview</p><h2>Agency pulse</h2></div><span className="pill">{dashboard.approvals.pendingHumanExecutive} approvals waiting</span></div>
-            <div className="metric-grid">
-              <article className="metric-card"><span>Leads found</span><strong>{dashboard.leads.total}</strong><small>{dashboard.leads.discoveredToday} today · {dashboard.leads.discoveredLast7Days} last 7 days</small></article>
-              <article className="metric-card"><span>Prospects contacted</span><strong>{dashboard.sales.contacted}</strong><small>{dashboard.sales.contactedLast7Days} in last 7 days</small></article>
-              <article className="metric-card"><span>Qualified / engaged</span><strong>{dashboard.leads.qualified + dashboard.leads.engaged}</strong><small>{dashboard.leads.converted} converted</small></article>
-              <article className="metric-card"><span>Active projects</span><strong>{dashboard.projects.active}</strong><small>{dashboard.projects.qa} QA · {dashboard.projects.awaitingApproval} awaiting approval</small></article>
-              <article className="metric-card finance-highlight"><span>Expected income</span><strong>{formatMoney(dashboard.finance.expectedIncome)}</strong><small>{dashboard.finance.pendingPaymentRequirements} active payment requirements</small></article>
-              <article className="metric-card finance-highlight"><span>Revenue received</span><strong>{formatMoney(dashboard.finance.receivedIncome)}</strong><small>{dashboard.finance.financeClearances} Finance clearances</small></article>
-              <article className="metric-card"><span>Recurring income</span><strong>{formatMoney(dashboard.finance.recurringIncome)}</strong><small>Shown only from authoritative recurring contracts</small></article>
-              <article className="metric-card"><span>Expected expenses</span><strong>{formatMoney(dashboard.finance.expectedExpenses)}</strong><small>{moneyUnavailableNote ?? 'Authoritative expense state'}</small></article>
-              <article className="metric-card"><span>Projected profit</span><strong>{formatMoney(dashboard.finance.projectedProfit)}</strong><small>Never inferred without a non-duplicating profitability basis</small></article>
-              <article className="metric-card attention"><span>Human approvals</span><strong>{dashboard.approvals.pendingHumanExecutive}</strong><small>{dashboard.leads.awaitingHumanReview} Lead reviews included where actionable</small></article>
-            </div>
-          </section>
-
-          <section id="finance" className="section-block split-grid">
-            <article className="panel-card">
-              <div className="card-heading"><div><p className="eyebrow">Finance Agent</p><h2>Revenue and obligations</h2></div><span className="status-badge">Governed</span></div>
-              <div className="finance-table">
-                <div><span>Expected income</span><strong>{formatMoney(dashboard.finance.expectedIncome)}</strong></div>
-                <div><span>Received income</span><strong>{formatMoney(dashboard.finance.receivedIncome)}</strong></div>
-                <div><span>Recurring income</span><strong>{formatMoney(dashboard.finance.recurringIncome)}</strong></div>
-                <div><span>Expected expenses</span><strong>{formatMoney(dashboard.finance.expectedExpenses)}</strong></div>
-                <div className="profit-row"><span>Projected profit</span><strong>{formatMoney(dashboard.finance.projectedProfit)}</strong></div>
-              </div>
-              <p className="panel-note">{dashboard.finance.note}</p>
-            </article>
-
-            <article className="panel-card">
-              <div className="card-heading"><div><p className="eyebrow">Sales pipeline</p><h2>Commercial activity</h2></div></div>
-              <div className="compact-stat-grid">
-                <div><strong>{dashboard.sales.contacted}</strong><span>Contacted</span></div>
-                <div><strong>{dashboard.sales.inboundReplies}</strong><span>Replies</span></div>
-                <div><strong>{dashboard.sales.interestedReplies}</strong><span>Interested / commercial</span></div>
-                <div><strong>{dashboard.sales.failedSends}</strong><span>Failed sends</span></div>
-              </div>
-              <div className="pipeline-line">
-                <span style={{ width: `${Math.min(100, dashboard.leads.total ? (dashboard.sales.contacted / dashboard.leads.total) * 100 : 0)}%` }} />
-              </div>
-              <p className="panel-note">Contact rate across currently persisted leads. Sales remains governed by its dedicated supervised send path.</p>
-            </article>
-          </section>
-
-          <div id="finance-records">
-            <FinanceReportingForms
-              apiBaseUrl={API_BASE_URL}
-              token={token}
-              clients={dashboard.clients}
-              onSaved={refresh}
-              onError={(message) => setError(message || null)}
-            />
-          </div>
-
-          <section id="agents" className="section-block">
-            <div className="section-heading"><div><p className="eyebrow">Agent network</p><h2>All nine agents</h2></div></div>
-            <div className="agent-grid">
-              {dashboard.agents.map((agent) => {
-                const readiness = readinessByAgent.get(agent.agentId);
-                const activity = agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.inProgress ? 'ACTIVE' : runtimeActivity(agent);
-                return (
-                  <article className="agent-card" key={agent.agentId}>
-                    <div className="agent-card-top"><div className="agent-icon">{AGENT_LABELS[agent.agentId].slice(0, 2).toUpperCase()}</div><div><h3>{AGENT_LABELS[agent.agentId]} Agent</h3><span>Readiness: {readiness?.status ?? 'NOT_CONFIGURED'} · Activity: {activity}</span></div></div>
-                    <div className="agent-stats"><span><strong>{agent.totalExecutions}</strong>Total</span><span><strong>{agent.completedExecutions}</strong>Done</span><span><strong>{agent.reviewExecutions}</strong>Review</span><span><strong>{agent.failedExecutions}</strong>Failed</span></div>
-                    <p>{readiness?.blockers.length ? readiness.blockers.join(' · ') : readiness?.notes[0] ?? agent.latestObjective ?? 'No persisted runtime objective yet.'}</p>
-                    <small>{agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastStartedAt
-                      ? `Lead worker last started: ${formatDate(dashboard.pilotLeadWorker.lastStartedAt)} · ${dashboard.pilotLeadWorker.lastOutcome ?? 'running'}`
-                      : formatDate(agent.latestActivityAt)}</small>
-                    {agent.agentId === 'lead_agent' && dashboard.pilotLeadWorker.lastSummary && (
-                      <p className="panel-note">
-                        Last cycle: {dashboard.pilotLeadWorker.lastSummary.discovered} new/retryable · {dashboard.pilotLeadWorker.lastSummary.enriched} enriched · {dashboard.pilotLeadWorker.lastSummary.duplicateSkipped} duplicate skipped · {dashboard.pilotLeadWorker.lastSummary.webResearchFailed} web failed · {dashboard.pilotLeadWorker.lastSummary.unresolved} unresolved ({dashboard.pilotLeadWorker.lastSummary.ambiguous} ambiguous · {dashboard.pilotLeadWorker.lastSummary.notFound} not found)
-                      </p>
-                    )}
-                    {agent.agentId === 'lead_agent' && (
-                      <button
-                        className="secondary-button agent-run-button"
-                        disabled={dashboard.pilotState.state !== 'PILOT_ACTIVE' || leadCycleRunning || dashboard.pilotLeadWorker.inProgress}
-                        onClick={() => void runLeadCycle()}
-                      >
-                        {leadCycleRunning || dashboard.pilotLeadWorker.inProgress ? 'Lead cycle running…' : 'Run Lead Cycle'}
-                      </button>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-
-          <section id="approvals" className="section-block">
-            <div className="section-heading"><div><p className="eyebrow">Governance</p><h2>Human Executive approvals</h2></div><span className="pill attention-pill">{approvals.length} actionable</span></div>
-            {approvals.length === 0 ? (
-              <div className="empty-state"><strong>No shared runtime approvals waiting.</strong><span>Support, Marketing and Operations approval work will appear here when actionable.</span></div>
-            ) : (
-              <div className="approval-list">
-                {approvals.map((approval) => (
-                  <article className="approval-card" key={approval.executionId}>
-                    <div><span className="agent-tag">{humanize(approval.destinationAgent)}</span><h3>{approval.objective}</h3><p>{approval.reason ?? approval.expectedOutput}</p><small>{formatDate(approval.persistedAt)}</small></div>
-                    <div className="approval-actions">
-                      <button className="reject-button" disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'rejected')}>{approval.destinationAgent === 'lead_agent' ? 'Hold' : 'Reject'}</button>
-                      <button disabled={actioning === approval.executionId} onClick={() => void resolveApproval(approval, 'approved')}>{actioning === approval.executionId ? 'Processing…' : approval.destinationAgent === 'lead_agent' ? 'Approve' : 'Approve & execute'}</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section id="recovery" className="section-block">
-            <div className="section-heading"><div><p className="eyebrow">Runtime resilience</p><h2>Recovery required</h2></div><span className="pill attention-pill">{recovery.length} waiting</span></div>
-            {recovery.length === 0 ? (
-              <div className="empty-state"><strong>No stale runtime executions require reconciliation.</strong><span>Crash recovery will surface persisted review or escalation work here. No automatic retries are performed.</span></div>
-            ) : (
-              <div className="approval-list">
-                {recovery.map((item) => (
-                  <article className="approval-card" key={item.executionId}>
-                    <div>
-                      <span className="agent-tag">{humanize(item.destinationAgent)} · {humanize(item.status)}</span>
-                      <h3>{item.objective}</h3>
-                      <p>Owner: {humanize(item.owner)} · Next action: {humanize(item.nextAction)}</p>
-                      <p>{item.risks.length ? `Risks: ${item.risks.map(humanize).join(' · ')}` : 'No persisted runtime risks.'}</p>
-                      <small>{formatDate(item.persistedAt)} · Priority: {humanize(item.priority)}</small>
-                    </div>
-                    <div className="approval-actions"><span className="pill">Read only</span></div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section id="executive" className="section-block split-grid">
-            <article className="panel-card">
-              <div className="card-heading"><div><p className="eyebrow">Executive Agent</p><h2>Strategic updates</h2></div></div>
-              {dashboard.executiveUpdates.length === 0 ? <div className="empty-inline">No persisted Executive Agent updates yet.</div> : (
-                <div className="update-list">{dashboard.executiveUpdates.map((update) => <div key={update.executionId}><div><strong>{update.objective}</strong><span className="status-badge">{update.status}</span></div><p>{update.summary ?? 'Strategic analysis has no text summary persisted yet.'}</p><small>{formatDate(update.updatedAt)}</small></div>)}</div>
-              )}
-            </article>
-
-            <article id="activity" className="panel-card">
-              <div className="card-heading"><div><p className="eyebrow">Audit trail</p><h2>Recent business activity</h2></div></div>
-              {dashboard.recentActivity.length === 0 ? <div className="empty-inline">No operational workflow events yet.</div> : (
-                <div className="activity-list">{dashboard.recentActivity.slice(0, 10).map((activity, index) => <div key={`${activity.createdAt}-${index}`}><span className="activity-dot"/><div><strong>{humanize(activity.eventType)}</strong><span>{activity.actorId ? humanize(activity.actorId) : humanize(activity.actorType)}</span></div><time>{formatDate(activity.createdAt)}</time></div>)}</div>
-              )}
-            </article>
-          </section>
-        </>}
-      </main>
-    </div>
-  );
+  return <div className="app-shell"><aside className="sidebar"><div className="brand-row"><div className="brand-mark small">AX</div><div><strong>AxorOS</strong><span>Control Center</span></div></div><nav><a href="#pilot" className="active">Pilot control</a><a href="#overview">Overview</a><a href="#finance">Finance</a><a href="#finance-records">Finance records</a><a href="#agents">Agents</a><a href="#sales-process">Sales process</a><a href="#approvals">Approvals</a><a href="#recovery">Runtime recovery</a><a href="#executive">Executive updates</a><a href="#activity">Activity</a></nav><div className="sidebar-footer"><span className="status-dot" /> Development connected<button className="text-button" onClick={() => { setToken(''); setDraftToken(''); setDashboard(null); setApprovals([]); setRecovery([]); }}>Lock dashboard</button></div></aside><main className="dashboard"><header className="topbar"><div><p className="eyebrow">Human Executive</p><h1>Business Command Center</h1><p className="muted">Authoritative live data from AxorOS persisted agent, operational and Finance state.</p></div><div className="topbar-actions"><span className="last-updated">{dashboard ? `Updated ${formatDate(dashboard.generatedAt)}` : 'Not loaded'}</span><button className="secondary-button" onClick={() => void refresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div></header>{error && <div className="error-banner"><strong>Control Center error</strong><span>{error}</span></div>}{!dashboard && !error && <div className="loading-panel">Loading authoritative business state…</div>}{dashboard && <>
+    <section id="sales-process" className="section-block"><div className="section-heading"><div><p className="eyebrow">Sales Agent</p><h2>Sales process status</h2></div><span className={`status-badge sales-status-${salesStatus.toLowerCase()}`}>{salesStatus}</span></div><div className="sales-process-grid"><article className="panel-card"><p className="eyebrow">Current stage</p><h3>{salesProcessLabel}</h3><p className="muted">This status is derived from persisted Sales Agent workflow events. It does not grant authority to contact a lead or send email.</p><div className="process-steps"><div className={salesAssessment ? 'process-step complete' : 'process-step'}><strong>1. Opportunity assessment</strong><span>{salesAssessment?.eventType === 'sales_followthrough_context_complete' ? 'Complete' : salesAssessment?.eventType === 'sales_followthrough_context_incomplete' ? 'Incomplete' : 'Pending'}</span></div><div className={salesAssessment?.eventType === 'sales_followthrough_context_incomplete' ? 'process-step active' : 'process-step'}><strong>2. Missing context retrieval / reassessment</strong><span>{salesAssessment?.eventType === 'sales_followthrough_context_incomplete' ? 'Required' : 'Not currently required'}</span></div><div className={salesDraft ? 'process-step complete' : 'process-step'}><strong>3. Outreach draft</strong><span>{salesDraft ? 'Ready for human review' : 'Not ready'}</span></div><div className="process-step"><strong>4. Human review</strong><span>Required before sending</span></div><div className="process-step"><strong>5. Outbound email</strong><span>Not authorised automatically</span></div></div></article><article className="panel-card"><p className="eyebrow">Authority gates</p><div className="authority-grid"><div><span>Outreach authorised</span><strong>NO</strong></div><div><span>Send authorised</span><strong>NO</strong></div><div><span>Pricing authorised</span><strong>NO</strong></div><div><span>Commercial commitment</span><strong>NO</strong></div></div><p className="muted">Sales can prepare governed internal work, but outbound communication remains behind the Human Executive gate.</p></article></div></section>
+    <section id="pilot" className="section-block"><div className="section-heading"><div><p className="eyebrow">System authority</p><h2>Pilot activation</h2></div><span className={dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'status-badge' : 'pill attention-pill'}>{dashboard.pilotState.state}</span></div><div className="split-grid"><article className="panel-card"><div className="card-heading"><div><p className="eyebrow">Authoritative state</p><h2>{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Pilot is active' : 'Pilot is disabled'}</h2></div></div><p className="muted">{dashboard.pilotState.state === 'PILOT_ACTIVE' ? 'Approved live pilot operations may proceed under the configured gates.' : 'No pilot operations may proceed until Human Executive activation.'}</p><p className="muted">Changed by {dashboard.pilotState.changedBy} · {formatDate(dashboard.pilotState.changedAt)}</p><div className="reason-box"><strong>Reason</strong><span>{dashboard.pilotState.reason}</span></div><div className="form-grid"><div><label htmlFor="pilot-reason">Change reason</label><input id="pilot-reason" value={pilotReason} onChange={(event) => setPilotReason(event.target.value)} placeholder="Why is the pilot state changing?" /></div>{dashboard.pilotState.state === 'PILOT_DISABLED' && <div><label htmlFor="pilot-confirmation">Activation confirmation</label><input id="pilot-confirmation" value={pilotConfirmation} onChange={(event) => setPilotConfirmation(event.target.value)} placeholder="ACTIVATE AXOROS PILOT" /></div>}</div><div className="button-row">{dashboard.pilotState.state === 'PILOT_ACTIVE' ? <button className="danger-button" onClick={() => void changePilotState('PILOT_DISABLED')} disabled={pilotChanging || !pilotReason.trim()}>Disable pilot</button> : <button onClick={() => void changePilotState('PILOT_ACTIVE')} disabled={pilotChanging || !pilotReason.trim() || pilotConfirmation !== 'ACTIVATE AXOROS PILOT'}>{pilotChanging ? 'Activating…' : 'Activate pilot'}</button>}</div></article><article className="panel-card"><div className="card-heading"><div><p className="eyebrow">Lead worker</p><h2>{dashboard.pilotLeadWorker.inProgress ? 'Cycle running' : 'Cycle idle'}</h2></div><span className="pill">{dashboard.pilotLeadWorker.lastOutcome ?? 'No run'}</span></div><div className="metric-grid"><div><span>Last started</span><strong>{formatDate(dashboard.pilotLeadWorker.lastStartedAt)}</strong></div><div><span>Last completed</span><strong>{formatDate(dashboard.pilotLeadWorker.lastCompletedAt)}</strong></div><div><span>Discovered</span><strong>{dashboard.pilotLeadWorker.lastSummary?.discovered ?? 0}</strong></div><div><span>Enriched</span><strong>{dashboard.pilotLeadWorker.lastSummary?.enriched ?? 0}</strong></div></div><p className="muted">Lead cycles consume research resources. Run them deliberately from this control surface.</p><button className="secondary-button" onClick={() => void runLeadCycle()} disabled={leadCycleRunning}>{leadCycleRunning ? 'Running…' : 'Run lead cycle'}</button></article></div></section>
+    <section id="overview" className="section-block"><div className="section-heading"><div><p className="eyebrow">Business state</p><h2>Overview</h2></div></div><div className="metric-grid"><div className="metric-card"><span>Total leads</span><strong>{dashboard.leads.total}</strong></div><div className="metric-card"><span>Awaiting review</span><strong>{dashboard.leads.awaitingHumanReview}</strong></div><div className="metric-card"><span>Qualified</span><strong>{dashboard.leads.qualified}</strong></div><div className="metric-card"><span>Converted</span><strong>{dashboard.leads.converted}</strong></div></div></section>
+    <section id="agents" className="section-block"><div className="section-heading"><div><p className="eyebrow">Runtime</p><h2>Agents</h2></div><span className={allAgentsReady ? 'status-badge' : 'pill attention-pill'}>{allAgentsReady ? 'ALL READY' : `${notReadyAgents.length} NOT READY`}</span></div><div className="agent-grid">{dashboard.agents.map((agent) => { const readiness = readinessByAgent.get(agent.agentId); return <article className="agent-card" key={agent.agentId}><div className="card-heading"><div><p className="eyebrow">{AGENT_LABELS[agent.agentId]}</p><h3>{agent.latestObjective ?? 'No objective recorded'}</h3></div><span className="pill">{runtimeActivity(agent)}</span></div><p className="muted">{readiness?.status ?? 'UNKNOWN'} · {agent.completedExecutions} completed · {agent.reviewExecutions} review · {agent.failedExecutions} failed</p><p className="muted">Last activity: {formatDate(agent.latestActivityAt)}</p></article>; })}</div></section>
+    <section id="finance" className="section-block"><div className="section-heading"><div><p className="eyebrow">Financial control</p><h2>Finance</h2></div></div><div className="metric-grid"><div className="metric-card"><span>Expected income</span><strong>{formatMoney(dashboard.finance.expectedIncome)}</strong></div><div className="metric-card"><span>Received income</span><strong>{formatMoney(dashboard.finance.receivedIncome)}</strong></div><div className="metric-card"><span>Recurring income</span><strong>{formatMoney(dashboard.finance.recurringIncome)}</strong></div><div className="metric-card"><span>Projected profit</span><strong>{formatMoney(dashboard.finance.projectedProfit)}</strong></div></div>{moneyUnavailableNote && <p className="muted">{moneyUnavailableNote}</p>}</section>
+    <section id="finance-records" className="section-block"><FinanceReportingForms apiBaseUrl={API_BASE_URL} headers={headers} clients={dashboard.clients} /></section>
+    <section id="approvals" className="section-block"><div className="section-heading"><div><p className="eyebrow">Human authority</p><h2>Approvals</h2></div><span className="pill">{approvals.length} pending</span></div><div className="stack-list">{approvals.length ? approvals.map((approval) => <article className="panel-card" key={approval.executionId}><div className="card-heading"><div><p className="eyebrow">{humanize(approval.destinationAgent)}</p><h3>{approval.objective}</h3></div><span className="pill attention-pill">Human review</span></div><p className="muted">{approval.expectedOutput}</p><p className="muted">Persisted {formatDate(approval.persistedAt)}</p><div className="button-row"><button onClick={() => void resolveApproval(approval, 'approved')} disabled={actioning === approval.executionId}>{actioning === approval.executionId ? 'Processing…' : 'Approve'}</button><button className="secondary-button" onClick={() => void resolveApproval(approval, 'rejected')} disabled={actioning === approval.executionId}>Reject / hold</button></div></article>) : <div className="empty-state">No pending Human Executive approvals.</div>}</div></section>
+    <section id="recovery" className="section-block"><div className="section-heading"><div><p className="eyebrow">Runtime safety</p><h2>Recovery</h2></div></div><div className="stack-list">{recovery.length ? recovery.map((item) => <article className="panel-card" key={item.executionId}><div className="card-heading"><div><p className="eyebrow">{humanize(item.destinationAgent)}</p><h3>{item.objective}</h3></div><span className="pill attention-pill">{item.status}</span></div><p className="muted">Next action: {item.nextAction}</p><p className="muted">Priority: {item.priority}</p></article>) : <div className="empty-state">No runtime recovery items.</div>}</div></section>
+    <section id="executive" className="section-block"><div className="section-heading"><div><p className="eyebrow">Executive</p><h2>Updates</h2></div></div><div className="stack-list">{dashboard.executiveUpdates.map((update) => <article className="panel-card" key={update.executionId}><div className="card-heading"><div><p className="eyebrow">{update.status}</p><h3>{update.objective}</h3></div></div><p className="muted">{update.summary ?? 'No summary recorded.'}</p><p className="muted">Updated {formatDate(update.updatedAt)}</p></article>)}</div></section>
+    <section id="activity" className="section-block"><div className="section-heading"><div><p className="eyebrow">Audit trail</p><h2>Recent activity</h2></div></div><div className="stack-list">{dashboard.recentActivity.map((activity, index) => <article className="activity-row" key={`${activity.createdAt}-${index}`}><div><strong>{humanize(activity.eventType)}</strong><span>{activity.actorId ? humanize(activity.actorId) : activity.actorType}</span></div><time>{formatDate(activity.createdAt)}</time></article>)}</div></section>
+  </>}</main></div>;
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
