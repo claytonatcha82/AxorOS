@@ -2,8 +2,8 @@ import type { Pool } from 'pg';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import { createTransactionRunner } from '../data/transaction.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
-import { createExactSourceContextService } from '../knowledge/exact-source-context-service.js';
 import type { KnowledgeContextService } from '../knowledge/knowledge-context-service.js';
+import { createExactSourceContextService } from '../knowledge/exact-source-context-service.js';
 import { createLeadAtlasContextService } from './lead-atlas-context-service.js';
 import { createLeadAtlasResearchOrchestrator } from './lead-atlas-research-orchestrator.js';
 import { createLeadAtlasResearchPlanner } from './lead-atlas-research-planner.js';
@@ -23,6 +23,7 @@ import { createLeadResearchQualificationEvidenceService } from './lead-research-
 import { createLeadResearchWorkflowService } from './lead-research-workflow-service.js';
 import { createPersistedLeadQualificationRuntimeReview } from './lead-qualification-persisted-runtime-review.js';
 import { createPersistedLeadSalesIntakeRuntime } from './lead-sales-persisted-intake-runtime.js';
+import { createSalesQualifiedLeadFollowthroughService } from './sales-qualified-lead-followthrough-service.js';
 import { logEvent } from '../logger.js';
 
 export interface LeadLiveResearchRuntimeDependencies {
@@ -68,6 +69,10 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
     gapResearch,
   );
   const salesIntakeRuntime = createPersistedLeadSalesIntakeRuntime(dependencies.pool);
+  const salesFollowthrough = createSalesQualifiedLeadFollowthroughService(
+    dependencies.pool,
+    dependencies.integrations,
+  );
 
   return {
     async research(input: Parameters<typeof baseOrchestrator.research>[0]): Promise<Awaited<ReturnType<typeof baseOrchestrator.research>>> {
@@ -98,6 +103,7 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
 
         const intakeExecution = intake.intakeExecution;
         const intakeRecord = 'record' in intakeExecution ? intakeExecution.record : intakeExecution;
+        const followthrough = await salesFollowthrough.executeAfterIntake(intakeRecord.task.executionId);
         logEvent('info', 'lead_sales_auto_advance_handoff_completed', {
           leadId: lead.leadId,
           companyName: lead.companyName,
@@ -107,6 +113,10 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
           salesIntakeStatus: intakeRecord.task.status,
           salesDispatchAuthorised: intakeRecord.task.inputs.salesDispatchAuthorised,
           outreachAuthorised: intakeRecord.task.inputs.outreachAuthorised,
+          salesFollowthroughExecutionId: followthrough.modelExecution.task.executionId,
+          salesFollowthroughStatus: followthrough.draft ? 'drafted' : 'context_incomplete',
+          salesAssessmentStatus: followthrough.assessment.assessmentStatus,
+          salesMissingInformation: followthrough.assessment.missingInformation,
         });
       }
 
