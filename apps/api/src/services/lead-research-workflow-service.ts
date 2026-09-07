@@ -160,6 +160,18 @@ export function createLeadResearchWorkflowService(
           if (web.status !== 'succeeded') continue;
           successfulWebSearches += 1;
           webResults.push(...web.output.results);
+          console.info(JSON.stringify({
+            event: 'lead_tavily_search_diagnostic_v1',
+            leadId,
+            providerPlaceId: candidate.providerPlaceId,
+            companyName: candidate.displayName,
+            searchIndex: searchIndex + 1,
+            resultCount: web.output.results.length,
+            resultHosts: web.output.results.map((result) => {
+              try { return new URL(result.url).hostname; } catch { return null; }
+            }).filter(Boolean),
+            country: input.country ?? null,
+          }));
         }
         if (successfulWebSearches === 0) { outcomes.webResearchFailed += 1; continue; }
 
@@ -190,7 +202,21 @@ export function createLeadResearchWorkflowService(
                 includeDomains: [selectedDomain],
               },
             });
-            if (contactSearch.status === 'succeeded') webResults.push(...contactSearch.output.results);
+            if (contactSearch.status === 'succeeded') {
+              webResults.push(...contactSearch.output.results);
+              console.info(JSON.stringify({
+                event: 'lead_tavily_contact_domain_diagnostic_v1',
+                leadId,
+                providerPlaceId: candidate.providerPlaceId,
+                companyName: candidate.displayName,
+                resultCount: contactSearch.output.results.length,
+                resultHosts: contactSearch.output.results.map((result) => {
+                  try { return new URL(result.url).hostname; } catch { return null; }
+                }).filter(Boolean),
+                includeDomain: selectedDomain,
+                country: input.country ?? null,
+              }));
+            }
             deduplicatedWebResults = [...new Map(webResults.filter((result) => result.url).map((result) => [result.url, result])).values()];
           }
         }
