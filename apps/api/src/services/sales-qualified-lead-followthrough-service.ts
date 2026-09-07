@@ -16,6 +16,7 @@ import { createSalesOutreachPreparationEligibilityService } from './sales-outrea
 import { createSalesInternalOutreachDraftService } from './sales-internal-outreach-draft-service.js';
 import { createSalesOpportunityAssessmentService } from './sales-opportunity-assessment-service.js';
 import { createSalesOpportunityAssessmentPersistenceService } from './sales-opportunity-assessment-persistence-service.js';
+import { normalizeSalesResearchEvidence } from './sales-research-evidence-normalizer.js';
 
 const SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY = 'sales_qualified_lead_followthrough';
 
@@ -66,6 +67,9 @@ export function buildSalesFollowthroughTask(input: {
   researchEvidence?: PublicWebSearchResult[];
   internalOperationalHistory?: unknown;
 }): AgentRuntimeTask {
+  const boundedResearchEvidence = input.researchEvidence?.length
+    ? normalizeSalesResearchEvidence(input.researchEvidence)
+    : [];
   const task: AgentRuntimeTask = {
     taskId: `sales-followthrough-task:${input.executionId}`,
     executionId: input.executionId,
@@ -76,12 +80,12 @@ export function buildSalesFollowthroughTask(input: {
     context: { leadId: input.leadId, dataClass: 'qualified_lead_evidence', intakeExecutionId: input.executionId },
     knowledgeReferences: [...new Set(input.atlasSourcePaths)],
     inputs: {
-      salesBrief: 'Return strict JSON containing salesContext and an email subject/body. Use only supplied persisted evidence and Atlas references.',
+      salesBrief: 'Return strict JSON containing salesContext and an email subject/body. Required salesContext fields are decisionMaker, contactEmail, industry, country, businessSummary, websiteAudit, painPoints, recommendedServices, priority, confidence, previousContact, and opportunitySummary. Populate every field only when directly supported by supplied evidence; otherwise omit it. Keep arrays concise and evidence-backed. Do not omit a supported field merely because it is inconvenient to extract.',
       salesContext: JSON.stringify({
         lead: input.lead,
         qualification: input.qualification,
         intakeResult: input.intakeResult,
-        ...(input.researchEvidence?.length ? { additionalPublicWebEvidence: input.researchEvidence } : {}),
+        ...(boundedResearchEvidence.length ? { additionalPublicWebEvidence: boundedResearchEvidence } : {}),
         ...(input.internalOperationalHistory ? { internalOperationalHistory: input.internalOperationalHistory } : {}),
       }),
       salesIntakeOnly: true,
@@ -134,10 +138,11 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
       'If internal operational history contains no recorded AxorOS outreach/contact event for the lead, previousContact must be false. If it contains a recorded completed outreach/contact event, previousContact may be true only when the event explicitly supports that conclusion.',
       'Never invent a decision maker, industry, country, business summary, website audit, pain point, recommended service, priority, confidence, previous contact status, pricing, discount, budget, contract term, delivery promise, or approval.',
       'If the evidence does not support a required sales context field, leave it absent so the downstream assessment fails closed rather than guessing.',
+      'When additional public-web evidence is supplied, inspect it field-by-field and extract directly supported facts before deciding a field is missing.',
       'The email is an internal candidate draft for human review; do not send it and do not imply outreach authority.',
       'Do not include prices or commercial commitments unless explicitly present in the supplied evidence.',
     ].join(' '),
-    maxOutputTokens: 1200,
+    maxOutputTokens: 2000,
     temperature: 0.2,
   });
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
