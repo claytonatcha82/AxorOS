@@ -45,29 +45,33 @@
       agentGrid.insertAdjacentElement('afterend', container);
     }
 
-    const markup = !latestPipeline.length
+    // Only render leads that have an actual Sales workflow state. Leads still
+    // waiting for Human Executive approval must not appear as Sales activity.
+    const approvedPipeline = latestPipeline.filter((item) => String(item.activity ?? '').toUpperCase() !== 'IDLE');
+
+    const markup = !approvedPipeline.length
       ? `
         <div class="sales-live-workflow-header">
           <div>
             <p class="sales-live-workflow-eyebrow">Sales Agent · Live workflow</p>
             <h3>Sales Live Workflow</h3>
-            <p>Lead-level commercial activity currently exposed by the executive dashboard.</p>
+            <p>Only leads that have passed the Human Executive Lead approval gate appear here.</p>
           </div>
-          <span class="sales-live-workflow-count">0 leads</span>
+          <span class="sales-live-workflow-count">0 approved leads</span>
         </div>
-        <div class="sales-live-workflow-empty">No lead-level Sales workflow record is currently exposed by the executive dashboard.</div>
+        <div class="sales-live-workflow-empty">No Human Executive-approved Lead is currently in the Sales workflow.</div>
       `
       : `
         <div class="sales-live-workflow-header">
           <div>
             <p class="sales-live-workflow-eyebrow">Sales Agent · Live workflow</p>
             <h3>Sales Live Workflow</h3>
-            <p>Current lead-level commercial activity and the next governed action.</p>
+            <p>Approved leads currently moving through the governed Sales workflow.</p>
           </div>
-          <span class="sales-live-workflow-count">${latestPipeline.length} lead${latestPipeline.length === 1 ? '' : 's'}</span>
+          <span class="sales-live-workflow-count">${approvedPipeline.length} approved lead${approvedPipeline.length === 1 ? '' : 's'}</span>
         </div>
         <div class="sales-live-workflow-list">
-          ${latestPipeline.map((item) => `
+          ${approvedPipeline.map((item) => `
             <article class="sales-live-workflow-row">
               <div class="sales-live-workflow-row-head">
                 <div class="sales-live-workflow-company">
