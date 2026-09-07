@@ -5,6 +5,7 @@ export type SalesOpportunityAssessmentStatus = 'context_complete' | 'context_inc
 
 export interface SalesOpportunityContext {
   decisionMaker?: string;
+  contactEmail?: string;
   industry?: string;
   country?: string;
   businessSummary?: string;
@@ -14,6 +15,7 @@ export interface SalesOpportunityContext {
   priority?: string;
   confidence?: number;
   previousContact?: string;
+  opportunitySummary?: string;
 }
 
 export interface SalesOpportunityAssessment {
@@ -85,9 +87,11 @@ export function createSalesOpportunityAssessmentService() {
         throw new Error('Sales opportunity assessment confidence must be between 0 and 1 when supplied.');
       }
 
+      const resolvedContactEmail = lead.contactEmail ?? (presentText(salesContext.contactEmail) ? salesContext.contactEmail!.trim() : null);
+      const resolvedOpportunitySummary = lead.opportunitySummary ?? (presentText(salesContext.opportunitySummary) ? salesContext.opportunitySummary!.trim() : null);
       const missingInformation: string[] = [];
       if (!lead.contactName && !presentText(salesContext.decisionMaker)) missingInformation.push('decision_maker');
-      if (!lead.contactEmail) missingInformation.push('contact_email');
+      if (!resolvedContactEmail) missingInformation.push('contact_email');
       if (!presentText(salesContext.industry)) missingInformation.push('industry');
       if (!presentText(salesContext.country)) missingInformation.push('country');
       if (!presentText(salesContext.businessSummary)) missingInformation.push('business_summary');
@@ -97,7 +101,7 @@ export function createSalesOpportunityAssessmentService() {
       if (!presentText(salesContext.priority)) missingInformation.push('priority');
       if (salesContext.confidence === undefined) missingInformation.push('confidence');
       if (!presentText(salesContext.previousContact)) missingInformation.push('previous_contact');
-      if (!lead.opportunitySummary) missingInformation.push('opportunity_summary');
+      if (!resolvedOpportunitySummary) missingInformation.push('opportunity_summary');
 
       const assessmentStatus: SalesOpportunityAssessmentStatus = missingInformation.length === 0
         ? 'context_complete'
@@ -108,9 +112,9 @@ export function createSalesOpportunityAssessmentService() {
         salesIntakeExecutionId: task.executionId,
         company: lead.companyName,
         contactName: lead.contactName,
-        contactEmail: lead.contactEmail,
+        contactEmail: resolvedContactEmail,
         source: lead.source,
-        opportunitySummary: lead.opportunitySummary,
+        opportunitySummary: resolvedOpportunitySummary,
         existingLeadScore: lead.leadScore,
         salesContext,
         assessmentStatus,
