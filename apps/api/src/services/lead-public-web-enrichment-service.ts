@@ -28,6 +28,8 @@ const BLOCKED_THIRD_PARTY_DOMAINS = new Set([
 const NON_IDENTITY_DOMAIN_MARKERS = new Set([
   'directory',
   'directories',
+  'listing',
+  'listings',
   'jobs',
   'job',
   'careers',
