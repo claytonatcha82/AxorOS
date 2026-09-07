@@ -28,8 +28,6 @@ const BLOCKED_THIRD_PARTY_DOMAINS = new Set([
 const NON_IDENTITY_DOMAIN_MARKERS = new Set([
   'directory',
   'directories',
-  'listing',
-  'listings',
   'jobs',
   'job',
   'careers',
@@ -127,13 +125,25 @@ function registrableDomain(hostname: string): string {
   return secondLevelTlds.has(suffix) ? labels.slice(-3).join('.') : labels.slice(-2).join('.');
 }
 
+function mergeSpacedAcronyms(value: string): string {
+  return value.replace(/\b(?:[A-Z]\s+){1,}[A-Z]\b/g, (match) => match.replace(/\s+/g, ''));
+}
+
+function extractAcronymTokens(value: string): string[] {
+  const merged = mergeSpacedAcronyms(value);
+  const matches = merged.match(/\b[A-Z]{2,6}\b/g) ?? [];
+  return matches.map((token) => token.toLowerCase());
+}
+
 function normalizedTokens(value: string): string[] {
-  return value
+  const acronymTokens = extractAcronymTokens(value);
+  const wordTokens = value
     .toLowerCase()
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter((token) => token.length >= 3 && !NON_IDENTITY_NAME_TOKENS.has(token));
+  return [...new Set([...acronymTokens, ...wordTokens])];
 }
 
 function domainTokens(domain: string): string[] {
@@ -141,8 +151,11 @@ function domainTokens(domain: string): string[] {
 }
 
 function containsAllTokens(searchable: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return false;
   const searchableTokens = new Set(normalizedTokens(searchable));
-  return tokens.length > 0 && tokens.every((token) => searchableTokens.has(token));
+  const matched = tokens.filter((token) => searchableTokens.has(token)).length;
+  const required = tokens.length <= 2 ? tokens.length : Math.ceil(tokens.length * 0.6);
+  return matched >= required;
 }
 
 function domainHasNonIdentityMarker(domain: string): boolean {
@@ -167,13 +180,13 @@ function domainSupportsCompanyIdentity(websiteUrl: string, companyName: string, 
   if (!domainBase) return false;
 
   const normalizedDomainBase = domainBase
-   .toLowerCase()
-   .replace(/[^a-z0-9]/g, '');
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
 
   if (
-  !companyTokens.some((token) =>
-    normalizedDomainBase.includes(token),
-     )
+    !companyTokens.some((token) =>
+      normalizedDomainBase.includes(token),
+    )
   ) return false;
 
   const domainResults = results.filter((result) => {
@@ -263,7 +276,7 @@ export function createLeadPublicWebEnrichmentService(repository: OperationalRepo
 
         const websiteVerified = Boolean(officialWebsiteUrl && domainSupportsCompanyIdentity(officialWebsiteUrl, lead.companyName, matching));
         const verifiedWebsiteUrl = websiteVerified ? officialWebsiteUrl : null;
-        const discoveredEmail = verifiedWebsiteUrl ? discoverPublicBusinessEmail(matching, verifiedWebsiteUrl) : null;
+        const discoveredEmail = officialWebsiteUrl ? discoverPublicBusinessEmail(matching, officialWebsiteUrl) : null;
         const enrichmentStatus = verifiedWebsiteUrl ? 'verified' : 'not_found';
         const evidence = [
           ...(Array.isArray(lead.evidence) ? lead.evidence : []),
