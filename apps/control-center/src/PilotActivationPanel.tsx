@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './pilot-activation-panel.css';
+import './sales-process-status.css';
 
 type PilotSystemState = 'PILOT_DISABLED' | 'PILOT_ACTIVE';
 
@@ -40,6 +41,12 @@ type PilotReadinessPreview = {
   pilotState: PilotStateRecord;
 };
 
+type SalesStatus = {
+  activity: 'ACTIVE' | 'REVIEW' | 'FAILED' | 'IDLE';
+  stage: string;
+  latestObjective: string | null;
+};
+
 export interface PilotActivationPanelProps {
   apiBaseUrl: string;
   token: string;
@@ -71,6 +78,7 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
   const [confirmation, setConfirmation] = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [salesStatus, setSalesStatus] = useState<SalesStatus | null>(null);
 
   const headers = useMemo(() => ({ authorization: `Bearer ${props.token}` }), [props.token]);
   const previewMatchesInput = Boolean(preview && preview.readiness.readinessId === readinessId.trim());
@@ -80,6 +88,50 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
     && preview.evidence.length === 5
     && preview.evidence.every((item) => item.outcome === 'PASS'),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSalesStatus = async () => {
+      try {
+        const response = await fetch(`${props.apiBaseUrl}/api/v1/control/dashboard/executive`, { headers });
+        const dashboard = await readJson<{
+          agents: Array<{ agentId: string; activeExecutions: number; reviewExecutions: number; failedExecutions: number }>;
+          recentActivity: Array<{ eventType: string; actorId: string | null }>;
+        }>(response);
+        if (cancelled) return;
+
+        const salesAgent = dashboard.agents.find((agent) => agent.agentId === 'sales_agent');
+        const activity = salesAgent?.activeExecutions ? 'ACTIVE'
+          : salesAgent?.reviewExecutions ? 'REVIEW'
+            : salesAgent?.failedExecutions ? 'FAILED' : 'IDLE';
+        const salesEvents = dashboard.recentActivity.filter((event) => event.actorId === 'sales_agent' || event.eventType.startsWith('sales_'));
+        const assessment = salesEvents.find((event) => event.eventType === 'sales_followthrough_context_complete' || event.eventType === 'sales_followthrough_context_incomplete');
+        const draft = salesEvents.find((event) => event.eventType === 'sales_outreach_draft_ready_for_human_review');
+        const stage = draft
+          ? 'Outreach draft ready for Human Executive review'
+          : assessment?.eventType === 'sales_followthrough_context_incomplete'
+            ? 'Assessment incomplete · context retrieval / reassessment required'
+            : assessment?.eventType === 'sales_followthrough_context_complete'
+              ? 'Assessment complete · outreach preparation'
+              : activity === 'ACTIVE'
+                ? 'Sales process active'
+                : activity === 'REVIEW'
+                  ? 'Sales process awaiting review'
+                  : 'Sales process idle';
+
+        setSalesStatus({ activity, stage, latestObjective: null });
+      } catch {
+        if (!cancelled) setSalesStatus(null);
+      }
+    };
+
+    void loadSalesStatus();
+    const timer = window.setInterval(() => { void loadSalesStatus(); }, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [headers, props.apiBaseUrl]);
 
   async function loadPreview(mode: 'latest' | 'explicit') {
     const normalized = readinessId.trim();
@@ -195,6 +247,24 @@ export function PilotActivationPanel(props: PilotActivationPanelProps) {
               ))}
             </div>
             <p className="panel-note">Readiness ID: {preview.readiness.readinessId}</p>
+          </div>
+        )}
+
+        {salesStatus && (
+          <div className="sales-process-compact">
+            <div className="sales-process-compact-header">
+              <div>
+                <p className="eyebrow">Sales Agent</p>
+                <h3>Sales process</h3>
+              </div>
+              <span className="status-badge">{salesStatus.activity}</span>
+            </div>
+            <p className="sales-stage">{salesStatus.stage}</p>
+            <div className="sales-meta">
+              <div><span>Outreach</span><strong>Not authorised</strong></div>
+              <div><span>Send</span><strong>Not authorised</strong></div>
+              <div><span>Human review</span><strong>Required</strong></div>
+            </div>
           </div>
         )}
 
