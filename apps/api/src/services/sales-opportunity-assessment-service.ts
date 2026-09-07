@@ -51,6 +51,28 @@ function required(value: string, field: string): string {
   return trimmed;
 }
 
+function hasSuccessfulSalesEmailSend(task: AgentRuntimeExecutionRecord['task']): boolean {
+  const rawSalesContext = task.inputs.salesContext;
+  if (typeof rawSalesContext !== 'string' || !rawSalesContext.trim()) return false;
+
+  try {
+    const parsed = JSON.parse(rawSalesContext) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+    const history = (parsed as Record<string, unknown>).internalOperationalHistory;
+    if (!history || typeof history !== 'object' || Array.isArray(history)) return false;
+    const events = (history as Record<string, unknown>).events;
+    if (!Array.isArray(events)) return false;
+
+    return events.some((event) => {
+      if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
+      const record = event as Record<string, unknown>;
+      return record.eventType === 'sales_supervised_email_sent';
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function createSalesOpportunityAssessmentService() {
   return {
     assess(input: {
@@ -59,7 +81,7 @@ export function createSalesOpportunityAssessmentService() {
       salesContext?: SalesOpportunityContext;
     }): SalesOpportunityAssessment {
       const { intakeExecution, lead } = input;
-      const salesContext = input.salesContext ?? {};
+      const salesContext = { ...(input.salesContext ?? {}) };
       const task = intakeExecution.task;
 
       if (task.destinationAgent !== 'sales_agent') {
@@ -89,6 +111,9 @@ export function createSalesOpportunityAssessmentService() {
 
       const resolvedContactEmail = lead.contactEmail ?? (presentText(salesContext.contactEmail) ? salesContext.contactEmail!.trim() : null);
       const resolvedOpportunitySummary = lead.opportunitySummary ?? (presentText(salesContext.opportunitySummary) ? salesContext.opportunitySummary!.trim() : null);
+      const previousContact = hasSuccessfulSalesEmailSend(task) ? 'true' : 'false';
+      salesContext.previousContact = previousContact;
+
       const missingInformation: string[] = [];
       if (!lead.contactName && !presentText(salesContext.decisionMaker)) missingInformation.push('decision_maker');
       if (!resolvedContactEmail) missingInformation.push('contact_email');
