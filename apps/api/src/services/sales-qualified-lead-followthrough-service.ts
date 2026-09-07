@@ -8,8 +8,10 @@ import type { AgentRuntimeEvent, AgentRuntimeExecutionRecord } from '../agents/a
 import { createAgentRuntimePostgresStore } from '../data/agent-runtime-postgres-store.js';
 import { createOperationalRepository } from '../data/operational-repository.js';
 import type { IntegrationRegistry } from '../integrations/integration-registry.js';
+import type { PublicWebSearchResult } from '../integrations/public-web-research-integration.js';
 import { registerModelRuntimeCapability } from '../agents/model-runtime-registration.js';
 import type { SalesOpportunityContext } from './sales-opportunity-assessment-service.js';
+import { createSalesMissingContextRetrievalService } from './sales-missing-context-retrieval-service.js';
 import { createSalesOutreachPreparationEligibilityService } from './sales-outreach-preparation-eligibility-service.js';
 import { createSalesInternalOutreachDraftService } from './sales-internal-outreach-draft-service.js';
 import { createSalesOpportunityAssessmentService } from './sales-opportunity-assessment-service.js';
@@ -61,6 +63,7 @@ export function buildSalesFollowthroughTask(input: {
   qualification: unknown;
   intakeResult: unknown;
   createdAt: string;
+  researchEvidence?: PublicWebSearchResult[];
 }): AgentRuntimeTask {
   const task: AgentRuntimeTask = {
     taskId: `sales-followthrough-task:${input.executionId}`,
@@ -73,7 +76,12 @@ export function buildSalesFollowthroughTask(input: {
     knowledgeReferences: [...new Set(input.atlasSourcePaths)],
     inputs: {
       salesBrief: 'Return strict JSON containing salesContext and an email subject/body. Use only supplied persisted evidence and Atlas references.',
-      salesContext: JSON.stringify({ lead: input.lead, qualification: input.qualification, intakeResult: input.intakeResult }),
+      salesContext: JSON.stringify({
+        lead: input.lead,
+        qualification: input.qualification,
+        intakeResult: input.intakeResult,
+        ...(input.researchEvidence?.length ? { additionalPublicWebEvidence: input.researchEvidence } : {}),
+      }),
       salesIntakeOnly: true,
       salesDispatchAuthorised: false,
       outreachAuthorised: false,
@@ -106,6 +114,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
   const assessmentPersistence = createSalesOpportunityAssessmentPersistenceService(operationalRepository);
   const preparationEligibility = createSalesOutreachPreparationEligibilityService(operationalRepository);
   const internalDraft = createSalesInternalOutreachDraftService(operationalRepository);
+  const missingContextRetrieval = createSalesMissingContextRetrievalService(integrations);
   const handlers = new AgentRuntimeHandlerRegistry();
   const modelIntegrationId = integrations.get('model.gemini') ? 'model.gemini' : 'model.sandbox';
   registerModelRuntimeCapability(handlers, integrations, {
@@ -118,7 +127,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     systemInstruction: [
       'You are the AxorOS Sales Agent operating in governed internal draft mode.',
       'Return JSON only with keys salesContext and email.',
-      'Use only facts explicitly present in the supplied persisted lead, qualification, intake result, or Atlas references.',
+      'Use only facts explicitly present in the supplied persisted lead, qualification, intake result, additional public-web evidence, or Atlas references.',
       'Never invent a decision maker, industry, country, business summary, website audit, pain point, recommended service, priority, confidence, previous contact status, pricing, discount, budget, contract term, delivery promise, or approval.',
       'If the evidence does not support a required sales context field, leave it absent so the downstream assessment fails closed rather than guessing.',
       'The email is an internal candidate draft for human review; do not send it and do not imply outreach authority.',
@@ -128,6 +137,47 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     temperature: 0.2,
   });
   const orchestrator = createAgentRuntimeOrchestrator({ store, handlers });
+
+  async function ensureModelExecution(input: {
+    executionId: string;
+    intake: AgentRuntimeExecutionRecord;
+    lead: Awaited<ReturnType<typeof operationalRepository.getLeadById>>;
+    qualification: unknown;
+    researchEvidence?: PublicWebSearchResult[];
+  }): Promise<AgentRuntimeExecutionRecord> {
+    if (!input.lead) throw new Error('Sales followthrough lead is required.');
+    let modelExecution = await store.getExecution(input.executionId);
+    if (!modelExecution) {
+      const task = buildSalesFollowthroughTask({
+        executionId: input.executionId,
+        leadId: input.lead.id,
+        correlationId: input.intake.task.correlationId,
+        atlasSourcePaths: input.intake.task.knowledgeReferences,
+        lead: input.lead,
+        qualification: input.qualification,
+        intakeResult: input.intake.result?.output ?? {},
+        createdAt: new Date().toISOString(),
+        ...(input.researchEvidence ? { researchEvidence: input.researchEvidence } : {}),
+      });
+      const idempotencyKey = runtimeIdempotencyKey('runtime', input.executionId, 'task_created');
+      if (await store.hasIdempotencyKey(idempotencyKey)) {
+        modelExecution = await store.getExecution(input.executionId);
+      } else {
+        const event: AgentRuntimeEvent = {
+          eventId: randomUUID(), executionId: input.executionId, taskId: task.taskId, correlationId: task.correlationId,
+          type: 'task_created', actor: 'runtime',
+          payload: { originAgent: 'lead_agent', destinationAgent: 'sales_agent', salesIntakeOnly: true, salesDispatchAuthorised: false, outreachAuthorised: false },
+          idempotencyKey, occurredAt: task.createdAt,
+        };
+        const record: AgentRuntimeExecutionRecord = { task, version: 1, lastEventId: event.eventId, persistedAt: task.createdAt };
+        await commitRuntimeMutation({ record, expectedVersion: 0, event, idempotencyRecord: recordRuntimeIdempotency(event, 'task_created') });
+        modelExecution = record;
+      }
+    }
+    if (!modelExecution) throw new Error(`Sales followthrough execution ${input.executionId} could not be created.`);
+    if (modelExecution.task.status === 'completed' && modelExecution.result?.status === 'completed') return modelExecution;
+    return (await orchestrator.execute({ executionId: input.executionId, capabilityId: SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY })).record;
+  }
 
   return {
     store,
@@ -147,45 +197,79 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
       if (!qualification) throw new Error(`Lead qualification record not found for ${leadId}.`);
 
       const executionId = `sales-followthrough:${intakeExecutionId}`;
-      let modelExecution = await store.getExecution(executionId);
-      if (!modelExecution) {
-        const task = buildSalesFollowthroughTask({
-          executionId,
-          leadId,
-          correlationId: intake.task.correlationId,
-          atlasSourcePaths: intake.task.knowledgeReferences,
-          lead,
-          qualification,
-          intakeResult: intake.result?.output ?? {},
-          createdAt: new Date().toISOString(),
-        });
-        const idempotencyKey = runtimeIdempotencyKey('runtime', executionId, 'task_created');
-        if (await store.hasIdempotencyKey(idempotencyKey)) {
-          modelExecution = await store.getExecution(executionId);
-        } else {
-          const event: AgentRuntimeEvent = {
-            eventId: randomUUID(), executionId, taskId: task.taskId, correlationId: task.correlationId,
-            type: 'task_created', actor: 'runtime',
-            payload: { originAgent: 'lead_agent', destinationAgent: 'sales_agent', salesIntakeOnly: true, salesDispatchAuthorised: false, outreachAuthorised: false },
-            idempotencyKey, occurredAt: task.createdAt,
-          };
-          const record: AgentRuntimeExecutionRecord = { task, version: 1, lastEventId: event.eventId, persistedAt: task.createdAt };
-          await commitRuntimeMutation({ record, expectedVersion: 0, event, idempotencyRecord: recordRuntimeIdempotency(event, 'task_created') });
-          modelExecution = record;
-        }
-      }
-      if (!modelExecution) throw new Error(`Sales followthrough execution ${executionId} could not be created.`);
-      const generated = modelExecution.task.status === 'completed' && modelExecution.result?.status === 'completed'
-        ? modelExecution
-        : (await orchestrator.execute({ executionId, capabilityId: SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY })).record;
+      const generated = await ensureModelExecution({ executionId, intake, lead, qualification });
       if (generated.task.status !== 'completed' || generated.result?.status !== 'completed') throw new Error('Sales followthrough model execution did not complete.');
-      const generatedText = String(generated.result?.output.text ?? '');
-      const followthrough = parseGeneratedOutput(generatedText);
+      const followthrough = parseGeneratedOutput(String(generated.result?.output.text ?? ''));
       const assessment = assessmentService.assess({ intakeExecution: intake, lead, salesContext: followthrough.salesContext });
       const assessmentRecord = await assessmentPersistence.persist({ assessment });
+
       if (assessment.assessmentStatus !== 'context_complete') {
-        return { modelExecution: generated, assessment, assessmentRecord, draft: null };
+        const retrieval = await missingContextRetrieval.retrieve({
+          lead,
+          missingFields: assessment.missingInformation,
+          executionId,
+          correlationId: intake.task.correlationId,
+          country: assessment.salesContext.country,
+        });
+        await operationalRepository.createWorkflowEvent({
+          eventType: 'sales_missing_context_retrieval_recorded',
+          actorType: 'agent',
+          actorId: 'sales_agent',
+          payload: {
+            leadId: retrieval.leadId,
+            missingFields: retrieval.missingFields,
+            searchesRun: retrieval.searchesRun,
+            evidenceCount: retrieval.evidence.length,
+            evidenceReferences: retrieval.evidence.map((item) => `public-web:${item.url}`),
+            nextAction: retrieval.nextAction,
+          },
+        });
+
+        const reassessmentExecutionId = `${executionId}:context-retrieval`;
+        const reassessedModel = await ensureModelExecution({
+          executionId: reassessmentExecutionId,
+          intake,
+          lead,
+          qualification,
+          researchEvidence: retrieval.evidence,
+        });
+        if (reassessedModel.task.status !== 'completed' || reassessedModel.result?.status !== 'completed') {
+          throw new Error('Sales missing-context reassessment model execution did not complete.');
+        }
+        const reassessedFollowthrough = parseGeneratedOutput(String(reassessedModel.result?.output.text ?? ''));
+        const reassessed = assessmentService.assess({ intakeExecution: intake, lead, salesContext: reassessedFollowthrough.salesContext });
+        const reassessedRecord = await assessmentPersistence.persist({ assessment: reassessed });
+        if (reassessed.assessmentStatus !== 'context_complete') {
+          return {
+            modelExecution: reassessedModel,
+            initialModelExecution: generated,
+            assessment: reassessed,
+            initialAssessment: assessment,
+            assessmentRecord: reassessedRecord,
+            initialAssessmentRecord: assessmentRecord,
+            retrieval,
+            draft: null,
+          };
+        }
+        const eligibility = await preparationEligibility.evaluate(reassessedRecord.id);
+        const draft = await internalDraft.create({
+          eligibility,
+          subject: reassessedFollowthrough.email.subject,
+          body: reassessedFollowthrough.email.body,
+        });
+        return {
+          modelExecution: reassessedModel,
+          initialModelExecution: generated,
+          assessment: reassessed,
+          initialAssessment: assessment,
+          assessmentRecord: reassessedRecord,
+          initialAssessmentRecord: assessmentRecord,
+          retrieval,
+          eligibility,
+          draft,
+        };
       }
+
       const eligibility = await preparationEligibility.evaluate(assessmentRecord.id);
       const draft = await internalDraft.create({ eligibility, subject: followthrough.email.subject, body: followthrough.email.body });
       return { modelExecution: generated, assessment, assessmentRecord, eligibility, draft };
