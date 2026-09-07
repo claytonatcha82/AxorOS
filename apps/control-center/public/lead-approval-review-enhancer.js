@@ -6,6 +6,7 @@
   let latestHeaders = {};
   let apiBaseUrl = '';
   let activeLeadApprovalExecutionId = null;
+  const detailLoads = new Set();
 
   if (document.documentElement.dataset.leadApprovalReviewEnhancerLoaded === 'true') return;
   document.documentElement.dataset.leadApprovalReviewEnhancerLoaded = 'true';
@@ -97,30 +98,14 @@
     activeLeadApprovalExecutionId = null;
   }
 
-  async function loadDetails(card, approval) {
-    const existing = removeDuplicateDetails(card, approval.executionId);
-    if (existing) return;
-
-    const staleDetails = card.querySelectorAll('.lead-review-details');
-    staleDetails.forEach((item) => item.remove());
-
-    const details = document.createElement('details');
-    details.className = 'lead-review-details';
-    details.dataset.executionId = approval.executionId;
-    const summary = document.createElement('summary');
-    summary.textContent = 'Review Lead evidence before deciding';
-    details.append(summary);
+  async function loadDetails(card, approval, details) {
+    if (detailLoads.has(approval.executionId)) return;
+    detailLoads.add(approval.executionId);
 
     const loading = document.createElement('p');
     loading.className = 'muted';
     loading.textContent = 'Loading persisted qualification evidence…';
     details.append(loading);
-
-    const actionButtons = card.querySelectorAll('.approval-actions button');
-    actionButtons.forEach((button) => { button.disabled = true; });
-
-    const body = card.querySelector(':scope > div:first-child');
-    if (body) body.append(details);
 
     try {
       if (!apiBaseUrl) throw new Error('AxorOS API base URL was not discovered from the approvals request.');
@@ -174,12 +159,32 @@
       note.className = 'lead-review-safety-note';
       note.textContent = 'Human Executive decision required. Approve only after reviewing the persisted evidence above.';
       details.append(note);
-      actionButtons.forEach((button) => { button.disabled = false; });
     } catch (error) {
       loading.textContent = `Unable to load Lead review evidence: ${error instanceof Error ? error.message : String(error)}`;
       loading.className = 'error-banner';
-      actionButtons.forEach((button) => { button.disabled = true; });
+    } finally {
+      detailLoads.delete(approval.executionId);
     }
+  }
+
+  function ensureDetails(card, approval) {
+    let details = removeDuplicateDetails(card, approval.executionId);
+    if (!details) {
+      details = document.createElement('details');
+      details.className = 'lead-review-details';
+      details.dataset.executionId = approval.executionId;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Review Lead evidence before deciding';
+      details.append(summary);
+      const body = card.querySelector(':scope > div:first-child');
+      if (body) body.append(details);
+      else card.append(details);
+
+      details.addEventListener('toggle', () => {
+        if (details.open) void loadDetails(card, approval, details);
+      });
+    }
+    return details;
   }
 
   function enhanceCards() {
@@ -187,8 +192,12 @@
     if (!cards.length || !latestApprovals.length) return;
     cards.forEach((card, index) => {
       const approval = latestApprovals[index];
-      if (approval?.destinationAgent === 'lead_agent') void loadDetails(card, approval);
-      else card.querySelectorAll('.lead-review-details').forEach((item) => item.remove());
+      if (approval?.destinationAgent === 'lead_agent') {
+        card.dataset.executionId = approval.executionId;
+        ensureDetails(card, approval);
+      } else {
+        card.querySelectorAll('.lead-review-details').forEach((item) => item.remove());
+      }
     });
   }
 
@@ -230,8 +239,7 @@
     if (!button) return;
     const card = button.closest('.approval-card');
     if (!card) return;
-    const details = card.querySelector('.lead-review-details');
-    const executionId = details?.dataset.executionId;
+    const executionId = card.dataset.executionId;
     const approval = latestApprovals.find((item) => item.executionId === executionId);
     if (!approval || approval.destinationAgent !== 'lead_agent') return;
     if (button.classList.contains('reject-button')) return;
