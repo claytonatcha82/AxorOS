@@ -1,6 +1,8 @@
 (() => {
   const originalFetch = window.fetch.bind(window);
   let latestPipeline = [];
+  let renderScheduled = false;
+  let lastRenderedMarkup = '';
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -22,6 +24,15 @@
     return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
   }
 
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    window.requestAnimationFrame(() => {
+      renderScheduled = false;
+      render();
+    });
+  }
+
   function render() {
     const cards = Array.from(document.querySelectorAll('.agent-card'));
     const salesCard = cards.find((card) => card.querySelector('h3')?.textContent?.trim() === 'Sales Agent');
@@ -36,34 +47,36 @@
       else salesCard.appendChild(container);
     }
 
-    if (!latestPipeline.length) {
-      container.innerHTML = '<div class="sales-agent-card-live-empty">No lead-level Sales workflow record is currently exposed by the executive dashboard.</div>';
-      return;
-    }
+    const markup = !latestPipeline.length
+      ? '<div class="sales-agent-card-live-empty">No lead-level Sales workflow record is currently exposed by the executive dashboard.</div>'
+      : `
+        <div class="sales-agent-card-live-heading">
+          <span>Lead-level workflow</span>
+          <strong>${latestPipeline.length} lead${latestPipeline.length === 1 ? '' : 's'}</strong>
+        </div>
+        <div class="sales-agent-card-live-list">
+          ${latestPipeline.map((item) => `
+            <div class="sales-agent-card-live-row">
+              <div class="sales-agent-card-live-row-top">
+                <strong>${escapeHtml(item.company)}</strong>
+                <span class="sales-agent-card-live-status sales-agent-card-live-status-${escapeHtml(String(item.activity).toLowerCase())}">${escapeHtml(item.activity)}</span>
+              </div>
+              <div class="sales-agent-card-live-stage">${escapeHtml(item.stage)}</div>
+              <div class="sales-agent-card-live-meta">
+                <span>Lead ${escapeHtml(item.leadId)}</span>
+                <span>Score ${escapeHtml(item.qualificationScore ?? '—')}</span>
+                <span>${escapeHtml(formatDate(item.lastUpdated))}</span>
+              </div>
+              <div class="sales-agent-card-live-next"><span>Next:</span> ${escapeHtml(item.nextAction ? humanize(item.nextAction) : item.objective)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
 
-    container.innerHTML = `
-      <div class="sales-agent-card-live-heading">
-        <span>Lead-level workflow</span>
-        <strong>${latestPipeline.length} lead${latestPipeline.length === 1 ? '' : 's'}</strong>
-      </div>
-      <div class="sales-agent-card-live-list">
-        ${latestPipeline.map((item) => `
-          <div class="sales-agent-card-live-row">
-            <div class="sales-agent-card-live-row-top">
-              <strong>${escapeHtml(item.company)}</strong>
-              <span class="sales-agent-card-live-status sales-agent-card-live-status-${escapeHtml(String(item.activity).toLowerCase())}">${escapeHtml(item.activity)}</span>
-            </div>
-            <div class="sales-agent-card-live-stage">${escapeHtml(item.stage)}</div>
-            <div class="sales-agent-card-live-meta">
-              <span>Lead ${escapeHtml(item.leadId)}</span>
-              <span>Score ${escapeHtml(item.qualificationScore ?? '—')}</span>
-              <span>${escapeHtml(formatDate(item.lastUpdated))}</span>
-            </div>
-            <div class="sales-agent-card-live-next"><span>Next:</span> ${escapeHtml(item.nextAction ? humanize(item.nextAction) : item.objective)}</div>
-          </div>
-        `).join('')}
-      </div>
-    `;
+    if (container.innerHTML !== markup || lastRenderedMarkup !== markup) {
+      container.innerHTML = markup;
+      lastRenderedMarkup = markup;
+    }
   }
 
   function captureDashboard(response) {
@@ -71,7 +84,7 @@
       const pipeline = body?.data?.salesPipeline;
       if (Array.isArray(pipeline)) {
         latestPipeline = pipeline;
-        window.setTimeout(render, 0);
+        scheduleRender();
       }
     }).catch(() => {});
   }
@@ -86,7 +99,7 @@
     return response;
   };
 
-  const observer = new MutationObserver(() => render());
+  const observer = new MutationObserver(() => scheduleRender());
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.setInterval(render, 2000);
+  window.setInterval(scheduleRender, 2000);
 })();
