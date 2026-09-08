@@ -19,6 +19,9 @@ import { createSalesOpportunityAssessmentPersistenceService } from './sales-oppo
 import { normalizeSalesResearchEvidence } from './sales-research-evidence-normalizer.js';
 
 const SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY = 'sales_qualified_lead_followthrough';
+const SALES_CONTEXT_RECOVERY_INTERVAL_MS = 15 * 60_000;
+const SALES_CONTEXT_RECOVERY_MIN_AGE_MS = 15 * 60_000;
+const SALES_CONTEXT_RECOVERY_MAX_ATTEMPTS = 3;
 
 interface GeneratedFollowthrough {
   salesContext: SalesOpportunityContext;
@@ -190,8 +193,147 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
     return (await orchestrator.execute({ executionId: input.executionId, capabilityId: SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY })).record;
   }
 
+  async function recoverContextIncomplete(limit = 10): Promise<void> {
+    const result = await pool.query(
+      `select distinct on (payload ->> 'leadId') id, payload, created_at
+       from operational.workflow_events
+       where event_type = 'sales_opportunity_assessment_recorded'
+         and payload ->> 'assessmentStatus' = 'context_incomplete'
+         and created_at < now() - ($1::text || ' milliseconds')::interval
+       order by payload ->> 'leadId', created_at desc`,
+      [String(SALES_CONTEXT_RECOVERY_MIN_AGE_MS)],
+    );
+    const candidates = result.rows.slice(0, Math.max(1, Math.min(limit, 25)));
+
+    for (const row of candidates) {
+      const payload = row.payload as Record<string, unknown>;
+      const leadId = typeof payload.leadId === 'string' ? payload.leadId : '';
+      const intakeExecutionId = typeof payload.salesIntakeExecutionId === 'string' ? payload.salesIntakeExecutionId : '';
+      const missingFields = Array.isArray(payload.missingInformation)
+        ? payload.missingInformation.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+        : [];
+      if (!leadId || !intakeExecutionId || missingFields.length === 0) continue;
+
+      const attemptsResult = await pool.query(
+        `select count(*)::int as count
+         from operational.workflow_events
+         where event_type = 'sales_context_recovery_attempted'
+           and payload ->> 'leadId' = $1`,
+        [leadId],
+      );
+      if (Number(attemptsResult.rows[0]?.count ?? 0) >= SALES_CONTEXT_RECOVERY_MAX_ATTEMPTS) continue;
+
+      const intake = await store.getExecution(intakeExecutionId);
+      if (!intake) continue;
+      if (intake.task.destinationAgent !== 'sales_agent') continue;
+      if (intake.task.status !== 'completed' || intake.result?.status !== 'completed') continue;
+      if (intake.task.inputs.salesIntakeOnly !== true || intake.task.inputs.salesDispatchAuthorised !== false || intake.task.inputs.outreachAuthorised !== false) continue;
+
+      const lead = await operationalRepository.getLeadById(leadId);
+      if (!lead) continue;
+      const qualifications = await operationalRepository.listPreliminaryLeadQualifications(leadId);
+      const qualification = qualifications[0] ?? null;
+      if (!qualification) continue;
+      const workflowHistory = await operationalRepository.listWorkflowEventsByLeadId(leadId);
+      const internalOperationalHistory = {
+        leadId,
+        events: workflowHistory.map((event) => ({
+          eventType: event.eventType,
+          actorType: event.actorType,
+          actorId: event.actorId,
+          createdAt: event.createdAt,
+          payload: event.payload,
+        })),
+      };
+      const recoveryExecutionId = `sales-followthrough:${intakeExecutionId}:context-recovery:${String(row.id)}`;
+
+      await operationalRepository.createWorkflowEvent({
+        eventType: 'sales_context_recovery_attempted',
+        actorType: 'agent',
+        actorId: 'sales_agent',
+        payload: { leadId, salesIntakeExecutionId: intakeExecutionId, sourceAssessmentRecordId: String(row.id), missingFields, recoveryExecutionId, nextAction: 'retrieve_missing_sales_context' },
+      });
+
+      const retrieval = await missingContextRetrieval.retrieve({
+        lead,
+        missingFields,
+        executionId: recoveryExecutionId,
+        correlationId: intake.task.correlationId,
+        ...(typeof payload.salesContext === 'object' && payload.salesContext && !Array.isArray(payload.salesContext) && typeof (payload.salesContext as Record<string, unknown>).country === 'string'
+          ? { country: (payload.salesContext as Record<string, unknown>).country as string }
+          : {}),
+      });
+      await operationalRepository.createWorkflowEvent({
+        eventType: 'sales_missing_context_retrieval_recorded',
+        actorType: 'agent',
+        actorId: 'sales_agent',
+        payload: {
+          leadId: retrieval.leadId,
+          missingFields: retrieval.missingFields,
+          searchesRun: retrieval.searchesRun,
+          evidenceCount: retrieval.evidence.length,
+          evidenceReferences: retrieval.evidence.map((item) => `public-web:${item.url}`),
+          recoveryExecutionId,
+          nextAction: retrieval.nextAction,
+        },
+      });
+
+      const reassessedModel = await ensureModelExecution({
+        executionId: recoveryExecutionId,
+        intake,
+        lead,
+        qualification,
+        researchEvidence: retrieval.evidence,
+        internalOperationalHistory,
+      });
+      if (reassessedModel.task.status !== 'completed' || reassessedModel.result?.status !== 'completed') continue;
+
+      const reassessedFollowthrough = parseGeneratedOutput(String(reassessedModel.result?.output.text ?? ''));
+      const reassessed = assessmentService.assess({ intakeExecution: intake, lead, salesContext: reassessedFollowthrough.salesContext });
+      const reassessedRecord = await assessmentPersistence.persist({ assessment: reassessed });
+
+      if (reassessed.assessmentStatus === 'context_complete') {
+        const eligibility = await preparationEligibility.evaluate(reassessedRecord.id);
+        const draft = await internalDraft.create({
+          eligibility,
+          subject: reassessedFollowthrough.email.subject,
+          body: reassessedFollowthrough.email.body,
+        });
+        await operationalRepository.createWorkflowEvent({
+          eventType: 'sales_context_recovery_completed',
+          actorType: 'agent',
+          actorId: 'sales_agent',
+          payload: { leadId, salesIntakeExecutionId: intakeExecutionId, recoveryExecutionId, assessmentStatus: 'context_complete', draftRecordId: draft.record.id, outreachAuthorised: false, sendAuthorised: false, pricingAuthorised: false, commercialCommitmentAuthorised: false, nextAction: 'human_review_internal_outreach_draft' },
+        });
+      } else {
+        await operationalRepository.createWorkflowEvent({
+          eventType: 'sales_context_recovery_completed',
+          actorType: 'agent',
+          actorId: 'sales_agent',
+          payload: { leadId, salesIntakeExecutionId: intakeExecutionId, recoveryExecutionId, assessmentStatus: 'context_incomplete', missingInformation: reassessed.missingInformation, outreachAuthorised: false, sendAuthorised: false, pricingAuthorised: false, commercialCommitmentAuthorised: false, nextAction: reassessed.nextAction },
+        });
+      }
+    }
+  }
+
+  let recoveryInFlight = false;
+  const recoveryTimer = setInterval(() => {
+    if (recoveryInFlight) return;
+    recoveryInFlight = true;
+    void recoverContextIncomplete().catch(() => {
+      // Recovery is best-effort; the next scheduled cycle will retry eligible incomplete Sales contexts.
+    }).finally(() => {
+      recoveryInFlight = false;
+    });
+  }, SALES_CONTEXT_RECOVERY_INTERVAL_MS);
+  recoveryTimer.unref();
+  void recoverContextIncomplete().catch(() => {
+    // Startup recovery is best-effort and must not prevent API startup.
+  });
+
   return {
     store,
+    recoverContextIncomplete,
     async executeAfterIntake(intakeExecutionId: string) {
       const intake = await store.getExecution(required(intakeExecutionId, 'intakeExecutionId'));
       if (!intake) throw new Error(`Sales intake execution ${intakeExecutionId} was not found.`);
