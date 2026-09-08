@@ -1,8 +1,14 @@
 (() => {
   const originalFetch = window.fetch.bind(window);
+  const DRAFTS_PATH = '/api/v1/control/sales-email/drafts';
+  const REVIEW_PATH = '/api/v1/control/sales-email/review-draft';
   let latestPipeline = [];
+  let latestDrafts = [];
+  let latestHeaders = {};
+  let apiBaseUrl = '';
   let renderScheduled = false;
   let lastRenderedMarkup = '';
+  let draftActionInFlight = null;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -24,6 +30,24 @@
     return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
   }
 
+  function pipelineCompany(leadId) {
+    const item = latestPipeline.find((candidate) => candidate.leadId === leadId);
+    return item?.company || `Lead ${leadId}`;
+  }
+
+  async function loadDrafts() {
+    if (!apiBaseUrl || !Object.keys(latestHeaders).length) return;
+    try {
+      const response = await originalFetch(`${apiBaseUrl}${DRAFTS_PATH}`, { headers: latestHeaders });
+      const payload = await response.json();
+      if (!response.ok || payload?.ok === false || !Array.isArray(payload?.data?.drafts)) return;
+      latestDrafts = payload.data.drafts;
+      scheduleRender();
+    } catch {
+      // The main Control Center remains usable if draft retrieval is temporarily unavailable.
+    }
+  }
+
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
@@ -31,6 +55,41 @@
       renderScheduled = false;
       render();
     });
+  }
+
+  function renderDrafts() {
+    if (!latestDrafts.length) {
+      return '<div class="sales-live-drafts-empty">No Sales outreach draft is currently awaiting Human Executive review.</div>';
+    }
+
+    return `<div class="sales-live-drafts-list">${latestDrafts.map((draft) => `
+      <article class="sales-live-draft-card" data-draft-record-id="${escapeHtml(draft.draftRecordId)}">
+        <div class="sales-live-draft-head">
+          <div>
+            <strong>${escapeHtml(pipelineCompany(draft.leadId))}</strong>
+            <span>Lead ${escapeHtml(draft.leadId || '—')}</span>
+          </div>
+          <span class="sales-live-draft-status">Human review required</span>
+        </div>
+        <div class="sales-live-draft-meta">
+          <span><small>Recipient</small><strong>${escapeHtml(draft.recipient || '—')}</strong></span>
+          <span><small>Created</small><strong>${escapeHtml(formatDate(draft.createdAt))}</strong></span>
+          <span><small>Type</small><strong>${escapeHtml(humanize(draft.draftKind))}</strong></span>
+        </div>
+        <div class="sales-live-draft-field"><small>Subject</small><strong>${escapeHtml(draft.subject || '—')}</strong></div>
+        <div class="sales-live-draft-field"><small>Email body</small><div class="sales-live-draft-body">${escapeHtml(draft.body || '—')}</div></div>
+        <div class="sales-live-draft-safety">
+          <span>Outreach authority: ${draft.outreachAuthorised ? 'YES' : 'NO'}</span>
+          <span>Send authority: ${draft.sendAuthorised ? 'YES' : 'NO'}</span>
+          <span>Pricing authority: ${draft.pricingAuthorised ? 'YES' : 'NO'}</span>
+          <span>Commercial authority: ${draft.commercialCommitmentAuthorised ? 'YES' : 'NO'}</span>
+        </div>
+        <div class="sales-live-draft-actions">
+          <button type="button" class="sales-draft-approve" data-draft-id="${escapeHtml(draft.draftRecordId)}" ${draftActionInFlight ? 'disabled' : ''}>Approve for supervised send gate</button>
+          <button type="button" class="sales-draft-reject" data-draft-id="${escapeHtml(draft.draftRecordId)}" ${draftActionInFlight ? 'disabled' : ''}>Reject for revision</button>
+        </div>
+      </article>
+    `).join('')}</div>`;
   }
 
   function render() {
@@ -45,11 +104,8 @@
       agentGrid.insertAdjacentElement('afterend', container);
     }
 
-    // Only render leads that have an actual Sales workflow state. Leads still
-    // waiting for Human Executive approval must not appear as Sales activity.
     const approvedPipeline = latestPipeline.filter((item) => String(item.activity ?? '').toUpperCase() !== 'IDLE');
-
-    const markup = !approvedPipeline.length
+    const pipelineMarkup = !approvedPipeline.length
       ? `
         <div class="sales-live-workflow-header">
           <div>
@@ -91,20 +147,60 @@
         </div>
       `;
 
+    const draftMarkup = `
+      <div class="sales-live-drafts-section">
+        <div class="sales-live-drafts-header">
+          <div>
+            <p class="sales-live-workflow-eyebrow">Governed outreach</p>
+            <h3>Sales Outreach Draft Review</h3>
+            <p>Review the prepared email before AxorOS can create the supervised send gate. Approving this draft does not send the email.</p>
+          </div>
+          <span class="sales-live-workflow-count">${latestDrafts.length} pending draft${latestDrafts.length === 1 ? '' : 's'}</span>
+        </div>
+        ${renderDrafts()}
+      </div>
+    `;
+
+    const markup = pipelineMarkup + draftMarkup;
     if (container.innerHTML !== markup || lastRenderedMarkup !== markup) {
       container.innerHTML = markup;
       lastRenderedMarkup = markup;
     }
   }
 
-  function captureDashboard(response) {
+  function captureDashboard(response, requestInit) {
     response.clone().json().then((body) => {
       const pipeline = body?.data?.salesPipeline;
       if (Array.isArray(pipeline)) {
         latestPipeline = pipeline;
         scheduleRender();
       }
+      const parsedUrl = new URL(typeof response.url === 'string' && response.url ? response.url : window.location.href);
+      apiBaseUrl = parsedUrl.origin;
+      latestHeaders = requestInit?.headers instanceof Headers ? Object.fromEntries(requestInit.headers.entries()) : (requestInit?.headers || {});
+      void loadDrafts();
     }).catch(() => {});
+  }
+
+  async function decideDraft(draftId, decision) {
+    if (!apiBaseUrl || !Object.keys(latestHeaders).length || draftActionInFlight) return;
+    draftActionInFlight = draftId;
+    scheduleRender();
+    try {
+      const response = await originalFetch(`${apiBaseUrl}${REVIEW_PATH}`, {
+        method: 'POST',
+        headers: { ...latestHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ draftRecordId: draftId, decision }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.ok === false) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+      await loadDrafts();
+    } catch (error) {
+      window.alert(`Sales draft review failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      draftActionInFlight = null;
+      scheduleRender();
+    }
   }
 
   window.fetch = async (...args) => {
@@ -112,12 +208,24 @@
     const input = args[0];
     const url = typeof input === 'string' ? input : input?.url;
     if (typeof url === 'string' && url.includes('/api/v1/control/dashboard/executive')) {
-      captureDashboard(response);
+      captureDashboard(response, args[1]);
     }
     return response;
   };
 
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const approve = target?.closest('.sales-draft-approve');
+    const reject = target?.closest('.sales-draft-reject');
+    const button = approve || reject;
+    if (!button) return;
+    const draftId = button.getAttribute('data-draft-id');
+    if (!draftId) return;
+    void decideDraft(draftId, approve ? 'approved' : 'rejected');
+  });
+
   const observer = new MutationObserver(() => scheduleRender());
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.setInterval(() => { void loadDrafts(); }, 2000);
   window.setInterval(scheduleRender, 2000);
 })();
