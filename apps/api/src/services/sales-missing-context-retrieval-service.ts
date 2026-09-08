@@ -18,44 +18,44 @@ type SearchPlan = {
 
 const FIELD_SEARCH_PLANS: Record<string, SearchPlan> = {
   decision_maker: {
-    query: (lead) => `${lead.companyName} director owner founder managing director CEO leadership management`,
+    query: (lead) => `"${lead.companyName}" director owner founder managing director CEO leadership management`,
     officialOnly: false,
-    fallback: (lead) => `${lead.companyName} team directors management leadership contact`,
+    fallback: (lead) => `"${lead.companyName}" team directors management leadership contact`,
   },
   contact_email: {
-    query: (lead) => `${lead.companyName} official contact email enquiries`,
+    query: (lead) => `"${lead.companyName}" official contact email enquiries`,
     officialOnly: true,
-    fallback: (lead) => `${lead.companyName} email contact enquiries telephone address`,
+    fallback: (lead) => `"${lead.companyName}" email contact enquiries telephone address`,
   },
   industry: {
-    query: (lead) => `${lead.companyName} services sector industry company profile what does it do`,
+    query: (lead) => `"${lead.companyName}" services sector industry company profile what does it do`,
     officialOnly: true,
-    fallback: (lead) => `${lead.companyName} industry sector business services company`,
+    fallback: (lead) => `"${lead.companyName}" industry sector business services company`,
   },
   country: {
-    query: (lead) => `${lead.companyName} headquarters address location South Africa`,
+    query: (lead) => `"${lead.companyName}" headquarters address location South Africa`,
     officialOnly: false,
-    fallback: (lead) => `${lead.companyName} contact address location country`,
+    fallback: (lead) => `"${lead.companyName}" contact address location country`,
   },
   business_summary: {
-    query: (lead) => `${lead.companyName} about services capabilities projects company`,
+    query: (lead) => `"${lead.companyName}" about services capabilities projects company`,
     officialOnly: true,
-    fallback: (lead) => `${lead.companyName} company profile services projects business`,
+    fallback: (lead) => `"${lead.companyName}" company profile services projects business`,
   },
   website_audit: {
-    query: (lead) => `${lead.companyName} website services capabilities projects contact pages`,
+    query: (lead) => `"${lead.companyName}" website services capabilities projects contact pages`,
     officialOnly: true,
-    fallback: (lead) => `${lead.companyName} official website services capabilities projects contact`,
+    fallback: (lead) => `"${lead.companyName}" official website services capabilities projects contact`,
   },
   pain_points: {
-    query: (lead) => `${lead.companyName} challenges growth expansion projects tenders contracts digital transformation`,
+    query: (lead) => `"${lead.companyName}" challenges growth expansion projects tenders contracts digital transformation`,
     officialOnly: false,
-    fallback: (lead) => `${lead.companyName} website digital presence online customer acquisition business challenges`,
+    fallback: (lead) => `"${lead.companyName}" website digital presence online customer acquisition business challenges`,
   },
   opportunity_summary: {
-    query: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities news`,
+    query: (lead) => `"${lead.companyName}" current projects contracts tenders developments expansion opportunities news`,
     officialOnly: false,
-    fallback: (lead) => `${lead.companyName} projects tenders contracts expansion latest news`,
+    fallback: (lead) => `"${lead.companyName}" projects tenders contracts expansion latest news`,
   },
 };
 
@@ -128,52 +128,67 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
       const evidence: PublicWebSearchResult[] = [];
       let searchesRun = 0;
       const domain = officialDomain(input.lead);
+      const searchedQueries = new Set<string>();
+
+      const executeSearch = async (query: string, suffix: string, includeOfficialDomain: boolean) => {
+        const normalizedQuery = query.trim();
+        if (!normalizedQuery || searchedQueries.has(normalizedQuery)) return 0;
+        searchedQueries.add(normalizedQuery);
+        const web = await registry.execute<{
+          query: string;
+          maxResults: number;
+          country?: string;
+          includeDomains?: string[];
+        }, PublicWebSearchOutput>({
+          integrationId: 'research.tavily-web',
+          operation: 'search_public_web',
+          requestedBy: 'lead_agent',
+          executionId: `${executionId}:sales-context:${suffix}`,
+          correlationId,
+          mode: 'live',
+          risk: 'low',
+          input: {
+            query: normalizedQuery.slice(0, 400),
+            maxResults: MAX_RESULTS_PER_SEARCH,
+            ...(input.country ? { country: input.country } : {}),
+            ...(domain && includeOfficialDomain ? { includeDomains: [domain] } : {}),
+          },
+        });
+        if (web.status !== 'succeeded') return 0;
+        searchesRun += 1;
+        evidence.push(...web.output.results);
+        return web.output.results.length;
+      };
+
+      // One aggregate company-profile search is deliberately run whenever the
+      // workflow needs public context. This prevents the model from receiving
+      // only narrow field-specific fragments and missing cross-field evidence.
+      if (missingFields.length > 0) {
+        await executeSearch(
+          `"${input.lead.companyName}" company profile services projects contact leadership`,
+          'aggregate-company-profile',
+          false,
+        );
+      }
 
       for (const field of missingFields) {
         const plan = FIELD_SEARCH_PLANS[field];
         if (!plan) continue;
 
-        const executeSearch = async (query: string, suffix: string, includeOfficialDomain: boolean) => {
-          const web = await registry.execute<{
-            query: string;
-            maxResults: number;
-            country?: string;
-            includeDomains?: string[];
-          }, PublicWebSearchOutput>({
-            integrationId: 'research.tavily-web',
-            operation: 'search_public_web',
-            requestedBy: 'lead_agent',
-            executionId: `${executionId}:sales-context:${field}:${suffix}`,
-            correlationId,
-            mode: 'live',
-            risk: 'low',
-            input: {
-              query: query.slice(0, 400),
-              maxResults: MAX_RESULTS_PER_SEARCH,
-              ...(input.country ? { country: input.country } : {}),
-              ...(domain && includeOfficialDomain ? { includeDomains: [domain] } : {}),
-            },
-          });
-          if (web.status !== 'succeeded') return 0;
-          searchesRun += 1;
-          evidence.push(...web.output.results);
-          return web.output.results.length;
-        };
-
         const primaryCount = await executeSearch(
           plan.query(input.lead),
-          'primary',
+          `field-${field}-primary`,
           Boolean(domain && plan.officialOnly),
         );
 
         if (
           plan.fallback &&
-          HARD_FIELDS.has(field) &&
+          (HARD_FIELDS.has(field) || field === 'contact_email') &&
           primaryCount < MIN_PRIMARY_RESULTS_BEFORE_FALLBACK
         ) {
           await executeSearch(
             plan.fallback(input.lead),
-            'fallback',
+            `field-${field}-fallback`,
             field === 'business_summary' || field === 'website_audit',
           );
         }
