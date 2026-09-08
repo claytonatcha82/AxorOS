@@ -18,9 +18,9 @@ type SearchPlan = {
 
 const FIELD_SEARCH_PLANS: Record<string, SearchPlan> = {
   decision_maker: {
-    query: (lead) => `"${lead.companyName}" director owner founder managing director CEO leadership management`,
-    officialOnly: false,
-    fallback: (lead) => `"${lead.companyName}" team directors management leadership contact`,
+    query: (lead) => `"${lead.companyName}" "managing director" director founder owner CEO leadership team`,
+    officialOnly: true,
+    fallback: (lead) => `"${lead.companyName}" "managing director" director founder owner CEO leadership LinkedIn`,
   },
   contact_email: {
     query: (lead) => `"${lead.companyName}" official contact email enquiries`,
@@ -160,9 +160,6 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
         return web.output.results.length;
       };
 
-      // One aggregate company-profile search is deliberately run whenever the
-      // workflow needs public context. This prevents the model from receiving
-      // only narrow field-specific fragments and missing cross-field evidence.
       if (missingFields.length > 0) {
         await executeSearch(
           `"${input.lead.companyName}" company profile services projects contact leadership`,
