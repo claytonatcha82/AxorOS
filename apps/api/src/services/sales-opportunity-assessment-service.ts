@@ -105,8 +105,6 @@ export function createSalesOpportunityAssessmentService() {
         throw new Error(`Sales opportunity assessment lead mismatch: expected ${taskLeadId}, received ${lead.id}.`);
       }
 
-      // Model output is untrusted. Invalid confidence is treated as missing rather than
-      // aborting the assessment/recovery workflow or consuming another recovery attempt.
       if (salesContext.confidence !== undefined && (!Number.isFinite(salesContext.confidence) || salesContext.confidence < 0 || salesContext.confidence > 1)) {
         delete salesContext.confidence;
       }
@@ -117,7 +115,7 @@ export function createSalesOpportunityAssessmentService() {
       salesContext.previousContact = previousContact;
 
       const missingInformation: string[] = [];
-      if (!lead.contactName && !presentText(salesContext.decisionMaker)) missingInformation.push('decision_maker');
+      if (!presentText(salesContext.decisionMaker)) missingInformation.push('decision_maker');
       if (!resolvedContactEmail) missingInformation.push('contact_email');
       if (!presentText(salesContext.industry)) missingInformation.push('industry');
       if (!presentText(salesContext.country)) missingInformation.push('country');
