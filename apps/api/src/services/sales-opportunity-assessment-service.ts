@@ -105,8 +105,10 @@ export function createSalesOpportunityAssessmentService() {
         throw new Error(`Sales opportunity assessment lead mismatch: expected ${taskLeadId}, received ${lead.id}.`);
       }
 
+      // Model output is untrusted. Invalid confidence is treated as missing rather than
+      // aborting the assessment/recovery workflow or consuming another recovery attempt.
       if (salesContext.confidence !== undefined && (!Number.isFinite(salesContext.confidence) || salesContext.confidence < 0 || salesContext.confidence > 1)) {
-        throw new Error('Sales opportunity assessment confidence must be between 0 and 1 when supplied.');
+        delete salesContext.confidence;
       }
 
       const resolvedContactEmail = lead.contactEmail ?? (presentText(salesContext.contactEmail) ? salesContext.contactEmail!.trim() : null);
