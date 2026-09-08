@@ -10,16 +10,58 @@ export interface SalesMissingContextRetrievalResult {
   nextAction: 'reassess_sales_context';
 }
 
-const FIELD_QUERIES: Record<string, (lead: LeadRecord) => string> = {
-  decision_maker: (lead) => `${lead.companyName} directors owners founders management team leadership contact`,
-  contact_email: (lead) => `${lead.companyName} official email contact email enquiries`,
-  industry: (lead) => `${lead.companyName} industry business services company profile`,
-  country: (lead) => `${lead.companyName} location country headquarters address`,
-  business_summary: (lead) => `${lead.companyName} about company services projects business`,
-  website_audit: (lead) => `${lead.companyName} official website services projects capabilities contact`,
-  pain_points: (lead) => `${lead.companyName} challenges projects growth expansion tenders contracts digital transformation`,
-  opportunity_summary: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities`,
+type SearchPlan = {
+  query: (lead: LeadRecord) => string;
+  officialOnly?: boolean;
+  fallback?: (lead: LeadRecord) => string;
 };
+
+const FIELD_SEARCH_PLANS: Record<string, SearchPlan> = {
+  decision_maker: {
+    query: (lead) => `${lead.companyName} director owner founder managing director CEO leadership management`,
+    officialOnly: false,
+    fallback: (lead) => `${lead.companyName} team directors management leadership contact`,
+  },
+  contact_email: {
+    query: (lead) => `${lead.companyName} official contact email enquiries`,
+    officialOnly: true,
+    fallback: (lead) => `${lead.companyName} email contact enquiries telephone address`,
+  },
+  industry: {
+    query: (lead) => `${lead.companyName} services sector industry company profile what does it do`,
+    officialOnly: true,
+    fallback: (lead) => `${lead.companyName} industry sector business services company`,
+  },
+  country: {
+    query: (lead) => `${lead.companyName} headquarters address location South Africa`,
+    officialOnly: false,
+    fallback: (lead) => `${lead.companyName} contact address location country`,
+  },
+  business_summary: {
+    query: (lead) => `${lead.companyName} about services capabilities projects company`,
+    officialOnly: true,
+    fallback: (lead) => `${lead.companyName} company profile services projects business`,
+  },
+  website_audit: {
+    query: (lead) => `${lead.companyName} website services capabilities projects contact pages`,
+    officialOnly: true,
+    fallback: (lead) => `${lead.companyName} official website services capabilities projects contact`,
+  },
+  pain_points: {
+    query: (lead) => `${lead.companyName} challenges growth expansion projects tenders contracts digital transformation`,
+    officialOnly: false,
+    fallback: (lead) => `${lead.companyName} website digital presence online customer acquisition business challenges`,
+  },
+  opportunity_summary: {
+    query: (lead) => `${lead.companyName} current projects contracts tenders developments expansion opportunities news`,
+    officialOnly: false,
+    fallback: (lead) => `${lead.companyName} projects tenders contracts expansion latest news`,
+  },
+};
+
+const HARD_FIELDS = new Set(['decision_maker', 'business_summary', 'website_audit', 'pain_points', 'opportunity_summary']);
+const MIN_PRIMARY_RESULTS_BEFORE_FALLBACK = 2;
+const MAX_RESULTS_PER_SEARCH = 5;
 
 function requiredText(value: string, field: string): string {
   const trimmed = value.trim();
@@ -36,16 +78,38 @@ function registrableDomain(hostname: string): string {
   return secondLevelTlds.has(suffix) ? labels.slice(-3).join('.') : labels.slice(-2).join('.');
 }
 
+function domainFromUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    return registrableDomain(new URL(value).hostname);
+  } catch {
+    return null;
+  }
+}
+
 function officialDomain(lead: LeadRecord): string | null {
+  const direct = domainFromUrl((lead as LeadRecord & { officialWebsiteUrl?: unknown }).officialWebsiteUrl);
+  if (direct) return direct;
+
   if (!Array.isArray(lead.evidence)) return null;
   for (const item of lead.evidence) {
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
-    if (typeof row.officialWebsiteUrl === 'string' && row.officialWebsiteUrl.trim()) {
-      try { return registrableDomain(new URL(row.officialWebsiteUrl).hostname); } catch { return null; }
-    }
+    const domain = domainFromUrl(row.officialWebsiteUrl);
+    if (domain) return domain;
   }
   return null;
+}
+
+function uniqueEvidence(results: PublicWebSearchResult[]): PublicWebSearchResult[] {
+  const byUrl = new Map<string, PublicWebSearchResult>();
+  for (const result of results) {
+    const url = typeof result.url === 'string' ? result.url.trim() : '';
+    if (!url) continue;
+    const existing = byUrl.get(url);
+    if (!existing || (result.content?.length ?? 0) > (existing.content?.length ?? 0)) byUrl.set(url, result);
+  }
+  return [...byUrl.values()];
 }
 
 export function createSalesMissingContextRetrievalService(registry: IntegrationRegistry) {
@@ -66,30 +130,62 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
       const domain = officialDomain(input.lead);
 
       for (const field of missingFields) {
-        const builder = FIELD_QUERIES[field];
-        if (!builder) continue;
-        const web = await registry.execute<{ query: string; maxResults: number; country?: string; includeDomains?: string[] }, PublicWebSearchOutput>({
-          integrationId: 'research.tavily-web',
-          operation: 'search_public_web',
-          requestedBy: 'lead_agent',
-          executionId: `${executionId}:sales-context:${field}`,
-          correlationId,
-          mode: 'live',
-          risk: 'low',
-          input: {
-            query: builder(input.lead).slice(0, 400),
-            maxResults: 5,
-            ...(input.country ? { country: input.country } : {}),
-            ...(domain && (field === 'website_audit' || field === 'business_summary') ? { includeDomains: [domain] } : {}),
-          },
-        });
-        if (web.status !== 'succeeded') continue;
-        searchesRun += 1;
-        evidence.push(...web.output.results);
+        const plan = FIELD_SEARCH_PLANS[field];
+        if (!plan) continue;
+
+        const executeSearch = async (query: string, suffix: string, includeOfficialDomain: boolean) => {
+          const web = await registry.execute<{
+            query: string;
+            maxResults: number;
+            country?: string;
+            includeDomains?: string[];
+          }, PublicWebSearchOutput>({
+            integrationId: 'research.tavily-web',
+            operation: 'search_public_web',
+            requestedBy: 'lead_agent',
+            executionId: `${executionId}:sales-context:${field}:${suffix}`,
+            correlationId,
+            mode: 'live',
+            risk: 'low',
+            input: {
+              query: query.slice(0, 400),
+              maxResults: MAX_RESULTS_PER_SEARCH,
+              ...(input.country ? { country: input.country } : {}),
+              ...(domain && includeOfficialDomain ? { includeDomains: [domain] } : {}),
+            },
+          });
+          if (web.status !== 'succeeded') return 0;
+          searchesRun += 1;
+          evidence.push(...web.output.results);
+          return web.output.results.length;
+        };
+
+        const primaryCount = await executeSearch(
+          plan.query(input.lead),
+          'primary',
+          Boolean(domain && plan.officialOnly),
+        );
+
+        if (
+          plan.fallback &&
+          HARD_FIELDS.has(field) &&
+          primaryCount < MIN_PRIMARY_RESULTS_BEFORE_FALLBACK
+        ) {
+          await executeSearch(
+            plan.fallback(input.lead),
+            'fallback',
+            field === 'business_summary' || field === 'website_audit',
+          );
+        }
       }
 
-      const deduplicatedEvidence = [...new Map(evidence.filter((item) => item.url).map((item) => [item.url, item])).values()];
-      return { leadId, missingFields, searchesRun, evidence: deduplicatedEvidence, nextAction: 'reassess_sales_context' };
+      return {
+        leadId,
+        missingFields,
+        searchesRun,
+        evidence: uniqueEvidence(evidence),
+        nextAction: 'reassess_sales_context',
+      };
     },
   };
 }
