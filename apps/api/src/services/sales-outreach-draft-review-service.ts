@@ -1,4 +1,4 @@
-import type { OperationalRepository } from '../data/operational-repository.js';
+import type { OperationalRepository, WorkflowEventRecord } from '../data/operational-repository.js';
 
 export type SalesOutreachDraftReviewDecision = 'approved' | 'rejected';
 export type SalesDraftReviewKind = 'outreach' | 'inbound_response';
@@ -31,10 +31,30 @@ function draftKindForEventType(eventType: string): SalesDraftReviewKind {
   throw new Error('Sales draft review requires a persisted internal outreach or inbound response draft record.');
 }
 
+function isPendingDraft(event: WorkflowEventRecord): boolean {
+  if (event.eventType !== 'sales_internal_outreach_draft_recorded' && event.eventType !== 'sales_inbound_response_draft_recorded') return false;
+  if (event.actorType !== 'agent' || event.actorId !== 'sales_agent') return false;
+  if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return false;
+  const payload = event.payload as Record<string, unknown>;
+  return payload.status === 'internal_review_required' && payload.humanReviewRequired === true;
+}
+
 export function createSalesOutreachDraftReviewService(
-  repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent'>,
+  repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent' | 'listWorkflowEvents'>,
 ) {
   return {
+    async listPendingDrafts(limit = 50) {
+      const events = await repository.listWorkflowEvents(Math.max(1, Math.min(limit * 4, 200)));
+      const reviewedDraftIds = new Set<string>();
+      for (const event of events) {
+        if (event.eventType !== 'sales_outreach_draft_review_recorded' && event.eventType !== 'sales_inbound_response_draft_review_recorded') continue;
+        if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) continue;
+        const draftRecordId = (event.payload as Record<string, unknown>).draftRecordId;
+        if (typeof draftRecordId === 'string' && draftRecordId.trim()) reviewedDraftIds.add(draftRecordId);
+      }
+      return events.filter((event) => isPendingDraft(event) && !reviewedDraftIds.has(event.id)).slice(0, Math.max(1, Math.min(limit, 100)));
+    },
+
     async review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision) {
       const normalizedDraftRecordId = requiredString(draftRecordId, 'draftRecordId');
       if (decision !== 'approved' && decision !== 'rejected') {
