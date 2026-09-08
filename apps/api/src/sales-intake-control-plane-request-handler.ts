@@ -14,6 +14,7 @@ const SALES_INTAKE_ACTIVATE_PATH = '/api/v1/control/sales-intake/activate';
 const SALES_INTAKE_PROCESS_PATH = '/api/v1/control/sales-intake/process';
 const SALES_INTAKE_ASSESS_PATH = '/api/v1/control/sales-intake/assess';
 const SALES_WORKFLOW_PATH = '/api/v1/control/sales-workflow';
+const SALES_EMAIL_DRAFTS_PATH = '/api/v1/control/sales-email/drafts';
 const SALES_EMAIL_REVIEW_DRAFT_PATH = '/api/v1/control/sales-email/review-draft';
 const SALES_EMAIL_SEND_GATE_PATH = '/api/v1/control/sales-email/send-gate';
 const SALES_EMAIL_SEND_PATH = '/api/v1/control/sales-email/send';
@@ -38,6 +39,7 @@ export interface SalesIntakeControlPlaneDependencies {
     assessOpportunity(executionId: string, salesContext?: SalesOpportunityContext): Promise<{ assessment: SalesOpportunityAssessment; record: WorkflowEventRecord }>;
   };
   salesOutreachDraftReviewCommand?: {
+    listPendingDrafts?: (limit?: number) => Promise<WorkflowEventRecord[]>;
     review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{ review: { draftRecordId: string; leadId: string; decision: SalesOutreachDraftReviewDecision; reviewer: 'human_executive'; reviewComplete: true; outreachAuthorised: false; sendAuthorised: false; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft' }; record: WorkflowEventRecord }>;
   };
   salesSupervisedSendGateCommand?: {
@@ -114,7 +116,7 @@ function validSalesWorkflowBody(body: Record<string, unknown>): boolean {
   return typeof body.supervisedSendGateRecordId === 'string' && Boolean(body.supervisedSendGateRecordId.trim()) && body.actorType === 'founder' && body.actorId === 'human_executive' && body.humanExecutionConfirmed === true;
 }
 function isSalesControlPath(path: string | undefined): boolean {
-  return path === SALES_INTAKE_ACTIVATE_PATH || path === SALES_INTAKE_PROCESS_PATH || path === SALES_INTAKE_ASSESS_PATH || path === SALES_WORKFLOW_PATH || path === SALES_EMAIL_REVIEW_DRAFT_PATH || path === SALES_EMAIL_SEND_GATE_PATH || path === SALES_EMAIL_SEND_PATH;
+  return path === SALES_INTAKE_ACTIVATE_PATH || path === SALES_INTAKE_PROCESS_PATH || path === SALES_INTAKE_ASSESS_PATH || path === SALES_WORKFLOW_PATH || path === SALES_EMAIL_DRAFTS_PATH || path === SALES_EMAIL_REVIEW_DRAFT_PATH || path === SALES_EMAIL_SEND_GATE_PATH || path === SALES_EMAIL_SEND_PATH;
 }
 
 export function createSalesIntakeControlPlaneRequestHandler(dependencies: SalesIntakeControlPlaneDependencies): RequestListener {
@@ -124,19 +126,49 @@ export function createSalesIntakeControlPlaneRequestHandler(dependencies: SalesI
     const corsHeaders: Record<string, string> = { vary: 'Origin' };
     if (origin === dependencies.config.controlCenterUrl) {
       corsHeaders['access-control-allow-origin'] = dependencies.config.controlCenterUrl;
-      corsHeaders['access-control-allow-methods'] = 'POST,OPTIONS';
+      corsHeaders['access-control-allow-methods'] = 'GET,POST,OPTIONS';
       corsHeaders['access-control-allow-headers'] = 'authorization,content-type,x-request-id';
     }
     if (request.method === 'OPTIONS') {
       if (origin && origin !== dependencies.config.controlCenterUrl) { sendJson(response, 403, { ok:false, error:{ code:'cors_origin_denied', message:'Origin is not allowed.' } }, corsHeaders); return; }
       response.writeHead(204, corsHeaders); response.end(); return;
     }
-    if (request.method !== 'POST') { sendJson(response,405,{ok:false,error:{code:'method_not_allowed',message:'Method is not allowed.'}},{allow:'POST,OPTIONS',...corsHeaders}); return; }
     const auth = authenticateControlPlaneRequest(request.headers.authorization, dependencies.config.controlPlaneToken);
     if (!auth.authenticated) {
       const notConfigured = auth.reason === 'not_configured';
       sendJson(response,notConfigured?503:401,{ok:false,error:{code:notConfigured?'control_plane_auth_not_configured':'control_plane_unauthorized',message:notConfigured?'Control-plane authentication is not configured.':'Authentication is required.'}},{...(notConfigured?{}:{'www-authenticate':'Bearer'}),...corsHeaders}); return;
     }
+
+    if (request.url === SALES_EMAIL_DRAFTS_PATH) {
+      if (request.method !== 'GET') { sendJson(response,405,{ok:false,error:{code:'method_not_allowed',message:'Method is not allowed.'}},{allow:'GET,OPTIONS',...corsHeaders}); return; }
+      if (!dependencies.salesOutreachDraftReviewCommand?.listPendingDrafts) { sendJson(response,503,{ok:false,error:{code:'sales_outreach_draft_listing_not_configured',message:'Sales outreach draft listing is not configured.'}},corsHeaders); return; }
+      try {
+        const drafts = await dependencies.salesOutreachDraftReviewCommand.listPendingDrafts(50);
+        const safeDrafts = drafts.map((draft) => {
+          const payload = draft.payload && typeof draft.payload === 'object' && !Array.isArray(draft.payload) ? draft.payload as Record<string, unknown> : {};
+          return {
+            draftRecordId: draft.id,
+            leadId: typeof payload.leadId === 'string' ? payload.leadId : null,
+            draftKind: draft.eventType === 'sales_inbound_response_draft_recorded' ? 'inbound_response' : 'outreach',
+            createdAt: draft.createdAt,
+            status: payload.status ?? null,
+            humanReviewRequired: payload.humanReviewRequired === true,
+            recipient: typeof payload.recipient === 'string' ? payload.recipient : typeof payload.contactEmail === 'string' ? payload.contactEmail : null,
+            subject: typeof payload.subject === 'string' ? payload.subject : null,
+            body: typeof payload.body === 'string' ? payload.body : null,
+            nextAction: typeof payload.nextAction === 'string' ? payload.nextAction : null,
+            outreachAuthorised: payload.outreachAuthorised === true,
+            sendAuthorised: payload.sendAuthorised === true,
+            pricingAuthorised: payload.pricingAuthorised === true,
+            commercialCommitmentAuthorised: payload.commercialCommitmentAuthorised === true,
+          };
+        });
+        sendJson(response,200,{ok:true,data:{drafts:safeDrafts}},corsHeaders);
+      } catch(error) { const message=error instanceof Error?error.message:'Sales draft listing failed.'; sendJson(response,500,{ok:false,error:{code:'sales_outreach_draft_listing_failed',message}},corsHeaders); }
+      return;
+    }
+
+    if (request.method !== 'POST') { sendJson(response,405,{ok:false,error:{code:'method_not_allowed',message:'Method is not allowed.'}},{allow:'POST,OPTIONS',...corsHeaders}); return; }
     let body: Record<string, unknown>;
     try { body = await readBody(request); } catch (error) {
       const code = error instanceof Error ? error.message : 'invalid_json_body';
