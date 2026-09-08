@@ -40,8 +40,8 @@ function inboundDraftRecord(overrides: Record<string, unknown> = {}): WorkflowEv
   };
 }
 
-function harness(record = draftRecord()) {
-  const events: WorkflowEventRecord[] = [];
+function harness(record = draftRecord(), existingEvents: WorkflowEventRecord[] = []) {
+  const events: WorkflowEventRecord[] = [...existingEvents];
   const service = createSalesOutreachDraftReviewService({
     async getWorkflowEventById(id) { return id === record.id ? record : null; },
     async createWorkflowEvent(input) {
@@ -53,9 +53,38 @@ function harness(record = draftRecord()) {
       events.push(created);
       return created;
     },
+    async listWorkflowEvents(limit = 100) { return events.slice(0, limit); },
   });
   return { service, events };
 }
+
+test('pending draft listing returns only unreviewed Sales draft records', async () => {
+  const draft = draftRecord();
+  const inbound = inboundDraftRecord();
+  const unrelated: WorkflowEventRecord = {
+    id: 'unrelated-1', clientId: null, projectId: null,
+    eventType: 'sales_opportunity_assessment_recorded', actorType: 'agent', actorId: 'sales_agent',
+    payload: { leadId: 'lead-2' }, createdAt: now,
+  };
+  const reviewed: WorkflowEventRecord = {
+    id: 'review-1', clientId: null, projectId: null,
+    eventType: 'sales_outreach_draft_review_recorded', actorType: 'founder', actorId: 'human_executive',
+    payload: { draftRecordId: draft.id, decision: 'approved' }, createdAt: now,
+  };
+  const { service } = harness(draft, [draft, inbound, unrelated, reviewed]);
+
+  const pending = await service.listPendingDrafts();
+  assert.deepEqual(pending.map((item) => item.id), [inbound.id]);
+});
+
+test('pending draft listing honors the requested limit', async () => {
+  const first = draftRecord();
+  const second = { ...draftRecord(), id: 'workflow-draft-2' };
+  const { service } = harness(first, [first, second]);
+  const pending = await service.listPendingDrafts(1);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]?.id, first.id);
+});
 
 test('human executive can approve persisted internal outreach draft without authorising send', async () => {
   const { service, events } = harness();
