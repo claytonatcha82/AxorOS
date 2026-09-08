@@ -30,10 +30,10 @@ function registryWithResults(resultsByQuery: Record<string, Array<{ title: strin
   } as never;
 }
 
-test('retrieves only explicitly missing Sales context fields', async () => {
+test('retrieves explicitly missing Sales context and performs targeted decision-maker research', async () => {
   const service = createSalesMissingContextRetrievalService(registryWithResults({
     'industry business': [{ title: 'Proman profile', url: 'https://www.promanconstruction.co.za/about', content: 'Construction management company.' }],
-    'directors owners': [{ title: 'Proman leadership', url: 'https://www.promanconstruction.co.za/team', content: 'Managing Director Donovan.' }],
+    'managing director': [{ title: 'Proman leadership', url: 'https://www.promanconstruction.co.za/team', content: 'Managing Director Donovan Proudfoot.' }],
   }));
 
   const result = await service.retrieve({
@@ -46,8 +46,9 @@ test('retrieves only explicitly missing Sales context fields', async () => {
 
   assert.equal(result.leadId, 'lead-1');
   assert.deepEqual(result.missingFields, ['industry', 'decision_maker']);
-  assert.equal(result.searchesRun, 2);
+  assert.equal(result.searchesRun, 3);
   assert.equal(result.evidence.length, 2);
+  assert.ok(result.evidence.some((item) => item.content.includes('Donovan Proudfoot')));
   assert.equal(result.nextAction, 'reassess_sales_context');
 });
 
