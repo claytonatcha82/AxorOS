@@ -71,7 +71,7 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
         const web = await registry.execute<{ query: string; maxResults: number; country?: string; includeDomains?: string[] }, PublicWebSearchOutput>({
           integrationId: 'research.tavily-web',
           operation: 'search_public_web',
-          requestedBy: 'sales_agent',
+          requestedBy: 'lead_agent',
           executionId: `${executionId}:sales-context:${field}`,
           correlationId,
           mode: 'live',
