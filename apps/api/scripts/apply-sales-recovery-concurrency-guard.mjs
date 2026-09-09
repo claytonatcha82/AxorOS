@@ -46,7 +46,24 @@ begin
      and payload ->> 'leadId' = lead_id
      and payload ->> 'sourceAssessmentRecordId' = source_assessment_id;
 
-  active_count := attempt_count - terminal_count;
+  -- An attempt is an active claim only while it is recent. This preserves the
+  -- advisory-lock protection against concurrent workers while allowing a later
+  -- recovery cycle to reclaim work after a process crash or interrupted run.
+  select count(*)::integer
+    into active_count
+    from operational.workflow_events attempted
+   where attempted.event_type = 'sales_context_recovery_attempted'
+     and attempted.payload ->> 'leadId' = lead_id
+     and attempted.payload ->> 'sourceAssessmentRecordId' = source_assessment_id
+     and attempted.created_at >= now() - interval '30 minutes'
+     and not exists (
+       select 1
+         from operational.workflow_events terminal
+        where terminal.event_type in ('sales_context_recovery_completed', 'sales_context_recovery_failed')
+          and terminal.payload ->> 'leadId' = lead_id
+          and terminal.payload ->> 'sourceAssessmentRecordId' = source_assessment_id
+          and terminal.created_at >= attempted.created_at
+     );
 
   if active_count > 0 then
     raise exception using
