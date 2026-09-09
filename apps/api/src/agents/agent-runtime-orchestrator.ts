@@ -285,6 +285,13 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
         record = await persistEvent(dependencies.store, record, completion, result);
         return { record, replayed: false };
       } catch (error) {
+        const evidenceReferences =
+          error instanceof Error &&
+          Array.isArray((error as Error & { evidenceReferences?: unknown }).evidenceReferences)
+            ? (error as Error & { evidenceReferences: unknown }).evidenceReferences.filter(
+                (value): value is string => typeof value === 'string',
+              )
+            : [];
         const highRisk = record.task.priority === 'critical' || record.task.risks.length > 0;
         const route = runtimeRetryRoute(record.task.attempt, highRisk);
         const targetStatus = route === 'escalate' ? 'escalated' : 'failed';
@@ -294,7 +301,7 @@ export function createAgentRuntimeOrchestrator(dependencies: RuntimeOrchestrator
           agentId: record.task.destinationAgent,
           status: targetStatus,
           output: {},
-          evidenceReferences: [],
+          evidenceReferences,
           knowledgeReferences: record.task.knowledgeReferences,
           confidence: 0,
           errorCode: 'RUNTIME_HANDLER_FAILURE',
