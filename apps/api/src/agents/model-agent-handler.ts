@@ -79,12 +79,14 @@ export function createModelAgentRuntimeHandler(
       });
 
      if (response.status === 'blocked' || response.status === 'failed') {
-       const error = new Error(`model integration ${response.integrationId} returned ${response.status}.`) as Error & {
-         evidenceReferences?: string[];
-       };
-       error.evidenceReferences = response.evidenceReferences;
-       throw error;
-     }
+      const error = new Error(
+        `model integration ${response.integrationId} returned ${response.status}.`,
+      ) as Error & { evidenceReferences?: string[] };
+
+      error.evidenceReferences = response.evidenceReferences;
+
+      throw error;
+    }
 
       return {
         executionId: task.executionId,
