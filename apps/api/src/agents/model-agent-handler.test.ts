@@ -71,3 +71,66 @@ test('model agent handler rejects missing prompt input before provider execution
 
   await assert.rejects(() => handler.execute(task({})), /requires string input brief/);
 });
+
+test('model agent handler preserves integration evidence when provider execution fails', async () => {
+  const registry = new IntegrationRegistry();
+
+  registry.register({
+    integrationId: 'model.test-failure',
+    kind: 'model',
+    provider: 'test-provider',
+    supportedModes: ['sandbox'],
+    supportedOperations: ['generate_text'],
+    async execute() {
+      return {
+        integrationId: 'model.test-failure',
+        operation: 'generate_text',
+        provider: 'test-provider',
+        mode: 'sandbox',
+        status: 'failed',
+        output: {
+          text: '',
+          model: 'test-model',
+          finishReason: 'unknown',
+        },
+        evidenceReferences: [
+          'test-provider:http:401',
+          'code:invalid_api_key',
+          'message:Authentication failed',
+        ],
+        retryable: false,
+      };
+    },
+  });
+
+  const handler = createModelAgentRuntimeHandler(registry, {
+    agentId: 'marketing_agent',
+    capabilityId: 'draft_marketing_copy',
+    integrationId: 'model.test-failure',
+    mode: 'sandbox',
+    promptInputKey: 'brief',
+  });
+
+  await assert.rejects(
+    async () => handler.execute(task({
+      brief: 'Create a homepage headline.',
+    })),
+    (error: unknown) => {
+      assert.equal(
+        error instanceof Error ? error.message : String(error),
+        'model integration model.test-failure returned failed.',
+      );
+
+      assert.deepEqual(
+        (error as { evidenceReferences?: string[] }).evidenceReferences,
+        [
+          'test-provider:http:401',
+          'code:invalid_api_key',
+          'message:Authentication failed',
+        ],
+      );
+
+      return true;
+    },
+  );
+});
