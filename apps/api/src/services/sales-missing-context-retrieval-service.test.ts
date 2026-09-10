@@ -46,7 +46,7 @@ test('retrieves explicitly missing Sales context and performs targeted decision-
 
   assert.equal(result.leadId, 'lead-1');
   assert.deepEqual(result.missingFields, ['industry', 'decision_maker']);
-  assert.equal(result.searchesRun, 3);
+  assert.equal(result.searchesRun, 4);
   assert.equal(result.searchesFailed, 0);
   assert.deepEqual(result.providerFailures, []);
   assert.equal(result.evidence.length, 2);
@@ -77,7 +77,7 @@ test('records provider failures instead of disguising them as zero searches', as
   });
 
   assert.equal(result.searchesRun, 0);
-  assert.equal(result.searchesFailed, 2);
+  assert.equal(result.searchesFailed, 3);
   assert.equal(result.evidence.length, 0);
   assert.deepEqual(result.providerFailures, [
     {
@@ -100,8 +100,8 @@ test('records provider failures instead of disguising them as zero searches', as
 
 test('deduplicates evidence by URL', async () => {
   const service = createSalesMissingContextRetrievalService(registryWithResults({
-    'industry business': [{ title: 'A', url: 'https://example.com/a', content: 'A' }],
-    'business services': [{ title: 'A duplicate', url: 'https://example.com/a', content: 'A duplicate' }],
+    'industry sector': [{ title: 'A', url: 'https://example.com/a', content: 'A' }],
+    'about services capabilities projects company': [{ title: 'A duplicate', url: 'https://example.com/a', content: 'A duplicate' }],
   }));
 
   const result = await service.retrieve({
