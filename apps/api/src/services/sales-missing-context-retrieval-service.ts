@@ -6,6 +6,8 @@ export interface SalesMissingContextRetrievalResult {
   leadId: string;
   missingFields: string[];
   searchesRun: number;
+  searchesFailed: number;
+  providerFailures: Array<{ query: string; code?: string; message?: string }>;
   evidence: PublicWebSearchResult[];
   nextAction: 'reassess_sales_context';
 }
@@ -127,6 +129,8 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
       const missingFields = [...new Set(input.missingFields.map((field) => field.trim()).filter(Boolean))];
       const evidence: PublicWebSearchResult[] = [];
       let searchesRun = 0;
+      let searchesFailed = 0;
+      const providerFailures: Array<{ query: string; code?: string; message?: string }> = [];
       const domain = officialDomain(input.lead);
       const searchedQueries = new Set<string>();
 
@@ -154,7 +158,28 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
             ...(domain && includeOfficialDomain ? { includeDomains: [domain] } : {}),
           },
         });
-        if (web.status !== 'succeeded') return 0;
+        if (web.status !== 'succeeded') {
+          searchesFailed += 1;
+          const output = web.output as PublicWebSearchOutput;
+          const failure = {
+            query: normalizedQuery,
+            ...(output.providerErrorCode ? { code: output.providerErrorCode } : {}),
+            ...(output.providerErrorMessage ? { message: output.providerErrorMessage } : {}),
+          };
+          providerFailures.push(failure);
+          console.warn(JSON.stringify({
+            level: 'warn',
+            event: 'sales_missing_context_search_failed',
+            leadId,
+            executionId,
+            correlationId,
+            searchSuffix: suffix,
+            query: normalizedQuery,
+            providerErrorCode: failure.code ?? null,
+            providerErrorMessage: failure.message ?? null,
+          }));
+          return 0;
+        }
         searchesRun += 1;
         evidence.push(...web.output.results);
         return web.output.results.length;
@@ -195,6 +220,8 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
         leadId,
         missingFields,
         searchesRun,
+        searchesFailed,
+        providerFailures,
         evidence: uniqueEvidence(evidence),
         nextAction: 'reassess_sales_context',
       };
