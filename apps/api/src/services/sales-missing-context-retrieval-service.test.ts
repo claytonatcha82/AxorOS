@@ -47,9 +47,55 @@ test('retrieves explicitly missing Sales context and performs targeted decision-
   assert.equal(result.leadId, 'lead-1');
   assert.deepEqual(result.missingFields, ['industry', 'decision_maker']);
   assert.equal(result.searchesRun, 3);
+  assert.equal(result.searchesFailed, 0);
+  assert.deepEqual(result.providerFailures, []);
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.some((item) => item.content.includes('Donovan Proudfoot')));
   assert.equal(result.nextAction, 'reassess_sales_context');
+});
+
+test('records provider failures instead of disguising them as zero searches', async () => {
+  const service = createSalesMissingContextRetrievalService({
+    async execute() {
+      return {
+        status: 'failed',
+        output: {
+          query: 'test',
+          results: [],
+          providerErrorCode: 'HTTP_429',
+          providerErrorMessage: 'rate limit exceeded',
+        },
+      };
+    },
+  } as never);
+
+  const result = await service.retrieve({
+    lead,
+    missingFields: ['decision_maker'],
+    executionId: 'sales-followthrough:failure',
+    correlationId: 'corr-failure',
+  });
+
+  assert.equal(result.searchesRun, 0);
+  assert.equal(result.searchesFailed, 2);
+  assert.equal(result.evidence.length, 0);
+  assert.deepEqual(result.providerFailures, [
+    {
+      query: '"Proman Construction Managers" company profile services projects contact leadership',
+      code: 'HTTP_429',
+      message: 'rate limit exceeded',
+    },
+    {
+      query: '"Proman Construction Managers" "managing director" director founder owner CEO leadership team',
+      code: 'HTTP_429',
+      message: 'rate limit exceeded',
+    },
+    {
+      query: '"Proman Construction Managers" "managing director" director founder owner CEO leadership LinkedIn',
+      code: 'HTTP_429',
+      message: 'rate limit exceeded',
+    },
+  ]);
 });
 
 test('deduplicates evidence by URL', async () => {
@@ -78,5 +124,7 @@ test('ignores unknown fields instead of inventing a query', async () => {
   });
 
   assert.equal(result.searchesRun, 0);
+  assert.equal(result.searchesFailed, 0);
+  assert.deepEqual(result.providerFailures, []);
   assert.deepEqual(result.evidence, []);
 });
