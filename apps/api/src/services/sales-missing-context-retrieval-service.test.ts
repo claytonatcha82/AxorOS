@@ -32,7 +32,7 @@ function registryWithResults(resultsByQuery: Record<string, Array<{ title: strin
 
 test('retrieves explicitly missing Sales context and performs targeted decision-maker research', async () => {
   const service = createSalesMissingContextRetrievalService(registryWithResults({
-    'industry business': [{ title: 'Proman profile', url: 'https://www.promanconstruction.co.za/about', content: 'Construction management company.' }],
+    'industry sector': [{ title: 'Proman profile', url: 'https://www.promanconstruction.co.za/about', content: 'Construction management company.' }],
     'managing director': [{ title: 'Proman leadership', url: 'https://www.promanconstruction.co.za/team', content: 'Managing Director Donovan Proudfoot.' }],
   }));
 
