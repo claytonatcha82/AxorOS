@@ -185,7 +185,8 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
         return web.output.results.length;
       };
 
-      if (missingFields.length > 0) {
+      const supportedMissingFields = missingFields.filter((field) => FIELD_SEARCH_PLANS[field]);
+      if (supportedMissingFields.length > 0) {
         await executeSearch(
           `"${input.lead.companyName}" company profile services projects contact leadership`,
           'aggregate-company-profile',
