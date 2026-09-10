@@ -99,6 +99,33 @@ test('marks retryable OpenAI HTTP failures without producing model output', asyn
   assert.equal(result.externalReference, 'http:429');
 });
 
+test('preserves OpenAI provider failure details in evidence references', async () => {
+  const integration = createOpenAIModelIntegration({
+    apiKey: 'test-openai-key',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'resp_failed_1',
+      model: 'gpt-5.6-terra',
+      status: 'failed',
+      error: {
+        code: 'invalid_prompt',
+        type: 'invalid_request_error',
+        message: 'The prompt could not be processed.',
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  });
+
+  const result = await integration.execute(request());
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.retryable, false);
+  assert.equal(result.externalReference, 'resp_failed_1');
+  assert.equal(result.evidenceReferences?.length, 1);
+  assert.match(result.evidenceReferences?.[0] ?? '', /openai:model:gpt-5\.6-terra/);
+  assert.match(result.evidenceReferences?.[0] ?? '', /status:failed/);
+  assert.match(result.evidenceReferences?.[0] ?? '', /code:invalid_prompt/);
+  assert.match(result.evidenceReferences?.[0] ?? '', /message:The_prompt_could_not_be_processed\./);
+  assert.match(result.evidenceReferences?.[0] ?? '', /sales-openai-test-1/);
+});
 test('requires an OpenAI API key', () => {
   assert.throws(() => createOpenAIModelIntegration({ apiKey: '   ' }), /OpenAI API key/);
 });

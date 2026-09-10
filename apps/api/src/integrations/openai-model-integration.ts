@@ -26,7 +26,11 @@ interface OpenAIResponsesResponse {
     input_tokens?: number;
     output_tokens?: number;
   };
-  error?: { code?: string; message?: string } | null;
+  error?: {
+    code?: string | null;
+    message?: string | null;
+    type?: string | null;
+  } | null;
 }
 
 interface OpenAIErrorResponse {
@@ -154,6 +158,21 @@ export function createOpenAIModelIntegration(
       const text = responseText(providerResponse);
       const reason = finishReason(providerResponse);
       const completed = providerResponse.status === 'completed';
+      const providerErrorCode = safeEvidencePart(
+        providerResponse.error?.code ?? providerResponse.error?.type,
+      );
+      const providerErrorMessage = safeEvidencePart(providerResponse.error?.message);
+      const incompleteReason = safeEvidencePart(providerResponse.incomplete_details?.reason);
+
+      const providerEvidence = [
+        `openai:model:${providerResponse.model?.trim() || model}`,
+        `status:${providerResponse.status ?? 'unknown'}`,
+        providerErrorCode ? `code:${providerErrorCode}` : '',
+        providerErrorMessage ? `message:${providerErrorMessage}` : '',
+        incompleteReason ? `incomplete:${incompleteReason}` : '',
+        request.executionId,
+      ].filter(Boolean).join(':');
+
 
       return {
         integrationId: 'model.openai',
@@ -169,7 +188,7 @@ export function createOpenAIModelIntegration(
           ...(providerResponse.usage?.output_tokens === undefined ? {} : { outputTokens: providerResponse.usage.output_tokens }),
         },
         ...(providerResponse.id ? { externalReference: providerResponse.id } : {}),
-        evidenceReferences: [`openai:model:${providerResponse.model?.trim() || model}:${request.executionId}`],
+        evidenceReferences: [providerEvidence],
         retryable: false,
       };
     },
