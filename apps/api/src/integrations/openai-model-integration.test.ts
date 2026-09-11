@@ -18,6 +18,7 @@ function request(): IntegrationRequest<ModelGenerationInput> {
       context: 'Prospect asked for more information.',
       prompt: 'Prepare a bounded classification.',
       maxOutputTokens: 500,
+      temperature: 0.2,
     },
   };
 }
@@ -49,6 +50,7 @@ test('uses the OpenAI Responses API with GPT-5.6 Terra by default', async () => 
   assert.equal(body.instructions, 'Stay within Sales governance.');
   assert.match(body.input, /Prospect asked for more information/);
   assert.equal(body.max_output_tokens, 500);
+  assert.equal(body.temperature, undefined);
   assert.equal(body.store, false);
   assert.equal(result.integrationId, 'model.openai');
   assert.equal(result.provider, 'openai');
@@ -67,6 +69,7 @@ test('supports an explicitly configured OpenAI model without changing the integr
     fetchImpl: async (_url, init) => {
       const body = JSON.parse(String(init?.body));
       assert.equal(body.model, 'gpt-5.6-luna');
+      assert.equal(body.temperature, undefined);
       return new Response(JSON.stringify({
         id: 'resp_2', model: 'gpt-5.6-luna', status: 'completed',
         output: [{ type: 'message', content: [{ type: 'output_text', text: 'draft' }] }],
@@ -75,6 +78,23 @@ test('supports an explicitly configured OpenAI model without changing the integr
   });
   const result = await integration.execute(request());
   assert.equal(result.output?.model, 'gpt-5.6-luna');
+});
+
+test('preserves temperature for non-GPT-5.6 models', async () => {
+  const integration = createOpenAIModelIntegration({
+    apiKey: 'test-openai-key',
+    model: 'gpt-4.1',
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.temperature, 0.2);
+      return new Response(JSON.stringify({
+        id: 'resp_3', model: 'gpt-4.1', status: 'completed',
+        output: [{ type: 'message', content: [{ type: 'output_text', text: 'draft' }] }],
+      }), { status: 200 });
+    },
+  });
+  const result = await integration.execute(request());
+  assert.equal(result.status, 'drafted');
 });
 
 test('fails closed on OpenAI transport failure', async () => {
@@ -126,6 +146,7 @@ test('preserves OpenAI provider failure details in evidence references', async (
   assert.match(result.evidenceReferences?.[0] ?? '', /message:The_prompt_could_not_be_processed\./);
   assert.match(result.evidenceReferences?.[0] ?? '', /sales-openai-test-1/);
 });
+
 test('requires an OpenAI API key', () => {
   assert.throws(() => createOpenAIModelIntegration({ apiKey: '   ' }), /OpenAI API key/);
 });
