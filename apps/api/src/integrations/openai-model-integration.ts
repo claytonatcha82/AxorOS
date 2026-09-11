@@ -62,6 +62,13 @@ function safeEvidencePart(value: string | null | undefined): string | undefined 
   return normalized || undefined;
 }
 
+function supportsTemperature(model: string): boolean {
+  // GPT-5.6 reasoning models reject non-default temperature values on the
+  // Responses API. The Sales runtime intentionally supplies temperature=0.2,
+  // so omit that field for the GPT-5.6 family rather than causing a provider 400.
+  return !/^gpt-5\.6(?:-|$)/i.test(model);
+}
+
 export function createOpenAIModelIntegration(
   options: OpenAIModelIntegrationOptions,
 ): ExternalIntegration<ModelGenerationInput, ModelGenerationOutput> {
@@ -97,7 +104,7 @@ export function createOpenAIModelIntegration(
       };
       if (request.input.systemInstruction?.trim()) body.instructions = request.input.systemInstruction.trim();
       if (request.input.maxOutputTokens !== undefined) body.max_output_tokens = request.input.maxOutputTokens;
-      if (request.input.temperature !== undefined) body.temperature = request.input.temperature;
+      if (request.input.temperature !== undefined && supportsTemperature(model)) body.temperature = request.input.temperature;
 
       let httpResponse: Response;
       try {
@@ -172,7 +179,6 @@ export function createOpenAIModelIntegration(
         incompleteReason ? `incomplete:${incompleteReason}` : '',
         request.executionId,
       ].filter(Boolean).join(':');
-
 
       return {
         integrationId: 'model.openai',
