@@ -1,5 +1,7 @@
 import type { OperationalRepository, WorkflowEventRecord } from '../data/operational-repository.js';
+import { loadConfig } from '../config.js';
 import type { EmailDraftOutput, EmailIntegration } from '../integrations/email-integration.js';
+import { createGmailDraftIntegration } from '../integrations/gmail-draft-integration.js';
 import type { IntegrationResponse } from '../integrations/integration-contract.js';
 
 export type SalesOutreachDraftReviewDecision = 'approved' | 'rejected';
@@ -48,8 +50,25 @@ export function createSalesOutreachDraftReviewService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent' | 'listWorkflowEvents'>,
   gmailIntegration?: EmailIntegration | (() => EmailIntegration | undefined),
 ) {
-  const resolveGmailIntegration = (): EmailIntegration | undefined =>
-    typeof gmailIntegration === 'function' ? gmailIntegration() : gmailIntegration;
+  let configuredGmailIntegration: EmailIntegration | undefined;
+  const resolveGmailIntegration = (): EmailIntegration | undefined => {
+    const injected = typeof gmailIntegration === 'function' ? gmailIntegration() : gmailIntegration;
+    if (injected) return injected;
+    if (configuredGmailIntegration) return configuredGmailIntegration;
+
+    const config = loadConfig();
+    if (!config.gmailClientId || !config.gmailClientSecret || !config.gmailRefreshToken || !config.gmailIdentityAddresses) {
+      return undefined;
+    }
+    configuredGmailIntegration = createGmailDraftIntegration({
+      clientId: config.gmailClientId,
+      clientSecret: config.gmailClientSecret,
+      refreshToken: config.gmailRefreshToken,
+      identityAddresses: config.gmailIdentityAddresses,
+      ...(config.gmailSupervisedSalesSendEnabled ? { allowSupervisedSalesSend: true } : {}),
+    });
+    return configuredGmailIntegration;
+  };
 
   return {
     async listPendingDrafts(limit = 50) {
