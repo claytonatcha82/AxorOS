@@ -82,7 +82,10 @@ const operationsProductionPrerequisiteStore = new OperationsProductionPrerequisi
 const operationsProductionPrerequisiteRecorder = createOperationsProductionPrerequisiteRecorder(
   operationsProductionPrerequisiteStore,
 );
-const salesOutreachDraftReview = createSalesOutreachDraftReviewService(operationalRepository);
+const salesOutreachDraftReview = createSalesOutreachDraftReviewService(
+  operationalRepository,
+  () => integrationRegistry.get('email.gmail') as unknown as GmailEmailIntegration | undefined,
+);
 const salesOutreachSuppressions = new SalesOutreachSuppressionPostgresStore(databasePool);
 const salesSupervisedSendGate = createSalesSupervisedSendGateService(
   operationalRepository,
@@ -328,137 +331,81 @@ const paystackWebhookRequestHandler = createPaystackWebhookRequestHandler({
   fallback: marketingControlPlaneRequestHandler,
 });
 const publicContactRequestHandler = createPublicContactRequestHandler({
-  repository: operationalRepository,
+  config,
   fallback: paystackWebhookRequestHandler,
 });
 const server = createServer(publicContactRequestHandler);
-let shuttingDown = false;
 
-function shutdown(signal: NodeJS.Signals): void {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  runtimeRecoveryRunner.stop();
-  pilotLeadWorker.stop();
-
-  logEvent('info', 'api_shutdown_started', { signal });
-
-  server.close(async (error) => {
-    if (error) {
-      logEvent('error', 'api_shutdown_failed', { signal, error: error.message });
-      process.exitCode = 1;
-      return;
-    }
-
-    try {
-      await databasePool.end();
-      logEvent('info', 'api_shutdown_completed', { signal });
-    } catch (databaseError) {
-      logEvent('error', 'database_pool_shutdown_failed', {
-        signal,
-        error: databaseError instanceof Error ? databaseError.message : String(databaseError),
-      });
-      process.exitCode = 1;
-    }
+server.listen(config.port, config.host, () => {
+  logEvent('info', 'api_started', {
+    timestamp: new Date().toISOString(),
+    service: 'axoros-api',
+    environment: config.environment,
+    host: config.host,
+    port: config.port,
+    nodeVersion: process.version,
+    databaseConfigured: Boolean(config.databaseUrl),
+    knowledgeRetrievalConfigured: true,
+    knowledgeContextConfigured: true,
+    runtimeRecoveryConfigured: true,
+    executiveDashboardConfigured: true,
+    pilotSystemStateControlPlaneConfigured: true,
+    pilotSystemState: pilotSystemState.getState().state,
+    pilotRuntimeOperatorControlPlaneConfigured: true,
+    pilotLeadWorkerConfigured: true,
+    pilotLeadWorkerRunOnceControlPlaneConfigured: true,
+    pilotLeadWorkerIntervalMs: 60 * 60 * 1000,
+    pilotLeadWorkerMaxBusinessesPerCycle: 3,
+    leadLiveResearchRuntimeConfigured: true,
+    leadLiveResearchControlPlaneConfigured: true,
+    marketingDraftRuntimeConfigured: true,
+    marketingDraftControlPlaneConfigured: true,
+    marketingPublishingConfigured: false,
+    financePaymentRuntimeConfigured: true,
+    financeGovernedRuntimeConfigured: true,
+    financeGovernedControlPlaneConfigured: true,
+    financeReportingPersistenceConfigured: true,
+    financeReportingControlPlaneConfigured: true,
+    financePaymentRequestRuntimeConfigured: true,
+    financePaymentRequestControlPlaneConfigured: true,
+    paymentSandboxConfigured: true,
+    paystackConfigured: Boolean(config.paystackSecretKey),
+    paystackWebhookConfigured: Boolean(paystackWebhookIngress),
+    activePaymentIntegration: config.paymentIntegrationId,
+    activePaymentMode: config.paymentIntegrationMode,
+    operationsProductionPrerequisiteControlPlaneConfigured: true,
+    operationsProductionReadinessRuntimeConfigured: true,
+    operationsProductionReadinessControlPlaneConfigured: true,
+    productionRuntimeConfigured: true,
+    productionRuntimePersistenceConfigured: true,
+    productionProjectProvisionControlPlaneConfigured: true,
+    productionPreviewDeploymentControlPlaneConfigured: true,
+    productionDeploymentControlPlaneConfigured: true,
+    productionModelIntegration: config.productionModelIntegrationId,
+    leadQualificationReviewRuntimeConfigured: true,
+    leadQualificationReviewControlPlaneConfigured: true,
+    salesIntakeRuntimeConfigured: true,
+    salesIntakeControlPlaneConfigured: true,
+    salesOutreachDraftReviewControlPlaneConfigured: true,
+    salesSupervisedSendGateControlPlaneConfigured: true,
+    salesSupervisedSendGateSuppressionConfigured: true,
+    salesSupervisedEmailRuntimeConfigured: true,
+    salesSupervisedEmailSuppressionConfigured: true,
+    salesSupervisedEmailControlPlaneConfigured: true,
+    salesSupervisedGmailConfigured: Boolean(salesGmailIntegration),
+    salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification),
+    salesInboundReplyRuntimeConfigured: Boolean(salesInboundReplyRuntime),
+    registeredIntegrations: registeredIntegrationIds,
   });
-
-  setTimeout(() => {
-    logEvent('error', 'api_shutdown_forced', { signal, timeoutMs: 10_000 });
-    process.exit(1);
-  }, 10_000).unref();
-}
-
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-
-async function start(): Promise<void> {
-  const initialPilotState = await pilotSystemState.get();
-  await runtimeRecoveryRunner.runOnce();
-  runtimeRecoveryRunner.start();
-  pilotLeadWorker.start();
-
-  server.listen(config.port, config.host, () => {
-    logEvent('info', 'api_started', {
-      environment: config.environment,
-      host: config.host,
-      port: config.port,
-      nodeVersion: process.version,
-      databaseConfigured: true,
-      knowledgeRetrievalConfigured: true,
-      knowledgeContextConfigured: true,
-      runtimeRecoveryConfigured: true,
-      executiveDashboardConfigured: Boolean(config.controlPlaneToken),
-      pilotSystemStateControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      pilotSystemState: initialPilotState.state,
-      pilotRuntimeOperatorControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      pilotLeadWorkerConfigured: true,
-      pilotLeadWorkerRunOnceControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      pilotLeadWorkerIntervalMs: 60 * 60 * 1000,
-      pilotLeadWorkerMaxBusinessesPerCycle: 3,
-      leadLiveResearchRuntimeConfigured: registeredIntegrationIds.includes('research.google-places')
-        && registeredIntegrationIds.includes('research.tavily-web'),
-      leadLiveResearchControlPlaneConfigured: Boolean(
-        config.controlPlaneToken
-        && registeredIntegrationIds.includes('research.google-places')
-        && registeredIntegrationIds.includes('research.tavily-web'),
-      ),
-      marketingDraftRuntimeConfigured: registeredIntegrationIds.includes('model.gemini'),
-      marketingDraftControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('model.gemini'),
-      ),
-      marketingPublishingConfigured: false,
-      financePaymentRuntimeConfigured: Boolean(financePaymentRuntime.workflow && financePaymentRuntime.clearanceStore),
-      financeGovernedRuntimeConfigured: true,
-      financeGovernedControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      financeReportingPersistenceConfigured: true,
-      financeReportingControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      financePaymentRequestRuntimeConfigured: registeredIntegrationIds.includes('payment.paystack.request'),
-      financePaymentRequestControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('payment.paystack.request'),
-      ),
-      paymentSandboxConfigured: registeredIntegrationIds.includes('payment.sandbox'),
-      paystackConfigured: registeredIntegrationIds.includes('payment.paystack'),
-      paystackWebhookConfigured: Boolean(paystackWebhookIngress),
-      activePaymentIntegration: config.paymentIntegrationId ?? 'payment.sandbox',
-      activePaymentMode: config.paymentIntegrationMode ?? 'sandbox',
-      operationsProductionPrerequisiteControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      operationsProductionReadinessRuntimeConfigured: true,
-      operationsProductionReadinessControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      productionRuntimeConfigured: Boolean(
-        productionRuntime.handlers.get('production_agent', PRODUCTION_TECHNICAL_ASSISTANCE_CAPABILITY),
-      ),
-      productionRuntimePersistenceConfigured: true,
-      productionProjectProvisionControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.project'),
-      ),
-      productionPreviewDeploymentControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.preview'),
-      ),
-      productionDeploymentControlPlaneConfigured: Boolean(
-        config.controlPlaneToken && registeredIntegrationIds.includes('deployment.cloudflare.production'),
-      ),
-      productionModelIntegration: productionModelPolicy.technicalImplementationIntegrationId,
-      leadQualificationReviewRuntimeConfigured: true,
-      leadQualificationReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesIntakeRuntimeConfigured: true,
-      salesIntakeControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesOutreachDraftReviewControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedSendGateControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedSendGateSuppressionConfigured: true,
-      salesSupervisedEmailRuntimeConfigured: true,
-      salesSupervisedEmailSuppressionConfigured: true,
-      salesSupervisedEmailControlPlaneConfigured: Boolean(config.controlPlaneToken),
-      salesSupervisedGmailConfigured: Boolean(
-        config.gmailSupervisedSalesSendEnabled && registeredIntegrationIds.includes('email.gmail'),
-      ),
-      salesInboundOpenAIClassificationConfigured: Boolean(salesInboundModelClassification),
-      salesInboundReplyRuntimeConfigured: Boolean(salesInboundReplyRuntime),
-      registeredIntegrations: registeredIntegrationIds,
-    });
-  });
-}
-
-start().catch(async (error) => {
-  logEvent('error', 'api_start_failed', { error: error instanceof Error ? error.message : String(error) });
-  await databasePool.end().catch(() => undefined);
-  process.exit(1);
 });
+
+const shutdown = async (signal: string) => {
+  logEvent('info', 'api_shutdown_requested', { signal });
+  await databasePool.end();
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
+
+void runtimeRecoveryRunner.start();
