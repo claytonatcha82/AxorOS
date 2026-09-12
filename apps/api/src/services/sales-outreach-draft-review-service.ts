@@ -1,4 +1,6 @@
 import type { OperationalRepository, WorkflowEventRecord } from '../data/operational-repository.js';
+import type { EmailDraftOutput, EmailIntegration } from '../integrations/email-integration.js';
+import type { IntegrationResponse } from '../integrations/integration-contract.js';
 
 export type SalesOutreachDraftReviewDecision = 'approved' | 'rejected';
 export type SalesDraftReviewKind = 'outreach' | 'inbound_response';
@@ -17,6 +19,9 @@ export interface SalesOutreachDraftReview {
   discountAuthorised: false;
   commercialCommitmentAuthorised: false;
   contractAuthorised: false;
+  gmailDraftId?: string;
+  gmailMessageId?: string;
+  gmailThreadReference?: string;
   nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft';
 }
 
@@ -41,6 +46,7 @@ function isPendingDraft(event: WorkflowEventRecord): boolean {
 
 export function createSalesOutreachDraftReviewService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent' | 'listWorkflowEvents'>,
+  gmailIntegration?: EmailIntegration,
 ) {
   return {
     async listPendingDrafts(limit = 50) {
@@ -62,7 +68,7 @@ export function createSalesOutreachDraftReviewService(
       }
 
       const draftRecord = await repository.getWorkflowEventById(normalizedDraftRecordId);
-      if (!draftRecord) throw new Error(`Sales draft record ${normalizedDraftRecordId} was not found.`);
+      if (!draftRecord) throw new Error(`Sales draft record ${normalizedDraftDraftRecordId} was not found.`);
       const draftKind = draftKindForEventType(draftRecord.eventType);
       if (draftRecord.actorType !== 'agent' || draftRecord.actorId !== 'sales_agent') {
         throw new Error('Sales draft review requires a Sales Agent draft record.');
@@ -95,9 +101,34 @@ export function createSalesOutreachDraftReviewService(
         throw new Error('Human draft review must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority.');
       }
 
+      const leadId = requiredString(payload.leadId, 'leadId');
+      let gmailDraft: EmailDraftOutput | undefined;
+      if (decision === 'approved') {
+        if (!gmailIntegration) throw new Error('Gmail draft integration is not configured.');
+        const gmailResponse: IntegrationResponse<EmailDraftOutput> = await gmailIntegration.execute({
+          integrationId: 'email.gmail',
+          operation: 'create_draft',
+          requestedBy: 'human_executive',
+          executionId: `sales-gmail-draft:${draftRecord.id}`,
+          correlationId: leadId,
+          mode: 'draft',
+          risk: 'low',
+          input: {
+            fromIdentity: 'sales',
+            to: [{ email: requiredString(payload.recipientEmail, 'recipientEmail') }],
+            subject: requiredString(payload.subject, 'subject'),
+            textBody: requiredString(payload.body, 'body'),
+          },
+        });
+        if (gmailResponse.status !== 'drafted') {
+          throw new Error(gmailResponse.output?.preview || `Gmail draft creation returned ${gmailResponse.status}.`);
+        }
+        gmailDraft = gmailResponse.output;
+      }
+
       const review: SalesOutreachDraftReview = {
         draftRecordId: draftRecord.id,
-        leadId: requiredString(payload.leadId, 'leadId'),
+        leadId,
         draftKind,
         decision,
         reviewer: 'human_executive',
@@ -109,6 +140,9 @@ export function createSalesOutreachDraftReviewService(
         discountAuthorised: false,
         commercialCommitmentAuthorised: false,
         contractAuthorised: false,
+        ...(gmailDraft?.draftId ? { gmailDraftId: gmailDraft.draftId } : {}),
+        ...(gmailDraft?.messageId ? { gmailMessageId: gmailDraft.messageId } : {}),
+        ...(gmailDraft?.threadReference ? { gmailThreadReference: gmailDraft.threadReference } : {}),
         nextAction: decision === 'approved'
           ? 'prepare_supervised_send_gate'
           : draftKind === 'outreach'
