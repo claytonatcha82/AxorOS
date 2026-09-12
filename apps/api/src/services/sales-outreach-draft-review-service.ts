@@ -46,8 +46,11 @@ function isPendingDraft(event: WorkflowEventRecord): boolean {
 
 export function createSalesOutreachDraftReviewService(
   repository: Pick<OperationalRepository, 'getWorkflowEventById' | 'createWorkflowEvent' | 'listWorkflowEvents'>,
-  gmailIntegration?: EmailIntegration,
+  gmailIntegration?: EmailIntegration | (() => EmailIntegration | undefined),
 ) {
+  const resolveGmailIntegration = (): EmailIntegration | undefined =>
+    typeof gmailIntegration === 'function' ? gmailIntegration() : gmailIntegration;
+
   return {
     async listPendingDrafts(limit = 50) {
       const events = await repository.listWorkflowEvents(Math.max(1, Math.min(limit * 4, 200)));
@@ -68,7 +71,7 @@ export function createSalesOutreachDraftReviewService(
       }
 
       const draftRecord = await repository.getWorkflowEventById(normalizedDraftRecordId);
-      if (!draftRecord) throw new Error(`Sales draft record ${normalizedDraftDraftRecordId} was not found.`);
+      if (!draftRecord) throw new Error(`Sales draft record ${normalizedDraftRecordId} was not found.`);
       const draftKind = draftKindForEventType(draftRecord.eventType);
       if (draftRecord.actorType !== 'agent' || draftRecord.actorId !== 'sales_agent') {
         throw new Error('Sales draft review requires a Sales Agent draft record.');
@@ -104,8 +107,9 @@ export function createSalesOutreachDraftReviewService(
       const leadId = requiredString(payload.leadId, 'leadId');
       let gmailDraft: EmailDraftOutput | undefined;
       if (decision === 'approved') {
-        if (!gmailIntegration) throw new Error('Gmail draft integration is not configured.');
-        const gmailResponse: IntegrationResponse<EmailDraftOutput> = await gmailIntegration.execute({
+        const gmail = resolveGmailIntegration();
+        if (!gmail) throw new Error('Gmail draft integration is not configured.');
+        const gmailResponse: IntegrationResponse<EmailDraftOutput> = await gmail.execute({
           integrationId: 'email.gmail',
           operation: 'create_draft',
           requestedBy: 'human_executive',
