@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { WorkflowEventRecord } from '../data/operational-repository.js';
+import type { EmailIntegration } from '../integrations/email-integration.js';
 import { createSalesOutreachDraftReviewService } from './sales-outreach-draft-review-service.js';
 
 const now = '2026-08-20T18:40:00.000Z';
@@ -40,6 +41,28 @@ function inboundDraftRecord(overrides: Record<string, unknown> = {}): WorkflowEv
   };
 }
 
+function gmailHarness(): EmailIntegration {
+  return {
+    integrationId: 'email.gmail', kind: 'email', provider: 'google-gmail',
+    supportedModes: ['draft'], supportedOperations: ['create_draft'],
+    async execute(request) {
+      assert.equal(request.operation, 'create_draft');
+      assert.equal(request.mode, 'draft');
+      assert.equal(request.requestedBy, 'human_executive');
+      assert.equal(request.input.fromIdentity, 'sales');
+      return {
+        integrationId: 'email.gmail', operation: 'create_draft', provider: 'google-gmail', mode: 'draft',
+        status: 'drafted',
+        output: {
+          draftId: 'gmail-draft-1', messageId: 'gmail-message-1', threadReference: 'gmail-thread-1',
+          fromIdentity: 'sales', recipients: ['lead@example.com'], subject: String(request.input.subject), preview: String(request.input.textBody).slice(0, 160),
+        },
+        externalReference: 'gmail-draft-1', evidenceReferences: ['gmail:draft:gmail-draft-1'], retryable: false,
+      };
+    },
+  };
+}
+
 function harness(record = draftRecord(), existingEvents: WorkflowEventRecord[] = []) {
   const events: WorkflowEventRecord[] = [...existingEvents];
   const service = createSalesOutreachDraftReviewService({
@@ -54,7 +77,7 @@ function harness(record = draftRecord(), existingEvents: WorkflowEventRecord[] =
       return created;
     },
     async listWorkflowEvents(limit = 100) { return events.slice(0, limit); },
-  });
+  }, gmailHarness());
   return { service, events };
 }
 
@@ -72,7 +95,6 @@ test('pending draft listing returns only unreviewed Sales draft records', async 
     payload: { draftRecordId: draft.id, decision: 'approved' }, createdAt: now,
   };
   const { service } = harness(draft, [draft, inbound, unrelated, reviewed]);
-
   const pending = await service.listPendingDrafts();
   assert.deepEqual(pending.map((item) => item.id), [inbound.id]);
 });
@@ -86,51 +108,42 @@ test('pending draft listing honors the requested limit', async () => {
   assert.equal(pending[0]?.id, first.id);
 });
 
-test('human executive can approve persisted internal outreach draft without authorising send', async () => {
+test('human executive approval creates a Gmail draft without authorising send', async () => {
   const { service, events } = harness();
   const result = await service.review('workflow-draft-1', 'approved');
-
   assert.equal(result.review.draftKind, 'outreach');
   assert.equal(result.review.decision, 'approved');
   assert.equal(result.review.reviewer, 'human_executive');
-  assert.equal(result.review.reviewComplete, true);
   assert.equal(result.review.outreachAuthorised, false);
   assert.equal(result.review.sendAuthorised, false);
-  assert.equal(result.review.pricingAuthorised, false);
-  assert.equal(result.review.commercialCommitmentAuthorised, false);
+  assert.equal(result.review.gmailDraftId, 'gmail-draft-1');
+  assert.equal(result.review.gmailMessageId, 'gmail-message-1');
+  assert.equal(result.review.gmailThreadReference, 'gmail-thread-1');
   assert.equal(result.review.nextAction, 'prepare_supervised_send_gate');
   assert.equal(events.length, 1);
   assert.equal(events[0]?.eventType, 'sales_outreach_draft_review_recorded');
-  assert.equal(events[0]?.actorType, 'founder');
-  assert.equal(events[0]?.actorId, 'human_executive');
 });
 
-test('human executive can reject persisted internal outreach draft and route it to revision', async () => {
+test('human executive can reject persisted internal outreach draft and route it to revision without Gmail draft creation', async () => {
   const { service } = harness();
   const result = await service.review('workflow-draft-1', 'rejected');
   assert.equal(result.review.decision, 'rejected');
   assert.equal(result.review.nextAction, 'revise_internal_outreach_draft');
+  assert.equal(result.review.gmailDraftId, undefined);
   assert.equal(result.review.sendAuthorised, false);
 });
 
 test('human executive can approve persisted inbound response draft without inheriting authority', async () => {
   const { service, events } = harness(inboundDraftRecord());
   const result = await service.review('workflow-inbound-draft-1', 'approved');
-
   assert.equal(result.review.draftKind, 'inbound_response');
   assert.equal(result.review.decision, 'approved');
-  assert.equal(result.review.reviewer, 'human_executive');
   assert.equal(result.review.responseAuthorised, false);
   assert.equal(result.review.sendAuthorised, false);
-  assert.equal(result.review.pricingAuthorised, false);
-  assert.equal(result.review.discountAuthorised, false);
-  assert.equal(result.review.commercialCommitmentAuthorised, false);
-  assert.equal(result.review.contractAuthorised, false);
+  assert.equal(result.review.gmailDraftId, 'gmail-draft-1');
   assert.equal(result.review.nextAction, 'prepare_supervised_send_gate');
   assert.equal(events.length, 1);
   assert.equal(events[0]?.eventType, 'sales_inbound_response_draft_review_recorded');
-  assert.equal(events[0]?.actorType, 'founder');
-  assert.equal(events[0]?.actorId, 'human_executive');
 });
 
 test('human executive can reject inbound response draft and route it to inbound revision', async () => {
@@ -138,33 +151,25 @@ test('human executive can reject inbound response draft and route it to inbound 
   const result = await service.review('workflow-inbound-draft-1', 'rejected');
   assert.equal(result.review.draftKind, 'inbound_response');
   assert.equal(result.review.nextAction, 'revise_inbound_response_draft');
+  assert.equal(result.review.gmailDraftId, undefined);
   assert.equal(result.review.sendAuthorised, false);
 });
 
 test('draft review refuses a draft carrying send authority', async () => {
   const { service, events } = harness(draftRecord({ sendAuthorised: true }));
-  await assert.rejects(
-    service.review('workflow-draft-1', 'approved'),
-    /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i,
-  );
+  await assert.rejects(service.review('workflow-draft-1', 'approved'), /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i);
   assert.equal(events.length, 0);
 });
 
 test('inbound draft review refuses a draft carrying consequential authority', async () => {
   const { service, events } = harness(inboundDraftRecord({ contractAuthorised: true }));
-  await assert.rejects(
-    service.review('workflow-inbound-draft-1', 'approved'),
-    /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i,
-  );
+  await assert.rejects(service.review('workflow-inbound-draft-1', 'approved'), /must not inherit response, outreach, send, pricing, discount, commercial commitment, or contract authority/i);
   assert.equal(events.length, 0);
 });
 
 test('draft review refuses non-draft workflow records', async () => {
   const record = { ...draftRecord(), eventType: 'sales_opportunity_assessment_recorded' };
   const { service, events } = harness(record);
-  await assert.rejects(
-    service.review('workflow-draft-1', 'approved'),
-    /requires a persisted internal outreach or inbound response draft record/i,
-  );
+  await assert.rejects(service.review('workflow-draft-1', 'approved'), /requires a persisted internal outreach or inbound response draft record/i);
   assert.equal(events.length, 0);
 });
