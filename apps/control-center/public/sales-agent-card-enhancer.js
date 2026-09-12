@@ -9,6 +9,7 @@
   let renderScheduled = false;
   let lastRenderedMarkup = '';
   let draftActionInFlight = null;
+  let draftActionMessage = '';
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -54,6 +55,21 @@
     window.requestAnimationFrame(() => {
       renderScheduled = false;
       render();
+    });
+  }
+
+  function bindDraftActions(container) {
+    container.querySelectorAll('.sales-draft-approve').forEach((button) => {
+      button.addEventListener('click', () => {
+        const draftId = button.getAttribute('data-draft-id');
+        if (draftId) void decideDraft(draftId, 'approved');
+      });
+    });
+    container.querySelectorAll('.sales-draft-reject').forEach((button) => {
+      button.addEventListener('click', () => {
+        const draftId = button.getAttribute('data-draft-id');
+        if (draftId) void decideDraft(draftId, 'rejected');
+      });
     });
   }
 
@@ -147,6 +163,9 @@
         </div>
       `;
 
+    const draftStatusMarkup = draftActionMessage
+      ? `<div class="sales-live-draft-confirmation" role="status">${escapeHtml(draftActionMessage)}</div>`
+      : '';
     const draftMarkup = `
       <div class="sales-live-drafts-section">
         <div class="sales-live-drafts-header">
@@ -157,6 +176,7 @@
           </div>
           <span class="sales-live-workflow-count">${latestDrafts.length} pending draft${latestDrafts.length === 1 ? '' : 's'}</span>
         </div>
+        ${draftStatusMarkup}
         ${renderDrafts()}
       </div>
     `;
@@ -165,6 +185,7 @@
     if (container.innerHTML !== markup || lastRenderedMarkup !== markup) {
       container.innerHTML = markup;
       lastRenderedMarkup = markup;
+      bindDraftActions(container);
     }
   }
 
@@ -185,6 +206,7 @@
   async function decideDraft(draftId, decision) {
     if (!apiBaseUrl || !Object.keys(latestHeaders).length || draftActionInFlight) return;
     draftActionInFlight = draftId;
+    draftActionMessage = '';
     scheduleRender();
     try {
       const response = await originalFetch(`${apiBaseUrl}${REVIEW_PATH}`, {
@@ -196,12 +218,18 @@
       if (!response.ok || payload?.ok === false) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
       if (decision === 'approved') {
         const gmailDraftId = payload?.data?.review?.gmailDraftId;
-        window.alert(gmailDraftId
-          ? `Sales draft approved. Gmail draft created (${gmailDraftId}). The email has not been sent.`
-          : 'Sales draft approved. Gmail draft created. The email has not been sent.');
+        draftActionMessage = gmailDraftId
+          ? `Gmail draft created (${gmailDraftId}). The email has not been sent.`
+          : 'Gmail draft created. The email has not been sent.';
+        latestDrafts = latestDrafts.filter((draft) => draft.draftRecordId !== draftId);
+      } else {
+        latestDrafts = latestDrafts.filter((draft) => draft.draftRecordId !== draftId);
+        draftActionMessage = 'Sales draft rejected for revision.';
       }
+      scheduleRender();
       await loadDrafts();
     } catch (error) {
+      draftActionMessage = '';
       window.alert(`Sales draft review failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       draftActionInFlight = null;
@@ -218,17 +246,6 @@
     }
     return response;
   };
-
-  document.addEventListener('click', (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    const approve = target?.closest('.sales-draft-approve');
-    const reject = target?.closest('.sales-draft-reject');
-    const button = approve || reject;
-    if (!button) return;
-    const draftId = button.getAttribute('data-draft-id');
-    if (!draftId) return;
-    void decideDraft(draftId, approve ? 'approved' : 'rejected');
-  });
 
   const observer = new MutationObserver(() => scheduleRender());
   observer.observe(document.documentElement, { childList: true, subtree: true });
