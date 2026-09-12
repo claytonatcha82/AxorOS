@@ -85,7 +85,7 @@
           <span>Commercial authority: ${draft.commercialCommitmentAuthorised ? 'YES' : 'NO'}</span>
         </div>
         <div class="sales-live-draft-actions">
-          <button type="button" class="sales-draft-approve" data-draft-id="${escapeHtml(draft.draftRecordId)}" ${draftActionInFlight ? 'disabled' : ''}>Approve for supervised send gate</button>
+          <button type="button" class="sales-draft-approve" data-draft-id="${escapeHtml(draft.draftRecordId)}" ${draftActionInFlight ? 'disabled' : ''}>Approve & create Gmail draft</button>
           <button type="button" class="sales-draft-reject" data-draft-id="${escapeHtml(draft.draftRecordId)}" ${draftActionInFlight ? 'disabled' : ''}>Reject for revision</button>
         </div>
       </article>
@@ -153,7 +153,7 @@
           <div>
             <p class="sales-live-workflow-eyebrow">Governed outreach</p>
             <h3>Sales Outreach Draft Review</h3>
-            <p>Review the prepared email before AxorOS can create the supervised send gate. Approving this draft does not send the email.</p>
+            <p>Approving the prepared email creates an unsent Gmail draft. It does not send the email.</p>
           </div>
           <span class="sales-live-workflow-count">${latestDrafts.length} pending draft${latestDrafts.length === 1 ? '' : 's'}</span>
         </div>
@@ -194,6 +194,12 @@
       });
       const payload = await response.json();
       if (!response.ok || payload?.ok === false) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+      if (decision === 'approved') {
+        const gmailDraftId = payload?.data?.review?.gmailDraftId;
+        window.alert(gmailDraftId
+          ? `Sales draft approved. Gmail draft created (${gmailDraftId}). The email has not been sent.`
+          : 'Sales draft approved. Gmail draft created. The email has not been sent.');
+      }
       await loadDrafts();
     } catch (error) {
       window.alert(`Sales draft review failed: ${error instanceof Error ? error.message : String(error)}`);
