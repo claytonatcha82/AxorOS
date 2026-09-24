@@ -1,6 +1,6 @@
 begin;
 
-create table operational.lead_research_evidence (
+create table if not exists operational.lead_research_evidence (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references operational.leads(id) on delete cascade,
   provider text not null check (length(trim(provider)) > 0),
@@ -15,8 +15,10 @@ create table operational.lead_research_evidence (
   unique (lead_id, provider, url)
 );
 
-create index lead_research_evidence_lead_retrieved_idx
+create index if not exists lead_research_evidence_lead_retrieved_idx
   on operational.lead_research_evidence (lead_id, retrieved_at desc);
+
+grant select, insert, update on operational.lead_research_evidence to axoros_api;
 
 comment on table operational.lead_research_evidence is
   'Reusable public-web research evidence scoped to a lead. Provider-specific results are persisted as evidence and may be reused by Lead and Sales without re-running external research.';
