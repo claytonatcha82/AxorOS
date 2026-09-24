@@ -9,7 +9,7 @@ export interface SalesMissingContextRetrievalResult {
   searchesFailed: number;
   providerFailures: Array<{ query: string; code?: string; message?: string }>;
   evidence: PublicWebSearchResult[];
-  nextAction: 'reassess_sales_context';
+  nextAction: 'reassess_sales_context' | 'research_pending';
 }
 
 type SearchPlan = {
@@ -224,7 +224,7 @@ export function createSalesMissingContextRetrievalService(registry: IntegrationR
         searchesFailed,
         providerFailures,
         evidence: uniqueEvidence(evidence),
-        nextAction: 'reassess_sales_context',
+        nextAction: searchesFailed > 0 && searchesRun === 0 ? 'research_pending' : 'reassess_sales_context',
       };
     },
   };
