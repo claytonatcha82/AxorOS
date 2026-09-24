@@ -79,6 +79,18 @@ export function createLeadLiveResearchRuntime(dependencies: LeadLiveResearchRunt
       const result = await baseOrchestrator.research(input);
 
       for (const lead of result.enriched) {
+        if (lead.publicWebEvidence.length > 0) {
+          await repository.saveLeadResearchEvidence({
+            leadId: lead.leadId,
+            provider: 'research.tavily-web',
+            researchType: 'public_web',
+            executionId: input.executionId,
+            results: lead.publicWebEvidence,
+          });
+        }
+      }
+
+      for (const lead of result.enriched) {
         if (lead.qualificationReviewExecutionId) {
           await persistedQualificationReview.commands.requestReview(lead.qualificationReviewExecutionId);
         }
