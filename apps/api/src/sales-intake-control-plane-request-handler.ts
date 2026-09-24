@@ -40,10 +40,10 @@ export interface SalesIntakeControlPlaneDependencies {
   };
   salesOutreachDraftReviewCommand?: {
     listPendingDrafts?: (limit?: number) => Promise<WorkflowEventRecord[]>;
-    review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{ review: { draftRecordId: string; leadId: string; decision: SalesOutreachDraftReviewDecision; reviewer: 'human_executive'; reviewComplete: true; outreachAuthorised: false; sendAuthorised: false; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft' }; record: WorkflowEventRecord }>;
+    review(draftRecordId: string, decision: SalesOutreachDraftReviewDecision): Promise<{ review: { draftRecordId: string; leadId: string; decision: SalesOutreachDraftReviewDecision; reviewer: 'human_executive'; reviewComplete: true; outreachAuthorised: boolean; sendAuthorised: boolean; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'prepare_supervised_send_gate' | 'revise_internal_outreach_draft' | 'revise_inbound_response_draft' }; record: WorkflowEventRecord }>;
   };
   salesSupervisedSendGateCommand?: {
-    decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision): Promise<{ gate: { draftReviewRecordId: string; draftRecordId: string; leadId: string; decision: SalesSupervisedSendDecision; approver: 'human_executive'; supervised: true; outreachAuthorised: false; sendAuthorised: boolean; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review' }; record: WorkflowEventRecord }>;
+    decide(draftReviewRecordId: string, decision: SalesSupervisedSendDecision): Promise<{ gate: { draftReviewRecordId: string; draftRecordId: string; leadId: string; decision: SalesSupervisedSendDecision; approver: 'human_executive'; supervised: true; outreachAuthorised: boolean; dispatchAuthorised: false; sendAuthorised: boolean; pricingAuthorised: false; commercialCommitmentAuthorised: false; nextAction: 'execute_supervised_email_send' | 'return_to_outreach_review' | 'return_to_inbound_response_review' }; record: WorkflowEventRecord }>;
   };
   salesEmailCommand?: { execute(sendGateRecordId: string): Promise<{ execution: SalesSupervisedEmailExecution; record: WorkflowEventRecord }> };
   fallback: RequestListener;
