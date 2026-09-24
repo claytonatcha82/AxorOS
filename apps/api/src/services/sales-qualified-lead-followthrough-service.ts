@@ -111,6 +111,20 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
   const preparationEligibility = createSalesOutreachPreparationEligibilityService(operationalRepository);
   const internalDraft = createSalesInternalOutreachDraftService(operationalRepository);
   const missingContextRetrieval = createSalesMissingContextRetrievalService(integrations);
+  const loadResearchEvidence = async (leadId: string): Promise<PublicWebSearchResult[]> => {
+    const rows = await operationalRepository.listLeadResearchEvidence(leadId, 500);
+    return [...new Map(rows.map((row) => [row.url, { title: row.title, url: row.url, content: row.content, ...(row.score !== null ? { score: row.score } : {}) }])).values()];
+  };
+  const persistResearchEvidence = async (leadId: string, executionId: string, evidence: PublicWebSearchResult[]): Promise<void> => {
+    if (!evidence.length) return;
+    await operationalRepository.saveLeadResearchEvidence({
+      leadId,
+      provider: 'research.tavily-web',
+      researchType: 'public_web',
+      executionId,
+      results: evidence,
+    });
+  };
   const handlers = new AgentRuntimeHandlerRegistry();
   const modelIntegrationId = integrations.get('model.openai') ? 'model.openai' : 'model.sandbox';
   registerModelRuntimeCapability(handlers, integrations, { agentId: 'sales_agent', capabilityId: SALES_QUALIFIED_LEAD_FOLLOWTHROUGH_CAPABILITY, integrationId: modelIntegrationId, mode: 'draft', promptInputKey: 'salesBrief', contextInputKey: 'salesContext', systemInstruction: ['You are the AxorOS Sales Agent operating in governed internal draft mode.', 'Return JSON only with keys salesContext and email.', 'Use only facts explicitly present in the supplied persisted lead, qualification, intake result, additional public-web evidence, internal operational history, or Atlas references.', 'Treat internal operational history as authoritative for AxorOS contact history. Do not use public-web results to infer whether AxorOS previously contacted the lead.', 'If internal operational history contains no recorded AxorOS outreach/contact event for the lead, previousContact must be false. If it contains a recorded completed outreach/contact event, previousContact may be true only when the event explicitly supports that conclusion.', 'Apply the same evidence policy to every salesContext field. decisionMaker and contactEmail require explicit source evidence. Industry and country may be extracted from explicit company/profile/address evidence. businessSummary and websiteAudit may be synthesized from supplied evidence when the material claims are supported. painPoints and opportunitySummary may be evidence-based Sales interpretations when supported by multiple or clearly relevant supplied signals, but label inferred issues as opportunities or likely needs rather than confirmed facts. recommendedServices, priority, and confidence are Sales synthesis outputs, not public-web facts.', 'Never invent a decision maker, contact email, industry, country, business summary, website audit, pain point, pricing, discount, budget, contract term, delivery promise, or approval.', 'Do not confuse evidence-backed synthesis with invention: transform supplied evidence into a concise field value when the evidence supports the transformation, and omit the field only when it cannot be defended.', 'Confidence must be numeric from 0 to 1 and should reflect evidence strength and completeness. PreviousContact must come only from internal operational history.', 'When additional public-web evidence is supplied, inspect it field-by-field and extract or synthesize every supported required field before deciding it is missing.', 'The email is an internal candidate draft for human review; do not send it and do not imply outreach authority.', 'Do not include prices or commercial commitments unless explicitly present in the supplied evidence.'].join(' '), maxOutputTokens: 2000, temperature: 0.2 });
@@ -191,6 +205,8 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
         console.info(JSON.stringify({ level: 'info', event: 'sales_context_recovery_attempted', leadId, sourceAssessmentRecordId, attemptNumber, recoveryExecutionId, missingFields }));
 
         const retrieval = await missingContextRetrieval.retrieve({ lead, missingFields, executionId: recoveryExecutionId, correlationId: intake.task.correlationId, ...(typeof payload.salesContext === 'object' && payload.salesContext && !Array.isArray(payload.salesContext) && typeof (payload.salesContext as Record<string, unknown>).country === 'string' ? { country: (payload.salesContext as Record<string, unknown>).country as string } : {}) });
+        await persistResearchEvidence(lead.id, recoveryExecutionId, retrieval.evidence);
+        const persistedResearchEvidence = await loadResearchEvidence(lead.id);
         await operationalRepository.createWorkflowEvent({ eventType: 'sales_missing_context_retrieval_recorded', actorType: 'agent', actorId: 'sales_agent', payload: { leadId: retrieval.leadId, missingFields: retrieval.missingFields, searchesRun: retrieval.searchesRun, evidenceCount: retrieval.evidence.length, evidenceReferences: retrieval.evidence.map((item) => `public-web:${item.url}`), providerFailures: retrieval.providerFailures, recoveryExecutionId, sourceAssessmentRecordId, attemptNumber, nextAction: retrieval.nextAction } });
         console.info(JSON.stringify({ level: 'info', event: 'sales_missing_context_retrieval_recorded', leadId, sourceAssessmentRecordId, attemptNumber, recoveryExecutionId, searchesRun: retrieval.searchesRun, searchesFailed: retrieval.searchesFailed, evidenceCount: retrieval.evidence.length, nextAction: retrieval.nextAction }));
 
@@ -200,7 +216,7 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
           continue;
         }
 
-        const reassessedModel = await ensureModelExecution({ executionId: recoveryExecutionId, intake, lead, qualification, researchEvidence: retrieval.evidence, internalOperationalHistory });
+        const reassessedModel = await ensureModelExecution({ executionId: recoveryExecutionId, intake, lead, qualification, researchEvidence: [...persistedResearchEvidence, ...retrieval.evidence], internalOperationalHistory });
         if (reassessedModel.task.status !== 'completed' || reassessedModel.result?.status !== 'completed') throw new Error('Sales context recovery model execution did not complete.');
         const reassessedFollowthrough = parseGeneratedOutput(String(reassessedModel.result?.output.text ?? ''));
         const reassessed = assessmentService.assess({ intakeExecution: intake, lead, salesContext: reassessedFollowthrough.salesContext });
@@ -250,21 +266,24 @@ export function createSalesQualifiedLeadFollowthroughService(pool: Pool, integra
       if (!qualification) throw new Error(`Lead qualification record not found for ${leadId}.`);
       const workflowHistory = await operationalRepository.listWorkflowEventsByLeadId(leadId);
       const internalOperationalHistory = { leadId, events: workflowHistory.map((event) => ({ eventType: event.eventType, actorType: event.actorType, actorId: event.actorId, createdAt: event.createdAt, payload: event.payload })) };
+      const persistedResearchEvidence = await loadResearchEvidence(leadId);
       const executionId = `sales-followthrough:${intakeExecutionId}`;
-      const generated = await ensureModelExecution({ executionId, intake, lead, qualification, internalOperationalHistory });
+      const generated = await ensureModelExecution({ executionId, intake, lead, qualification, researchEvidence: persistedResearchEvidence, internalOperationalHistory });
       if (generated.task.status !== 'completed' || generated.result?.status !== 'completed') throw new Error('Sales followthrough model execution did not complete.');
       const followthrough = parseGeneratedOutput(String(generated.result?.output.text ?? ''));
       const assessment = assessmentService.assess({ intakeExecution: intake, lead, salesContext: followthrough.salesContext });
       const assessmentRecord = await assessmentPersistence.persist({ assessment });
       if (assessment.assessmentStatus !== 'context_complete') {
         const retrieval = await missingContextRetrieval.retrieve({ lead, missingFields: assessment.missingInformation, executionId, correlationId: intake.task.correlationId, ...(assessment.salesContext.country ? { country: assessment.salesContext.country } : {}) });
+        await persistResearchEvidence(lead.id, executionId, retrieval.evidence);
+        const persistedAfterRetrieval = await loadResearchEvidence(lead.id);
         await operationalRepository.createWorkflowEvent({ eventType: 'sales_missing_context_retrieval_recorded', actorType: 'agent', actorId: 'sales_agent', payload: { leadId: retrieval.leadId, missingFields: retrieval.missingFields, searchesRun: retrieval.searchesRun, evidenceCount: retrieval.evidence.length, evidenceReferences: retrieval.evidence.map((item) => `public-web:${item.url}`), providerFailures: retrieval.providerFailures, nextAction: retrieval.nextAction } });
         if (retrieval.nextAction === 'research_pending') {
           await operationalRepository.createWorkflowEvent({ eventType: 'sales_context_research_pending', actorType: 'agent', actorId: 'sales_agent', payload: { leadId: retrieval.leadId, missingFields: retrieval.missingFields, searchesRun: retrieval.searchesRun, searchesFailed: retrieval.searchesFailed, providerFailures: retrieval.providerFailures, outreachAuthorised: false, sendAuthorised: false, pricingAuthorised: false, commercialCommitmentAuthorised: false, nextAction: 'research_pending' } });
           return { modelExecution: generated, initialModelExecution: generated, assessment, initialAssessment: assessment, assessmentRecord, initialAssessmentRecord: assessmentRecord, retrieval, draft: null, nextAction: 'research_pending' as const };
         }
         const reassessmentExecutionId = `${executionId}:context-retrieval`;
-        const reassessedModel = await ensureModelExecution({ executionId: reassessmentExecutionId, intake, lead, qualification, researchEvidence: retrieval.evidence, internalOperationalHistory });
+        const reassessedModel = await ensureModelExecution({ executionId: reassessmentExecutionId, intake, lead, qualification, researchEvidence: [...persistedAfterRetrieval, ...retrieval.evidence], internalOperationalHistory });
         if (reassessedModel.task.status !== 'completed' || reassessedModel.result?.status !== 'completed') throw new Error('Sales missing-context reassessment model execution did not complete.');
         const reassessedFollowthrough = parseGeneratedOutput(String(reassessedModel.result?.output.text ?? ''));
         const reassessed = assessmentService.assess({ intakeExecution: intake, lead, salesContext: reassessedFollowthrough.salesContext });
