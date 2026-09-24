@@ -222,6 +222,7 @@ export function createLeadAtlasResearchOrchestrator(
 
           enriched.push({
             ...lead,
+            publicWebEvidence: publicWebResults,
             preliminaryQualification,
             preliminaryQualificationRecordId: persistedQualification.id,
             qualificationDisposition,
