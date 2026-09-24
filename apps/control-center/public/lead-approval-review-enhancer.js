@@ -167,19 +167,6 @@
     }
   }
 
-  function ensureExecutionId(card, approval) {
-    let execution = card.querySelector('.lead-review-execution-id');
-    if (!execution) {
-      execution = document.createElement('div');
-      execution.className = 'lead-review-execution-id';
-      execution.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.08);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;';
-      const body = card.querySelector(':scope > div:first-child');
-      if (body) body.append(execution);
-      else card.append(execution);
-    }
-    execution.textContent = `Execution ID: ${approval.executionId}`;
-  }
-
   function ensureDetails(card, approval) {
     let details = removeDuplicateDetails(card, approval.executionId);
     if (!details) {
@@ -207,7 +194,6 @@
       const approval = latestApprovals[index];
       if (approval?.destinationAgent === 'lead_agent') {
         card.dataset.executionId = approval.executionId;
-        ensureExecutionId(card, approval);
         ensureDetails(card, approval);
       } else {
         card.querySelectorAll('.lead-review-details').forEach((item) => item.remove());
