@@ -7,6 +7,8 @@ export interface LeadRecord { id: string; clientId: string | null; companyName: 
 export interface CreateLeadInput { companyName: string; contactName?: string; contactEmail?: string; source?: string; opportunitySummary?: string; leadScore?: number; evidence?: unknown; }
 export interface EnrichLeadInput { companyName: string; contactName?: string | undefined; contactEmail?: string | undefined; opportunitySummary?: string; evidence: unknown; }
 export interface LeadSourceIdentityRecord { provider: string; externalId: string; leadId: string; createdAt: string; refreshedAt: string; }
+export interface LeadResearchEvidenceRecord { id: string; leadId: string; provider: string; researchType: string; executionId: string; query: string | null; title: string; url: string; content: string; score: number | null; retrievedAt: string; }
+export interface SaveLeadResearchEvidenceInput { leadId: string; provider: string; researchType: string; executionId: string; query?: string; results: Array<{ title: string; url: string; content: string; score?: number }>; }
 export interface PreliminaryLeadQualificationRecord { id: string; leadId: string; totalScore: number | null; suggestedStatus: string; humanReviewRequired: true; assessments: unknown; missingInformation: unknown; atlasSourcePaths: unknown; actorId: string; createdAt: string; }
 export interface CreatePreliminaryLeadQualificationInput { leadId: string; totalScore: number | null; suggestedStatus: 'excellent' | 'good' | 'moderate' | 'poor_fit' | 'insufficient_information'; assessments: unknown; missingInformation: string[]; atlasSourcePaths: string[]; actorId?: string; }
 export interface ProjectRecord { id: string; clientId: string; leadId: string | null; name: string; status: string; serviceType: string; createdAt: string; updatedAt: string; }
@@ -17,6 +19,7 @@ export interface CreateWorkflowEventInput { clientId?: string; projectId?: strin
 function mapClient(row: Record<string, unknown>): ClientRecord { return { id: String(row.id), displayName: String(row.display_name), legalName: row.legal_name === null ? null : String(row.legal_name), status: String(row.status), primaryEmail: row.primary_email === null ? null : String(row.primary_email), primaryPhone: row.primary_phone === null ? null : String(row.primary_phone), createdAt: new Date(String(row.created_at)).toISOString(), updatedAt: new Date(String(row.updated_at)).toISOString() }; }
 function mapLead(row: Record<string, unknown>): LeadRecord { return { id: String(row.id), clientId: row.client_id === null ? null : String(row.client_id), companyName: String(row.company_name), contactName: row.contact_name === null ? null : String(row.contact_name), contactEmail: row.contact_email === null ? null : String(row.contact_email), source: row.source === null ? null : String(row.source), opportunitySummary: row.opportunity_summary === null ? null : String(row.opportunity_summary), leadScore: row.lead_score === null ? null : Number(row.lead_score), status: String(row.status), enrichmentStatus: String(row.enrichment_status) as LeadEnrichmentStatus, evidence: row.evidence, createdAt: new Date(String(row.created_at)).toISOString(), updatedAt: new Date(String(row.updated_at)).toISOString() }; }
 function mapLeadSourceIdentity(row: Record<string, unknown>): LeadSourceIdentityRecord { return { provider: String(row.provider), externalId: String(row.external_id), leadId: String(row.lead_id), createdAt: new Date(String(row.created_at)).toISOString(), refreshedAt: new Date(String(row.refreshed_at)).toISOString() }; }
+function mapLeadResearchEvidence(row: Record<string, unknown>): LeadResearchEvidenceRecord { return { id: String(row.id), leadId: String(row.lead_id), provider: String(row.provider), researchType: String(row.research_type), executionId: String(row.execution_id), query: row.query === null ? null : String(row.query), title: String(row.title), url: String(row.url), content: String(row.content), score: row.score === null ? null : Number(row.score), retrievedAt: new Date(String(row.retrieved_at)).toISOString() }; }
 function mapPreliminaryLeadQualification(row: Record<string, unknown>): PreliminaryLeadQualificationRecord { return { id: String(row.id), leadId: String(row.lead_id), totalScore: row.total_score === null ? null : Number(row.total_score), suggestedStatus: String(row.suggested_status), humanReviewRequired: true, assessments: row.assessments, missingInformation: row.missing_information, atlasSourcePaths: row.atlas_source_paths, actorId: String(row.actor_id), createdAt: new Date(String(row.created_at)).toISOString() }; }
 function mapProject(row: Record<string, unknown>): ProjectRecord { return { id: String(row.id), clientId: String(row.client_id), leadId: row.lead_id === null ? null : String(row.lead_id), name: String(row.name), status: String(row.status), serviceType: String(row.service_type), createdAt: new Date(String(row.created_at)).toISOString(), updatedAt: new Date(String(row.updated_at)).toISOString() }; }
 function mapWorkflowEvent(row: Record<string, unknown>): WorkflowEventRecord { return { id: String(row.id), clientId: row.client_id === null ? null : String(row.client_id), projectId: row.project_id === null ? null : String(row.project_id), eventType: String(row.event_type), actorType: String(row.actor_type), actorId: row.actor_id === null ? null : String(row.actor_id), payload: row.payload, createdAt: new Date(String(row.created_at)).toISOString() }; }
@@ -38,6 +41,47 @@ export function createOperationalRepository(pool: Pool) {
     async enrichLead(id: string, expectedStatus: LeadEnrichmentStatus, input: EnrichLeadInput, nextStatus: Exclude<LeadEnrichmentStatus, 'pending'>): Promise<LeadRecord | null> { const result = await pool.query(`update operational.leads set company_name = $3, contact_name = $4, contact_email = $5, opportunity_summary = $6, evidence = $7::jsonb, enrichment_status = $8 where id = $1 and enrichment_status = $2 returning ${leadColumns}`, [id, expectedStatus, input.companyName.trim(), input.contactName?.trim() || null, input.contactEmail?.trim() || null, input.opportunitySummary?.trim() || null, JSON.stringify(input.evidence), nextStatus]); return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null; },
     async requeueLeadForEnrichment(id: string, expectedStatus: Exclude<LeadEnrichmentStatus, 'pending'>): Promise<LeadRecord | null> { const result = await pool.query(`update operational.leads set enrichment_status = 'pending' where id = $1 and enrichment_status = $2 returning ${leadColumns}` , [id, expectedStatus]); return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null; },
     async updateLeadStatus(id: string, expectedStatus: string, nextStatus: string): Promise<LeadRecord | null> { const result = await pool.query(`update operational.leads set status = $3 where id = $1 and status = $2 returning ${leadColumns}`, [id, expectedStatus, nextStatus]); return result.rows[0] ? mapLead(result.rows[0] as Record<string, unknown>) : null; },
+    async saveLeadResearchEvidence(input: SaveLeadResearchEvidenceInput): Promise<void> {
+      const leadId = input.leadId.trim();
+      const provider = input.provider.trim();
+      const researchType = input.researchType.trim();
+      const executionId = input.executionId.trim();
+      if (!leadId || !provider || !researchType || !executionId) throw new Error('Lead research evidence identity fields are required.');
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        for (const result of input.results) {
+          const title = result.title.trim();
+          const url = result.url.trim();
+          const content = result.content.trim();
+          if (!title || !url || !content) continue;
+          await client.query(
+            `insert into operational.lead_research_evidence (lead_id, provider, research_type, execution_id, query, title, url, content, score)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+             on conflict (lead_id, provider, url) do update set research_type = excluded.research_type, execution_id = excluded.execution_id, query = excluded.query, title = excluded.title, content = excluded.content, score = excluded.score, retrieved_at = now()`,
+            [leadId, provider, researchType, executionId, input.query?.trim() || null, title, url, content, result.score ?? null],
+          );
+        }
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async listLeadResearchEvidence(leadId: string, limit = 100): Promise<LeadResearchEvidenceRecord[]> {
+      const safeLimit = Math.max(1, Math.min(limit, 500));
+      const result = await pool.query(
+        `select id, lead_id, provider, research_type, execution_id, query, title, url, content, score, retrieved_at
+         from operational.lead_research_evidence
+         where lead_id = $1
+         order by retrieved_at desc
+         limit $2`,
+        [leadId.trim(), safeLimit],
+      );
+      return result.rows.map((row) => mapLeadResearchEvidence(row as Record<string, unknown>));
+    },
     async createPreliminaryLeadQualification(input: CreatePreliminaryLeadQualificationInput): Promise<PreliminaryLeadQualificationRecord> { const result = await pool.query(`insert into operational.lead_preliminary_qualifications (lead_id, total_score, suggested_status, human_review_required, assessments, missing_information, atlas_source_paths, actor_id) values ($1, $2, $3, true, $4::jsonb, $5::jsonb, $6::jsonb, $7) returning id, lead_id, total_score, suggested_status, human_review_required, assessments, missing_information, atlas_source_paths, actor_id, created_at`, [input.leadId, input.totalScore, input.suggestedStatus, JSON.stringify(input.assessments), JSON.stringify(input.missingInformation), JSON.stringify(input.atlasSourcePaths), input.actorId?.trim() || 'lead_agent']); return mapPreliminaryLeadQualification(result.rows[0] as Record<string, unknown>); },
     async listPreliminaryLeadQualifications(leadId: string): Promise<PreliminaryLeadQualificationRecord[]> { const result = await pool.query(`select id, lead_id, total_score, suggested_status, human_review_required, assessments, missing_information, atlas_source_paths, actor_id, created_at from operational.lead_preliminary_qualifications where lead_id = $1 order by created_at desc`, [leadId]); return result.rows.map((row) => mapPreliminaryLeadQualification(row as Record<string, unknown>)); },
     async listProjects(limit = 50): Promise<ProjectRecord[]> { const safeLimit = Math.max(1, Math.min(limit, 100)); const result = await pool.query(`select id, client_id, lead_id, name, status, service_type, created_at, updated_at from operational.projects order by created_at desc limit $1` , [safeLimit]); return result.rows.map((row) => mapProject(row as Record<string, unknown>)); },
