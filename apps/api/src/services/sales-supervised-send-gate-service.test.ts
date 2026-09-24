@@ -58,7 +58,8 @@ test('human approval creates supervised send authority without pricing or commer
   assert.equal(result.gate.supervised, true);
   assert.equal(result.gate.sendAuthorised, true);
   assert.equal(result.gate.responseAuthorised, false);
-  assert.equal(result.gate.outreachAuthorised, false);
+  assert.equal(result.gate.outreachAuthorised, true);
+  assert.equal(result.gate.dispatchAuthorised, false);
   assert.equal(result.gate.pricingAuthorised, false);
   assert.equal(result.gate.discountAuthorised, false);
   assert.equal(result.gate.commercialCommitmentAuthorised, false);
@@ -87,6 +88,8 @@ test('human rejection does not grant send authority', async () => {
   const { service } = harness();
   const result = await service.decide('review-1', 'rejected');
   assert.equal(result.gate.sendAuthorised, false);
+  assert.equal(result.gate.outreachAuthorised, false);
+  assert.equal(result.gate.dispatchAuthorised, false);
   assert.equal(result.gate.nextAction, 'return_to_outreach_review');
 });
 
