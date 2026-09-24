@@ -48,6 +48,7 @@ test('retrieves explicitly missing Sales context and performs targeted decision-
   assert.deepEqual(result.missingFields, ['industry', 'decision_maker']);
   assert.equal(result.searchesRun, 4);
   assert.equal(result.searchesFailed, 0);
+  assert.equal(result.nextAction, 'research_pending');
   assert.deepEqual(result.providerFailures, []);
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.some((item) => item.content.includes('Donovan Proudfoot')));
