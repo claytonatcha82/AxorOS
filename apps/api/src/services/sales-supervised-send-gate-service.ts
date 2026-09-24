@@ -13,7 +13,8 @@ export interface SalesSupervisedSendGate {
   approver: 'human_executive';
   supervised: true;
   responseAuthorised: false;
-  outreachAuthorised: false;
+  outreachAuthorised: boolean;
+  dispatchAuthorised: false;
   sendAuthorised: boolean;
   pricingAuthorised: false;
   discountAuthorised: false;
@@ -102,7 +103,8 @@ export function createSalesSupervisedSendGateService(
         approver: 'human_executive',
         supervised: true,
         responseAuthorised: false,
-        outreachAuthorised: false,
+        outreachAuthorised: decision === 'approved',
+        dispatchAuthorised: false,
         sendAuthorised: decision === 'approved',
         pricingAuthorised: false,
         discountAuthorised: false,
